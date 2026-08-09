@@ -140,11 +140,13 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
             var inferenceParams = new InferenceParams
             {
                 MaxTokens = 256,
-                AntiPrompts = new List<string> { "User:", "Player:" },
+                AntiPrompts = new List<string> { "User:", "Player:", "System:", "###", "SCENE:", "RULES:" },
                 SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline
                 {
-                    Temperature = 0.7f,
-                    TopP = 0.9f
+                    Temperature = 0.75f,
+                    TopP = 0.9f,
+                    RepeatPenalty = 1.18f,
+                    PresencePenalty = 0.1f
                 }
             };
 

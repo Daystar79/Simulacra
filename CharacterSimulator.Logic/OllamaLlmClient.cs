@@ -46,8 +46,10 @@ public class OllamaLlmClient : ILLMClient
                 stream = false,
                 options = new
                 {
-                    temperature = 0.7,
-                    num_predict = 512
+                    temperature = 0.75,
+                    num_predict = 256,
+                    repeat_penalty = 1.18,
+                    presence_penalty = 0.1
                 }
             };
 

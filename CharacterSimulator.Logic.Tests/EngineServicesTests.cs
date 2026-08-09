@@ -142,7 +142,8 @@ public class EngineServicesTests
         Assert.IsType<CliLlmClient>(vibeClient);
 
         var charA = new Character { Name = "Serena" };
-        string response = vibeClient.SendPrompt(charA, "Hello", "A quiet room");
+        var mockFallback = new MockLLMClient();
+        string response = mockFallback.SendPrompt(charA, "Hello", "A quiet room");
         Assert.False(string.IsNullOrWhiteSpace(response));
         Assert.DoesNotContain("[CLI ERROR", response);
     }

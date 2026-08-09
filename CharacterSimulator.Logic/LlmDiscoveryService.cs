@@ -100,7 +100,9 @@ public static class LlmDiscoveryService
         return names;
     }
 
-    public static ILLMClient CreateClient(string providerName)
+    public static ILLMClient CreateClient(string providerName) => CreateClient(providerName, null);
+
+    public static ILLMClient CreateClient(string providerName, string? modelIdentifier)
     {
         if (string.IsNullOrWhiteSpace(providerName) ||
             providerName.Contains("Mock", StringComparison.OrdinalIgnoreCase))
@@ -110,9 +112,15 @@ public static class LlmDiscoveryService
 
         if (providerName.Contains("LLamaSharp", StringComparison.OrdinalIgnoreCase) ||
             providerName.Contains("Embedded C# SLM", StringComparison.OrdinalIgnoreCase) ||
-            providerName.Contains("C# SLM", StringComparison.OrdinalIgnoreCase))
+            providerName.Contains("C# SLM", StringComparison.OrdinalIgnoreCase) ||
+            providerName.Equals("LlamaSharp", StringComparison.OrdinalIgnoreCase))
         {
-            return new LlamaSharpLlmClient();
+            return new LlamaSharpLlmClient("Embedded C# SLM (LLamaSharp)", modelIdentifier);
+        }
+
+        if (providerName.Contains("Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            return new OllamaLlmClient(modelIdentifier ?? "llama3");
         }
 
         // 1) Prefer currently-discoverable install with correct template

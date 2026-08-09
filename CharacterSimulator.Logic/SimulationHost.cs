@@ -400,8 +400,8 @@ public sealed class SimulationHost
 
             string providerA = PreferProvider(settings.RoleplayLlmProvider, settings.SelectedLlmA);
             string providerB = PreferProvider(settings.RoleplayLlmProvider, settings.SelectedLlmB);
-            var clientA = LlmDiscoveryService.CreateClient(providerA);
-            ILLMClient? clientB = charB != null ? LlmDiscoveryService.CreateClient(providerB) : null;
+            var clientA = LlmDiscoveryService.CreateClient(providerA, settings.RoleplayModelIdentifier);
+            ILLMClient? clientB = charB != null ? LlmDiscoveryService.CreateClient(providerB, settings.RoleplayModelIdentifier) : null;
 
             string place = !string.IsNullOrWhiteSpace(_sceneOverride)
                 ? _sceneOverride

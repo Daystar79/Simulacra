@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using CharacterSimulator.Logic.Services;
 using LLama;
 using LLama.Common;
 
@@ -27,36 +28,69 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
     public LlamaSharpLlmClient(string name = "Embedded C# SLM (LLamaSharp)", string? modelPath = null)
     {
         Name = name;
-        ModelPath = modelPath ?? ResolveDefaultModelPath();
+        ModelPath = ResolveModelPath(modelPath);
     }
 
     public static List<string> DiscoverGgufModels()
     {
         var results = new List<string>();
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string modelsDir = Path.Combine(baseDir, "Models");
+        var searchDirs = new List<string>();
 
-        var searchDirs = new[] { modelsDir, baseDir, Path.Combine(baseDir, "Data", "Models") };
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string currentDir = Environment.CurrentDirectory;
+
+        searchDirs.Add(Path.Combine(baseDir, "Models"));
+        searchDirs.Add(baseDir);
+        searchDirs.Add(Path.Combine(baseDir, "Data", "Models"));
+        searchDirs.Add(Path.Combine(currentDir, "Models"));
+        searchDirs.Add(currentDir);
+
+        // Walk up baseDir parent hierarchy up to 5 levels (finds root repo folder Models/)
+        DirectoryInfo? current = new DirectoryInfo(baseDir);
+        for (int i = 0; i < 5 && current != null; i++)
+        {
+            searchDirs.Add(Path.Combine(current.FullName, "Models"));
+            searchDirs.Add(current.FullName);
+            current = current.Parent;
+        }
 
         foreach (var dir in searchDirs)
         {
             if (Directory.Exists(dir))
             {
-                foreach (var file in Directory.GetFiles(dir, "*.gguf", SearchOption.AllDirectories))
+                try
                 {
-                    if (!results.Contains(file))
-                        results.Add(file);
+                    foreach (var file in Directory.GetFiles(dir, "*.gguf", SearchOption.TopDirectoryOnly))
+                    {
+                        string full = Path.GetFullPath(file);
+                        if (!results.Contains(full))
+                            results.Add(full);
+                    }
                 }
+                catch { }
             }
         }
 
         return results;
     }
 
-    public static string ResolveDefaultModelPath()
+    public static string ResolveDefaultModelPath() => ResolveModelPath(null);
+
+    public static string ResolveModelPath(string? requestedPath)
     {
-        var models = DiscoverGgufModels();
-        return models.FirstOrDefault() ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", "default-slm.gguf");
+        var discovered = DiscoverGgufModels();
+        if (!string.IsNullOrWhiteSpace(requestedPath))
+        {
+            if (File.Exists(requestedPath))
+                return Path.GetFullPath(requestedPath);
+
+            string requestedName = Path.GetFileName(requestedPath);
+            var match = discovered.FirstOrDefault(f => Path.GetFileName(f).Equals(requestedName, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                return match;
+        }
+
+        return discovered.FirstOrDefault() ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", SlmModelDownloaderService.DefaultModelName);
     }
 
     public string SendPrompt(Character character, string input, string sceneContext, string goalContext = "")

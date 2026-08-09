@@ -418,6 +418,7 @@ public class TurnManager
 
         // 6. Dialogue Tag Cleanup — remove meta-tags and code fences
         var dialogue = Regex.Replace(response, @"\[Somatic:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"^SOMATIC\s*.*?(?=\n|\r|$)", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"\[Goal:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"\[Image:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"(?:\[State:\s*|<=?state>?\s*)([\s\S]*?)(?:\]|</state>)", "", RegexOptions.IgnoreCase).Trim();

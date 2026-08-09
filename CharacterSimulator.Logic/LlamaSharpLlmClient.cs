@@ -19,7 +19,7 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
 {
     public string Name { get; }
     public string ModelPath { get; }
-    public int ContextSize { get; set; } = 4096;
+    public int ContextSize { get; set; } = 2048;
     public int GpuLayerCount { get; set; } = 0; // 0 = CPU, >0 = Offload layers to GPU
 
     private static readonly ConcurrentDictionary<string, LLamaWeights> WeightsCache = new(StringComparer.OrdinalIgnoreCase);
@@ -122,7 +122,7 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
                     {
                         ContextSize = (uint)ContextSize,
                         GpuLayerCount = GpuLayerCount,
-                        Threads = Math.Max(1, Environment.ProcessorCount / 2)
+                        Threads = Math.Min(Environment.ProcessorCount, 8)
                     };
                     weights = LLamaWeights.LoadFromFile(modelParams);
                     WeightsCache[ModelPath] = weights;
@@ -133,13 +133,13 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
             {
                 ContextSize = (uint)ContextSize,
                 GpuLayerCount = GpuLayerCount,
-                Threads = Math.Max(1, Environment.ProcessorCount / 2)
+                Threads = Math.Min(Environment.ProcessorCount, 8)
             };
 
             var executor = new StatelessExecutor(weights, parameters);
             var inferenceParams = new InferenceParams
             {
-                MaxTokens = 512,
+                MaxTokens = 256,
                 AntiPrompts = new List<string> { "User:", "Player:" },
                 SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline
                 {

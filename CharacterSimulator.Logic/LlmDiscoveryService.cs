@@ -94,7 +94,7 @@ public static class LlmDiscoveryService
 
     public static List<string> GetAvailableProviderNames()
     {
-        var names = new List<string> { "Mock / Simulation" };
+        var names = new List<string> { "Embedded C# SLM (LLamaSharp)", "Mock / Simulation" };
         foreach (var p in DiscoverInstalledProviders())
             names.Add(p.Name);
         return names;
@@ -106,6 +106,13 @@ public static class LlmDiscoveryService
             providerName.Contains("Mock", StringComparison.OrdinalIgnoreCase))
         {
             return new MockLLMClient();
+        }
+
+        if (providerName.Contains("LLamaSharp", StringComparison.OrdinalIgnoreCase) ||
+            providerName.Contains("Embedded C# SLM", StringComparison.OrdinalIgnoreCase) ||
+            providerName.Contains("C# SLM", StringComparison.OrdinalIgnoreCase))
+        {
+            return new LlamaSharpLlmClient();
         }
 
         // 1) Prefer currently-discoverable install with correct template

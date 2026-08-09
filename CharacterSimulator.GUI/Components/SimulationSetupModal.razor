@@ -69,6 +69,41 @@
                         </div>
                     </div>
 
+                    @if (_selectedRoleplayLlmProvider.Contains("SLM", StringComparison.OrdinalIgnoreCase) ||
+                         _selectedRoleplayLlmProvider.Contains("LLamaSharp", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <div style="background: rgba(30, 41, 59, 0.9); border: 1px solid var(--accent-blue); border-radius: 6px; padding: 0.5rem; margin-top: 0.5rem; font-size: 0.7rem;">
+                            @if (!SlmModelDownloaderService.HasAnyGgufModel() && !_isDownloadingSlm)
+                            {
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                                    <span style="color: var(--accent-amber); font-weight: 600;">⚠️ No GGUF model found in Models/</span>
+                                    <button class="btn btn-primary" style="padding: 0.2rem 0.5rem; font-size: 0.65rem;" @onclick="DownloadSlmModelAsync">
+                                        📥 Download Default SLM (Qwen 2.5 3B ~2GB)
+                                    </button>
+                                </div>
+                            }
+                            else if (_isDownloadingSlm)
+                            {
+                                <div>
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
+                                        <span style="color: var(--accent-blue); font-weight: 600;">@_downloadProgressStatus</span>
+                                        <span>@((_downloadProgressPercent * 100).ToString("F0"))%</span>
+                                    </div>
+                                    <div style="width: 100%; height: 6px; background: #334155; border-radius: 3px; overflow: hidden;">
+                                        <div style="width: @((_downloadProgressPercent * 100).ToString("F0"))%; height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); transition: width 0.2s;"></div>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                                    <span>✅ Embedded C# SLM Ready</span>
+                                    <span style="color: var(--text-muted); font-weight: normal;">(@Path.GetFileName(LlamaSharpLlmClient.ResolveDefaultModelPath()))</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label class="form-label">Temperature: @_temperature.ToString("F1")</label>
@@ -534,6 +569,40 @@
         {
             // theme.js may not be ready in rare boot races
         }
+    }
+
+    private bool _isDownloadingSlm;
+    private double _downloadProgressPercent;
+    private string _downloadProgressStatus = "";
+
+    private async Task DownloadSlmModelAsync()
+    {
+        _isDownloadingSlm = true;
+        _downloadProgressPercent = 0.01;
+        _downloadProgressStatus = "Connecting...";
+        StateHasChanged();
+
+        bool ok = await Task.Run(() => SlmModelDownloaderService.DownloadDefaultModelAsync((pct, msg) =>
+        {
+            InvokeAsync(() =>
+            {
+                _downloadProgressPercent = pct;
+                _downloadProgressStatus = msg;
+                StateHasChanged();
+            });
+        }));
+
+        _isDownloadingSlm = false;
+        if (ok)
+        {
+            _detectionStatus = "✅ Qwen 2.5 3B GGUF Model downloaded & ready for local C# SLM roleplay!";
+            await DetectRoleplayEngines(force: true);
+        }
+        else
+        {
+            _warningMessage = "Model download failed. Please check internet connection.";
+        }
+        StateHasChanged();
     }
 
     private void SaveCurrentSettings()

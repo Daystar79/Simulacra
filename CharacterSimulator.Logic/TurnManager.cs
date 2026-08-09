@@ -416,7 +416,7 @@ public class TurnManager
             imagePrompt = imgMatch.Groups[1].Value.Trim();
         }
 
-        // 6. Dialogue Tag Cleanup — remove meta-tags and code fences
+        // 6. Dialogue Tag Cleanup — remove meta-tags, placeholder tags, and code fences
         var dialogue = Regex.Replace(response, @"\[Somatic:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"^SOMATIC\s*.*?(?=\n|\r|$)", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"\[Goal:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
@@ -425,6 +425,9 @@ public class TurnManager
         dialogue = Regex.Replace(dialogue, @"\[?Bond:?\s*[\+\-]?\d+\]?", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"```[\s\S]*?```", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"<state>[\s\S]*?</state>", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"<spoken\s*dialogue>", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"<narrative\s*action.*?>", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"<autonomic\s*internal\s*tell>", "", RegexOptions.IgnoreCase).Trim();
 
         // 7. Strip leading LLM meta-preamble lines (e.g. "Sure, here is the response:")
         var lines = dialogue.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l)).ToList();

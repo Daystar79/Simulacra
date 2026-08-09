@@ -183,8 +183,8 @@ public static class PromptBuilder
         sb.AppendLine("5. Somatic tells must fit YOUR character's autonomic vocabulary.");
         sb.AppendLine();
         sb.AppendLine("Respond in this exact format:");
-        sb.AppendLine("[Somatic: <autonomic internal tell>] <narrative action and dialogue> [Bond: +1] [Goal: <status>]");
-        sb.AppendLine("FORMATTING RULE: Put all spoken words inside double quotes (\"...\"). Write physical actions and scene movements outside quotes as natural narrative prose. Do NOT repeat autonomic somatic tells inside the narrative text. Do NOT prefix dialogue with your character name (do NOT start with '" + character.Name + ":'). Do NOT output markdown code blocks or meta-commentary.");
+        sb.AppendLine("[Somatic: Slow breath, pulse calms] \"Music... it is a quiet companion.\" She leans back against the balustrade.");
+        sb.AppendLine("FORMATTING RULE: Put all spoken words inside double quotes (\"...\"). Write physical actions and scene movements outside quotes as natural narrative prose. Do NOT output placeholder text like '<spoken dialogue>' or '<narrative action>'. Do NOT prefix dialogue with your character name. Do NOT output markdown code blocks or meta-commentary.");
         return sb.ToString();
     }
 
@@ -202,7 +202,8 @@ public static class PromptBuilder
         sb.AppendLine("2. Autonomic Somatic tells: Start with [Somatic: ...] for internal/involuntary physiological reactions.");
         sb.AppendLine("3. Dual-Aspect Psyche: Channel Cognitive Wound under pressure; Cognitive Gift under trust.");
         sb.AppendLine("4. Respond ONCE only. Do not repeat your response or output system tags after finishing.");
-        sb.AppendLine("5. Format: [Somatic: <tell>] \"<spoken dialogue>\" <narrative action>");
+        sb.AppendLine("5. Format Example: [Somatic: Slow breath, pulse calms] \"Music... it is a quiet companion.\" She leans back against the balustrade.");
+        sb.AppendLine("6. Do NOT output literal tags like '<spoken dialogue>' or '<narrative action>'. Write actual spoken words inside quotes and narrative prose outside quotes.");
         sb.AppendLine("<|im_end|>");
         sb.AppendLine("<|im_start|>user");
         sb.AppendLine(BuildSituationBlock(character, input, goalContext));

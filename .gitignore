@@ -3,3 +3,8 @@ obj/
 Output/
 .vs/
 *.user
+Models/*.gguf
+Models/*.download
+publish/
+releases/
+

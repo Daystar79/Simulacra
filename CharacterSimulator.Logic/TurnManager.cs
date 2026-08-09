@@ -451,6 +451,30 @@ public class TurnManager
             dialogue = dialogue[1..^1].Trim();
         }
 
+        // 10. Truncate prompt leak headers (e.g. "[They just said/did]:", "Serena's response")
+        int leakIdx = dialogue.IndexOf("[They just said", StringComparison.OrdinalIgnoreCase);
+        if (leakIdx >= 0)
+        {
+            dialogue = dialogue[..leakIdx].Trim();
+        }
+        leakIdx = dialogue.IndexOf("'s response", StringComparison.OrdinalIgnoreCase);
+        if (leakIdx >= 0)
+        {
+            int lineStart = dialogue.LastIndexOf('\n', leakIdx);
+            if (lineStart >= 0)
+                dialogue = dialogue[..lineStart].Trim();
+        }
+
+        // 11. Deduplicate identical repeated sentences/paragraphs separated by ';' or newlines
+        if (dialogue.Contains(';'))
+        {
+            var parts = dialogue.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length > 1 && parts.Distinct(StringComparer.OrdinalIgnoreCase).Count() < parts.Length)
+            {
+                dialogue = string.Join("; ", parts.Distinct(StringComparer.OrdinalIgnoreCase));
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(dialogue) && !string.IsNullOrWhiteSpace(response))
         {
             dialogue = response.Trim();

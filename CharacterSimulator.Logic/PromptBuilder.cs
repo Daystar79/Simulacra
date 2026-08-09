@@ -188,6 +188,29 @@ public static class PromptBuilder
         return sb.ToString();
     }
 
+    public static string BuildChatMlPrompt(Character character, string input, string sceneContext, string goalContext = "")
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<|im_start|>system");
+        sb.AppendLine("You are roleplaying as " + character.Name + " and only as " + character.Name + ".");
+        sb.AppendLine(BuildIdentityBlock(character));
+        sb.AppendLine();
+        sb.AppendLine(BuildSceneBlock(sceneContext));
+        sb.AppendLine();
+        sb.AppendLine("RULES:");
+        sb.AppendLine("1. Stay strictly in character as defined by CHARACTER IDENTITY.");
+        sb.AppendLine("2. Autonomic Somatic tells: Start with [Somatic: ...] for internal/involuntary physiological reactions.");
+        sb.AppendLine("3. Dual-Aspect Psyche: Channel Cognitive Wound under pressure; Cognitive Gift under trust.");
+        sb.AppendLine("4. Respond ONCE only. Do not repeat your response or output system tags after finishing.");
+        sb.AppendLine("5. Format: [Somatic: <tell>] \"<spoken dialogue>\" <narrative action>");
+        sb.AppendLine("<|im_end|>");
+        sb.AppendLine("<|im_start|>user");
+        sb.AppendLine(BuildSituationBlock(character, input, goalContext));
+        sb.AppendLine("<|im_end|>");
+        sb.AppendLine("<|im_start|>assistant");
+        return sb.ToString();
+    }
+
     public static string BuildDefaultImagePrompt(Character character, string? sceneContext = null)
     {
         string appearance = BuildAppearanceSummary(character);

@@ -100,7 +100,7 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
 
     public async Task<string> SendPromptAsync(Character character, string input, string sceneContext, string goalContext = "", CancellationToken ct = default)
     {
-        string prompt = PromptBuilder.BuildFullPrompt(character, input, sceneContext, goalContext);
+        string prompt = PromptBuilder.BuildChatMlPrompt(character, input, sceneContext, goalContext);
         return await CompleteRawAsync(prompt, ct).ConfigureAwait(false);
     }
 
@@ -140,7 +140,21 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
             var inferenceParams = new InferenceParams
             {
                 MaxTokens = 256,
-                AntiPrompts = new List<string> { "User:", "Player:", "System:", "###", "SCENE:", "RULES:" },
+                AntiPrompts = new List<string>
+                {
+                    "<|im_end|>",
+                    "<|im_start|>",
+                    "<|eot_id|>",
+                    "<|end_of_text|>",
+                    "[They just said",
+                    "[Player]:",
+                    "User:",
+                    "Player:",
+                    "System:",
+                    "###",
+                    "SCENE:",
+                    "RULES:"
+                },
                 SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline
                 {
                     Temperature = 0.75f,

@@ -683,7 +683,7 @@
                 _outputLogs.Add(new LogEntryModel
                 {
                     Timestamp = DateTime.Now,
-                    Message = $"⚙️ Engine Settings Active — Roleplay: {settings.RoleplayLlmProvider} ({settings.RoleplayModelIdentifier}) | Image: {settings.ImageEngine} ({settings.ImageResolution}) | Mode: {settings.RoleplayMode} | Scene: [{SceneGenreCatalog.GetById(settings.SelectedGenre).DisplayName}]",
+                    Message = $"⚙️ Engine Settings Active — Roleplay: {settings.RoleplayLlmProvider} | Image: {settings.ImageEngine} ({settings.ImageResolution}) | Mode: {settings.RoleplayMode} | Scene: [{SceneGenreCatalog.GetById(settings.SelectedGenre).DisplayName}]",
                     LevelClass = "log-info"
                 });
                 RequestScrollPanels();

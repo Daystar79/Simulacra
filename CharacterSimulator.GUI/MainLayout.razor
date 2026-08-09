@@ -348,8 +348,8 @@
         if (settings == null) return;
         _activeModeBadge = settings.RoleplayMode == "AutoPlay" ? "🤖 Auto-Play" : "🎮 Player-Guided";
         _isPlayerGuided = settings.RoleplayMode != "AutoPlay";
-        _activeLlmInfo = $"Roleplay: {settings.RoleplayLlmProvider} ({settings.RoleplayModelIdentifier}) | Image: {settings.ImageEngine}";
-        _statusText = $"Active Engine: {settings.RoleplayLlmProvider} ({settings.RoleplayModelIdentifier}) / {settings.ImageEngine}";
+        _activeLlmInfo = $"Roleplay: {settings.RoleplayLlmProvider} | Image: {settings.ImageEngine}";
+        _statusText = $"Active Engine: {settings.RoleplayLlmProvider} / {settings.ImageEngine}";
         if (!string.IsNullOrEmpty(settings.UiTheme) && settings.UiTheme != _activeThemeId)
         {
             _activeThemeId = ThemeCatalog.GetById(settings.UiTheme).Id;

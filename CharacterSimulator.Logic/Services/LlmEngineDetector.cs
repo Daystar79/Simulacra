@@ -36,6 +36,15 @@ public class LlmEngineDetector
     {
         var engines = new List<DetectedLlmEngine>();
 
+        // 0. Check Embedded C# SLM (LLamaSharp)
+        bool slmFound = SlmModelDownloaderService.HasAnyGgufModel();
+        engines.Add(new DetectedLlmEngine(
+            "LlamaSharp",
+            "💻 Embedded C# SLM (LLamaSharp)",
+            true, // C# engine is compiled natively into the host
+            slmFound ? "GGUF model ready in Models/" : "No .gguf model in Models/ (Download available)"
+        ));
+
         // 1. Check AGY (Antigravity CLI / API)
         bool agyFound = IsCommandAvailable("agy") || IsCommandAvailable("antigravity") || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AGY_API_KEY"));
         engines.Add(new DetectedLlmEngine(

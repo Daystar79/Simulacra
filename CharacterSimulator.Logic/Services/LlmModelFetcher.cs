@@ -89,6 +89,9 @@ public static class LlmModelFetcher
         if (p.Contains("Grok", StringComparison.OrdinalIgnoreCase) ||
             p.Contains("xAI", StringComparison.OrdinalIgnoreCase)) return "Grok";
         if (p.Contains("Ollama", StringComparison.OrdinalIgnoreCase)) return "Ollama";
+        if (p.Contains("SLM", StringComparison.OrdinalIgnoreCase) ||
+            p.Contains("LLamaSharp", StringComparison.OrdinalIgnoreCase) ||
+            p.Contains("LlamaSharp", StringComparison.OrdinalIgnoreCase)) return "LlamaSharp";
         return p;
     }
 
@@ -96,6 +99,7 @@ public static class LlmModelFetcher
     {
         return NormalizeProviderId(providerId) switch
         {
+            "LlamaSharp" => GetLlamaSharpModels(),
             "AGY" => new List<LlmModel>
             {
                 new("agy-pro", "AGY Pro", "AGY", "Default AGY Pro", true),
@@ -209,5 +213,36 @@ public static class LlmModelFetcher
         return models.FirstOrDefault(m => m.IsDefault)?.Id
                ?? models.FirstOrDefault()?.Id
                ?? "";
+    }
+
+    public static List<LlmModel> GetLlamaSharpModels()
+    {
+        var discovered = LlamaSharpLlmClient.DiscoverGgufModels();
+        if (discovered.Count == 0)
+        {
+            return new List<LlmModel>
+            {
+                new("qwen2.5-3b-instruct-q4_k_m.gguf", "Qwen 2.5 3B (Download Required)", "LlamaSharp", "Press 'Download Default SLM' to fetch", true)
+            };
+        }
+
+        var list = new List<LlmModel>();
+        bool isFirst = true;
+        foreach (var path in discovered)
+        {
+            string fileName = System.IO.Path.GetFileName(path);
+            long sizeMb = 0;
+            try { sizeMb = new System.IO.FileInfo(path).Length / (1024 * 1024); } catch { }
+
+            list.Add(new LlmModel(
+                fileName,
+                fileName,
+                "LlamaSharp",
+                $"Local GGUF Model · {sizeMb} MB",
+                isFirst));
+            isFirst = false;
+        }
+
+        return list;
     }
 }

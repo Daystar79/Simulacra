@@ -5,6 +5,8 @@ using CharacterSimulator.Logic.State;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic.Logs;
 
 /// <summary>
@@ -41,7 +43,7 @@ public static class DurableLogStore
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[DurableLogStore] Failed to load log at '{path}': {ex.Message}");
+            AppLogger.Warning($"[DurableLogStore] Failed to load log at '{path}': {ex.Message}");
             var fallback = new DurableLog();
             fallback.EnsureShape();
             return fallback;
@@ -72,6 +74,9 @@ public static class DurableLogStore
     /// </summary>
     public static void ApplyOverlay(Character character, DurableLog log)
     {
+        if (character == null) throw new ArgumentNullException(nameof(character));
+        if (log == null) throw new ArgumentNullException(nameof(log));
+        
         log.EnsureShape();
         character.DurableLog = log;
         character.LogPath ??= GetExpectedLogPath(character.CardPath);

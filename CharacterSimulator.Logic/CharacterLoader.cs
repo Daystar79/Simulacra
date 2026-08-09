@@ -2,22 +2,71 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text;
 using System.Text.Json;
 using YamlDotNet.Serialization;
+
+using static CharacterSimulator.Logic.AppLogger;
 
 namespace CharacterSimulator.Logic;
 
 public static class CharacterLoader
 {
+    private const long MaxCharacterFileSize = 10 * 1024 * 1024; // 10MB
+    private static readonly HashSet<string> AllowedExtensions = new HashSet<string> { ".json", ".md", ".yaml", ".yml" };
+
     public static Character Load(string path)
     {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Character file path cannot be null or empty", nameof(path));
+
         if (!File.Exists(path))
             throw new FileNotFoundException($"Character file not found: {path}");
 
+        var fileInfo = new FileInfo(path);
+        
+        // Validate it's a file, not a directory
+        if ((fileInfo.Attributes & FileAttributes.Directory) != 0)
+            throw new ArgumentException($"Path is a directory, not a file: {path}", nameof(path));
+
+        // Validate file size
+        if (fileInfo.Length > MaxCharacterFileSize)
+            throw new ArgumentException($"Character file is too large (>{MaxCharacterFileSize / (1024*1024)}MB): {path}", nameof(path));
+
+        // Validate file extension
         string ext = Path.GetExtension(path).ToLowerInvariant();
+        if (!AllowedExtensions.Contains(ext))
+            throw new ArgumentException($"Unsupported character file extension '{ext}'. Allowed: {string.Join(", ", AllowedExtensions)}", nameof(path));
+
+        // Validate path is within allowed directories
+        ValidateCharacterPath(path);
+
         var character = ext == ".json" ? LoadFromJson(path) : LoadFromYamlMarkdown(path);
         TryLoadDurableLog(character, path);
+        return character;
+    }
+
+    /// <summary>
+    /// Creates a new Character with common initialization (name, display name, path)
+    /// </summary>
+    private static Character CreateCharacter(string path, string legalName, string? callName)
+    {
+        string displayName = !string.IsNullOrWhiteSpace(callName) ? callName! : legalName;
+        
+        var character = new Character
+        {
+            Name = displayName,
+            CardPath = path,
+            Inventory = new List<string>(),
+            SomaticZones = new List<string>()
+        };
+        
+        if (!string.Equals(legalName, displayName, StringComparison.Ordinal))
+            character.Attributes["legal_name"] = legalName;
+        if (!string.IsNullOrWhiteSpace(callName))
+            character.Attributes["call_name"] = callName!;
+        
         return character;
     }
 
@@ -29,29 +78,20 @@ public static class CharacterLoader
 
         string legalName = GetString(root, "name") ?? Path.GetFileNameWithoutExtension(path);
         string? callName = GetString(root, "call_name");
-        string displayName = !string.IsNullOrWhiteSpace(callName) ? callName! : legalName;
-
-        var character = new Character
-        {
-            Name = displayName,
-            CardPath = path,
-            CurrentState = GetString(root, "active_focus")
-                ?? GetString(root, "current_state")
-                ?? "ACTIVE",
-            CognitiveBias = GetString(root, "cognitive_bias") ?? "",
-            CognitiveGift = GetString(root, "cognitive_gift") ?? "",
-            CulturalBias = GetString(root, "cultural_bias") ?? "",
-            ActiveFocus = GetString(root, "active_focus") ?? GetString(root, "current_state") ?? "ACTIVE",
-            Bond = root.TryGetProperty("bond", out var bondProp) && bondProp.TryGetInt32(out var bondVal) ? bondVal : 0,
-            CanonAdult = !root.TryGetProperty("canon_adult", out var caProp) || caProp.ValueKind != JsonValueKind.False,
-            Age = root.TryGetProperty("age", out var ageProp) && ageProp.TryGetInt32(out var ageVal) ? ageVal : 25,
-            Inventory = new List<string>()
-        };
-
-        if (!string.Equals(legalName, displayName, StringComparison.Ordinal))
-            character.Attributes["legal_name"] = legalName;
-        if (!string.IsNullOrWhiteSpace(callName))
-            character.Attributes["call_name"] = callName!;
+        
+        var character = CreateCharacter(path, legalName, callName);
+        
+        // Set state and bias fields
+        character.CurrentState = GetString(root, "active_focus")
+            ?? GetString(root, "current_state")
+            ?? "ACTIVE";
+        character.ActiveFocus = character.CurrentState;
+        character.CognitiveBias = GetString(root, "cognitive_bias") ?? "";
+        character.CognitiveGift = GetString(root, "cognitive_gift") ?? "";
+        character.CulturalBias = GetString(root, "cultural_bias") ?? "";
+        character.Bond = root.TryGetProperty("bond", out var bondProp) && bondProp.TryGetInt32(out var bondVal) ? bondVal : 0;
+        character.CanonAdult = !root.TryGetProperty("canon_adult", out var caProp) || caProp.ValueKind != JsonValueKind.False;
+        character.Age = root.TryGetProperty("age", out var ageProp) && ageProp.TryGetInt32(out var ageVal) ? ageVal : 25;
 
         if (root.TryGetProperty("physical", out var physicalProp))
         {
@@ -109,7 +149,7 @@ public static class CharacterLoader
             }
         }
 
-        character.Bio = BuildJsonBio(root, displayName);
+        character.Bio = BuildJsonBio(root, character.Name);
         ResolvePortrait(character, path, callName, legalName);
         return character;
     }
@@ -237,33 +277,24 @@ public static class CharacterLoader
 
         string legalName = GetMapString(root, "name") ?? Path.GetFileNameWithoutExtension(path);
         string? callName = GetMapString(root, "call_name");
-        string displayName = !string.IsNullOrWhiteSpace(callName) ? callName! : legalName;
-
+        
         string markdownBody = yamlEnd + 3 < fileContent.Length
             ? fileContent.Substring(yamlEnd + 3).Trim()
             : "";
 
-        var character = new Character
-        {
-            Name = displayName,
-            CardPath = path,
-            CurrentState = GetMapString(root, "active_focus")
-                ?? GetMapString(root, "current_state")
-                ?? "ACTIVE",
-            CognitiveBias = GetMapString(root, "cognitive_bias") ?? "",
-            CognitiveGift = GetMapString(root, "cognitive_gift") ?? "",
-            CulturalBias = GetMapString(root, "cultural_bias") ?? "",
-            ActiveFocus = GetMapString(root, "active_focus") ?? GetMapString(root, "current_state") ?? "ACTIVE",
-            Bond = GetMapInt(root, "bond") ?? 0,
-            CanonAdult = !(root.TryGetValue("canon_adult", out var caVal) && caVal is bool caBool && !caBool),
-            Age = GetMapInt(root, "age") ?? 25,
-            Inventory = new List<string>()
-        };
-
-        if (!string.Equals(legalName, displayName, StringComparison.Ordinal))
-            character.Attributes["legal_name"] = legalName;
-        if (!string.IsNullOrWhiteSpace(callName))
-            character.Attributes["call_name"] = callName!;
+        var character = CreateCharacter(path, legalName, callName);
+        
+        // Set state and bias fields
+        character.CurrentState = GetMapString(root, "active_focus")
+            ?? GetMapString(root, "current_state")
+            ?? "ACTIVE";
+        character.ActiveFocus = character.CurrentState;
+        character.CognitiveBias = GetMapString(root, "cognitive_bias") ?? "";
+        character.CognitiveGift = GetMapString(root, "cognitive_gift") ?? "";
+        character.CulturalBias = GetMapString(root, "cultural_bias") ?? "";
+        character.Bond = GetMapInt(root, "bond") ?? 0;
+        character.CanonAdult = !(root.TryGetValue("canon_adult", out var caVal) && caVal is bool caBool && !caBool);
+        character.Age = GetMapInt(root, "age") ?? 25;
 
         // Physical: long string (CS cards) or nested map (Shinano / legacy)
         if (root.TryGetValue("physical", out var physicalVal) && physicalVal != null)
@@ -359,7 +390,7 @@ public static class CharacterLoader
         if (!string.IsNullOrWhiteSpace(character.Behavior))
             character.Attributes["behavior"] = character.Behavior;
 
-        character.Bio = BuildYamlBio(root, displayName, markdownBody);
+        character.Bio = BuildYamlBio(root, character.Name, markdownBody);
         ResolvePortrait(character, path, callName, legalName);
         return character;
     }
@@ -720,6 +751,23 @@ public static class CharacterLoader
         return value.ToString() ?? "";
     }
 
+    private static void ValidateCharacterPath(string path)
+    {
+        // Get the canonical full path
+        string fullPath = Path.GetFullPath(path);
+        
+        // Get the Characters directory
+        string charactersDir = CharacterCatalog.ResolveCharactersDirectory();
+        string charactersFullPath = Path.GetFullPath(charactersDir);
+        
+        // Ensure the path is within the Characters directory or a subdirectory
+        if (!fullPath.StartsWith(charactersFullPath, StringComparison.OrdinalIgnoreCase) &&
+            !fullPath.StartsWith(Path.Combine(charactersFullPath, ".."), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SecurityException($"Character file path must be within the Characters directory: {path}");
+        }
+    }
+
     private static void TryLoadDurableLog(Character character, string cardPath)
     {
         string dir = Path.GetDirectoryName(cardPath) ?? "";
@@ -740,7 +788,7 @@ public static class CharacterLoader
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CharacterLoader] Error loading durable log {logPath}: {ex.Message}");
+            AppLogger.Warning($"[CharacterLoader] Error loading durable log {logPath}: {ex.Message}");
         }
     }
 }

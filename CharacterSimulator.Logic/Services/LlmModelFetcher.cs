@@ -10,7 +10,14 @@ namespace CharacterSimulator.Logic.Services;
 /// <summary>
 /// Represents a model available from an LLM provider.
 /// </summary>
-public record LlmModel(string Id, string DisplayName, string ProviderId, string Description = "", bool IsDefault = false);
+public record LlmModel(
+    string Id,
+    string DisplayName,
+    string ProviderId,
+    string Description = "",
+    bool IsDefault = false,
+    int ContextSize = 32768,
+    int MaxTokens = 512);
 
 /// <summary>
 /// Fetches available models per roleplay LLM provider (API when possible, static fallbacks always).
@@ -117,10 +124,10 @@ public static class LlmModelFetcher
             },
             "Ollama" => new List<LlmModel>
             {
-                new("llama3", "Llama 3", "Ollama", "Meta Llama 3", true),
-                new("llama3:8b", "Llama 3 8B", "Ollama", "8B"),
-                new("mistral", "Mistral", "Ollama", "Mistral"),
-                new("phi3", "Phi 3", "Ollama", "Microsoft Phi 3"),
+                new("llama3", "Llama 3", "Ollama", "Meta Llama 3", true, 128000, 512),
+                new("llama3:8b", "Llama 3 8B", "Ollama", "8B", false, 128000, 512),
+                new("mistral", "Mistral", "Ollama", "Mistral", false, 32768, 512),
+                new("phi3", "Phi 3", "Ollama", "Microsoft Phi 3", false, 128000, 512),
             },
             "MistralVibe" => new List<LlmModel>
             {
@@ -222,7 +229,7 @@ public static class LlmModelFetcher
         {
             return new List<LlmModel>
             {
-                new("qwen2.5-3b-instruct-q4_k_m.gguf", "Qwen 2.5 3B (Download Required)", "LlamaSharp", "Press 'Download Default SLM' to fetch", true)
+                new(SlmModelDownloaderService.DefaultModelName, "Dolphin 3.0 Llama 3.2 1B (Download Required)", "LlamaSharp", "Press 'Download Model' to fetch", true)
             };
         }
 
@@ -244,5 +251,37 @@ public static class LlmModelFetcher
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// Gets the model specifications for a given model ID and provider.
+    /// </summary>
+    public static LlmModel? GetModelSpecs(string modelId, string providerId)
+    {
+        var models = GetFallbackModels(providerId);
+        foreach (var model in models)
+        {
+            if (model.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase))
+                return model;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the context size for a given model, with a default fallback.
+    /// </summary>
+    public static int GetModelContextSize(string modelId, string providerId, int defaultContextSize = 32768)
+    {
+        var specs = GetModelSpecs(modelId, providerId);
+        return specs?.ContextSize ?? defaultContextSize;
+    }
+
+    /// <summary>
+    /// Gets the max tokens for a given model, with a default fallback.
+    /// </summary>
+    public static int GetModelMaxTokens(string modelId, string providerId, int defaultMaxTokens = 512)
+    {
+        var specs = GetModelSpecs(modelId, providerId);
+        return specs?.MaxTokens ?? defaultMaxTokens;
     }
 }

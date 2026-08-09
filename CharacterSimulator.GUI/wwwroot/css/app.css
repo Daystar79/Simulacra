@@ -1455,12 +1455,17 @@ html.has-scene-backdrop .workspace-grid {
 }
 
 .narration-prose {
-    font-size: 0.84rem;
+    font-size: 0.88rem;
     font-style: italic;
-    color: var(--text-secondary);
-    line-height: 1.5;
+    color: #cbd5e1;
+    line-height: 1.55;
     word-break: break-word;
-    padding: 0.15rem 0.2rem;
+    padding: 0.35rem 0.65rem;
+    margin: 0.25rem 0;
+    background: rgba(255, 255, 255, 0.035);
+    border-left: 2px solid rgba(148, 163, 184, 0.35);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    letter-spacing: 0.01em;
 }
 
 .speech-block {

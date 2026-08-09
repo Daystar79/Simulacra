@@ -148,6 +148,13 @@
         if (string.IsNullOrWhiteSpace(rawDialogue))
             return segments;
 
+        // Clean leftover bracket tags and unwrap [Action] brackets
+        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[Somatic:?\s*.*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[Goal:\s*.*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[Image:\s*.*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[\s*([^\]]+)\s*\]", "$1");
+        rawDialogue = rawDialogue.Replace("[", "").Replace("]", "").Trim();
+
         var matches = System.Text.RegularExpressions.Regex.Matches(rawDialogue, @"(?:\*([^*]+)\*|_([^_]+)_|""([^""]+)""|([^""*_]+))");
 
         foreach (System.Text.RegularExpressions.Match m in matches)

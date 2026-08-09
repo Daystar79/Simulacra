@@ -31,7 +31,7 @@ public class ProcessExecutor : IDisposable
             throw new ArgumentException("Executable path cannot be null or empty", nameof(executablePath));
             
         if (!File.Exists(executablePath))
-            throw new FileNotFoundException("Executable not found", executablePath);
+            throw new FileNotFoundException("Executable file not found", executablePath);
             
         _executablePath = executablePath;
         _argumentsTemplate = argumentsTemplate ?? "-p {0}";

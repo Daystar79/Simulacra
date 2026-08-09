@@ -4,6 +4,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using CharacterSimulator.Logic.Data.Db;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic.Services;
 
 /// <summary>
@@ -186,9 +188,9 @@ public static class CharacterPortraitService
         string? engine = null)
     {
         if (string.IsNullOrWhiteSpace(cardId))
-            throw new ArgumentException("cardId required", nameof(cardId));
+            throw new ArgumentException("Card ID cannot be null or empty", nameof(cardId));
         if (imageBytes == null || imageBytes.Length == 0)
-            throw new ArgumentException("image bytes required", nameof(imageBytes));
+            throw new ArgumentException("Image bytes cannot be null or empty", nameof(imageBytes));
 
         CharacterPortraitRepository? repo;
         CharacterCatalogRepository? catalog;
@@ -199,7 +201,7 @@ public static class CharacterPortraitService
         }
 
         if (repo == null)
-            throw new InvalidOperationException("Portrait store not bound (ProfileService not initialized).");
+            throw new InvalidOperationException("Portrait store not bound. Ensure ProfileService is initialized.");
 
         repo.UpsertBytes(cardId, imageBytes, mimeType, prompt, engine);
         CharacterPortraitRepository.WriteCacheFile(cardId, imageBytes,
@@ -300,7 +302,7 @@ public static class CharacterPortraitService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CharacterPortraitService] Ensure failed for {cardId}: {ex.Message}");
+            AppLogger.Warning($"[CharacterPortraitService] Ensure failed for {cardId}: {ex.Message}");
             return "";
         }
         finally

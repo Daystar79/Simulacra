@@ -6,6 +6,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using CharacterSimulator.Logic.Data.Db;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic;
 
 /// <summary>
@@ -199,7 +201,7 @@ public static class CharacterCatalog
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("[CharacterCatalog] Seed fallback failed: " + ex.Message);
+            AppLogger.Warning("[CharacterCatalog] Seed fallback failed: " + ex.Message);
         }
     }
 
@@ -257,7 +259,7 @@ public static class CharacterCatalog
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[CharacterCatalog] Reconcile: " + ex.Message);
+                AppLogger.Warning("[CharacterCatalog] Reconcile: " + ex.Message);
             }
         }
 

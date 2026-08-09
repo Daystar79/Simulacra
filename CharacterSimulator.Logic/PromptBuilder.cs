@@ -129,7 +129,31 @@ public static class PromptBuilder
         return sb.ToString().TrimEnd();
     }
 
-    public static string BuildSituationBlock(Character character, string input, string goalContext)
+    /// <summary>
+    /// Max transcript lines injected into each prompt (oldest dropped).
+    /// </summary>
+    public const int MaxTranscriptLines = 12;
+
+    /// <summary>
+    /// Formats prior turns for the prompt. Pass newest-last chronological lines.
+    /// </summary>
+    public static string FormatTranscript(IReadOnlyList<string>? lines, int maxLines = MaxTranscriptLines)
+    {
+        if (lines == null || lines.Count == 0)
+            return "";
+
+        IEnumerable<string> slice = lines.Count <= maxLines
+            ? lines
+            : lines.Skip(Math.Max(0, lines.Count - maxLines));
+
+        return string.Join("\n", slice.Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Trim()));
+    }
+
+    public static string BuildSituationBlock(
+        Character character,
+        string input,
+        string goalContext,
+        string? conversationHistory = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("CURRENT SITUATION:");
@@ -138,16 +162,22 @@ public static class PromptBuilder
         sb.AppendLine("Bond with interlocutor: " + character.Bond);
 
         if (character.RelationalBaselines.Count > 0)
-            sb.AppendLine("Relational Baselines: " + string.Join(", ", character.RelationalBaselines.Select(kv => $"{kv.Key}={kv.Value}")));
+        {
+            var relevantBaselines = character.RelationalBaselines.Take(2).Select(kv => $"{kv.Key}={kv.Value}");
+            sb.AppendLine("Relational Baseline: " + string.Join(", ", relevantBaselines));
+        }
 
         if (character.Memories.Count > 0)
-            sb.AppendLine("Durable Memories Database: " + string.Join(" | ", character.Memories));
+        {
+            var topMemories = character.Memories.TakeLast(3);
+            sb.AppendLine("Key Memories: " + string.Join(" | ", topMemories));
+        }
 
         if (character.DurableLog?.history != null && character.DurableLog.history.Count > 0)
-            sb.AppendLine("Recent Pressure History: " + string.Join(" | ", character.DurableLog.history.TakeLast(3).Select(h => $"[{h.movement}] {h.pressure} ({h.delta})")));
+            sb.AppendLine("Recent Pressure: " + string.Join(" | ", character.DurableLog.history.TakeLast(2).Select(h => $"[{h.movement}] {h.pressure}")));
 
         if (character.SomaticZones.Count > 0)
-            sb.AppendLine("Last somatic tells: " + string.Join(", ", character.SomaticZones));
+            sb.AppendLine("Last somatic tells: " + string.Join(", ", character.SomaticZones.Take(3)));
 
         string realmGuidance = Somatics.RealmDataCatalog.BuildPromptSomaticGuidance(character.ActiveFocus);
         if (!string.IsNullOrWhiteSpace(realmGuidance))
@@ -156,15 +186,42 @@ public static class PromptBuilder
         if (!string.IsNullOrWhiteSpace(goalContext))
             sb.AppendLine(goalContext.Trim());
 
+        bool hasHistory = !string.IsNullOrWhiteSpace(conversationHistory);
+        if (hasHistory)
+        {
+            sb.AppendLine("CONVERSATION SO FAR (already happened — do not repeat these lines or the same physical beat):");
+            sb.AppendLine(conversationHistory!.Trim());
+        }
+
         if (string.IsNullOrWhiteSpace(input))
-            sb.AppendLine("The scene has just opened; no one has spoken to you yet. Take a natural first beat in character.");
+        {
+            if (hasHistory)
+            {
+                sb.AppendLine("Continue the scene as yourself with the next natural beat.");
+                sb.AppendLine("Do not restart the scene. Do not repeat prior dialogue or the same gesture/pose.");
+            }
+            else
+            {
+                sb.AppendLine("The scene has just opened; no one has spoken to you yet. Take a natural first beat in character.");
+            }
+        }
         else
+        {
             sb.AppendLine("They just said/did: \"" + input.Trim() + "\"");
+            if (hasHistory)
+                sb.AppendLine("Respond to that latest beat only. Advance the moment; do not restate your previous line.");
+            sb.AppendLine("Respond directly to their statement/action in your own voice. Do NOT repeat, quote, or parrot their words back to them.");
+        }
 
         return sb.ToString().TrimEnd();
     }
 
-    public static string BuildFullPrompt(Character character, string input, string sceneContext, string goalContext = "")
+    public static string BuildFullPrompt(
+        Character character,
+        string input,
+        string sceneContext,
+        string goalContext = "",
+        string? conversationHistory = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are roleplaying as " + character.Name + " and only as " + character.Name + ".");
@@ -173,7 +230,7 @@ public static class PromptBuilder
         sb.AppendLine();
         sb.AppendLine(BuildSceneBlock(sceneContext));
         sb.AppendLine();
-        sb.AppendLine(BuildSituationBlock(character, input, goalContext));
+        sb.AppendLine(BuildSituationBlock(character, input, goalContext, conversationHistory));
         sb.AppendLine();
         sb.AppendLine("RULES:");
         sb.AppendLine("1. Stay strictly in character as defined by CHARACTER IDENTITY. Scene never rewrites who you are.");
@@ -181,14 +238,20 @@ public static class PromptBuilder
         sb.AppendLine("3. Dual-Aspect Psyche: Under scene pressure, channel your Cognitive Wound (Defensive Lens). Under trust/safety/flow, channel your Cognitive Gift (Generative Lens).");
         sb.AppendLine("4. Off-page matrix guarantee: NEVER output system terms, raw metrics, or internal scoring inside spoken dialogue. Keep dialogue 100% natural and in-character.");
         sb.AppendLine("5. Somatic tells must fit YOUR character's autonomic vocabulary.");
+        sb.AppendLine("6. Output ONE reply only. Stop after a single [Somatic] + opening physical action + spoken line + optional concluding action. Never continue as the user, never restate the rules, never invent a second reply.");
         sb.AppendLine();
-        sb.AppendLine("Respond in this exact format:");
-        sb.AppendLine("[Somatic: Slow breath, pulse calms] \"Music... it is a quiet companion.\" She leans back against the balustrade.");
-        sb.AppendLine("FORMATTING RULE: Put all spoken words inside double quotes (\"...\"). Write physical actions and scene movements outside quotes as natural narrative prose. Do NOT output placeholder text like '<spoken dialogue>' or '<narrative action>'. Do NOT prefix dialogue with your character name. Do NOT output markdown code blocks or meta-commentary.");
+        sb.AppendLine("Respond in this exact shape (invent fresh words and action for THIS moment — do not copy the sample wording):");
+        sb.AppendLine("[Somatic: brief internal tell] Opening physical action beat. \"Spoken words that fit the moment.\" Short concluding physical action.");
+        sb.AppendLine("Put spoken words inside double quotes. Write actions before/after quotes as prose. No placeholders, no character-name prefix, no markdown fences, no meta-commentary.");
         return sb.ToString();
     }
 
-    public static string BuildChatMlPrompt(Character character, string input, string sceneContext, string goalContext = "")
+    public static string BuildChatMlPrompt(
+        Character character,
+        string input,
+        string sceneContext,
+        string goalContext = "",
+        string? conversationHistory = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("<|im_start|>system");
@@ -199,16 +262,16 @@ public static class PromptBuilder
         sb.AppendLine();
         sb.AppendLine("RULES:");
         sb.AppendLine("1. Stay strictly in character as defined by CHARACTER IDENTITY.");
-        sb.AppendLine("2. Autonomic Somatic tells: Start with [Somatic: ...] for internal/involuntary physiological reactions.");
+        sb.AppendLine("2. Autonomic Somatic tells: Start with [Somatic: ...] for internal/involuntary physiological reactions only.");
         sb.AppendLine("3. Dual-Aspect Psyche: Channel Cognitive Wound under pressure; Cognitive Gift under trust.");
-        sb.AppendLine("4. Respond ONCE only. Do not repeat your response or output system tags after finishing.");
-        sb.AppendLine("5. Format Example: [Somatic: Slow breath, pulse calms] \"Music... it is a quiet companion.\" She leans back against the balustrade.");
-        sb.AppendLine("6. Do NOT output literal tags like '<spoken dialogue>' or '<narrative action>'. Write actual spoken words inside quotes and narrative prose outside quotes.");
+        sb.AppendLine("4. Respond ONCE only. Stop after one reply. Do not repeat yourself, do not output system/user tags, do not invent further turns.");
+        sb.AppendLine("5. Shape: [Somatic: brief internal tell] Opening physical action. \"Spoken words.\" Concluding physical action.");
+        sb.AppendLine("6. Invent fresh wording for this moment. Never copy sample lines from the instructions. No placeholder tags, no markdown fences, no meta-commentary.");
         sb.AppendLine("<|im_end|>");
         sb.AppendLine("<|im_start|>user");
-        sb.AppendLine(BuildSituationBlock(character, input, goalContext));
+        sb.AppendLine(BuildSituationBlock(character, input, goalContext, conversationHistory));
         sb.AppendLine("<|im_end|>");
-        sb.AppendLine("<|im_start|>assistant");
+        sb.Append("<|im_start|>assistant\n");
         return sb.ToString();
     }
 

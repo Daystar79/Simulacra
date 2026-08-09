@@ -6,6 +6,7 @@ using Xunit;
 
 namespace CharacterSimulator.Logic.Tests;
 
+[Collection("GlobalState")]
 public class ProfileAndDatabaseTests
 {
     [Fact]

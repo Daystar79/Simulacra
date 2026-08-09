@@ -73,16 +73,7 @@
                          _selectedRoleplayLlmProvider.Contains("LLamaSharp", StringComparison.OrdinalIgnoreCase))
                     {
                         <div style="background: rgba(30, 41, 59, 0.9); border: 1px solid var(--accent-blue); border-radius: 6px; padding: 0.5rem; margin-top: 0.5rem; font-size: 0.7rem;">
-                            @if (!SlmModelDownloaderService.HasAnyGgufModel() && !_isDownloadingSlm)
-                            {
-                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
-                                    <span style="color: var(--accent-amber); font-weight: 600;">⚠️ No GGUF model found in Models/</span>
-                                    <button class="btn btn-primary" style="padding: 0.2rem 0.5rem; font-size: 0.65rem;" @onclick="DownloadSlmModelAsync">
-                                        📥 Download Default SLM (Qwen 2.5 3B ~2GB)
-                                    </button>
-                                </div>
-                            }
-                            else if (_isDownloadingSlm)
+                            @if (_isDownloadingSlm)
                             {
                                 <div>
                                     <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
@@ -96,9 +87,49 @@
                             }
                             else
                             {
-                                <div style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
-                                    <span>✅ Embedded C# SLM Ready</span>
-                                    <span style="color: var(--text-muted); font-weight: normal;">(@Path.GetFileName(LlamaSharpLlmClient.ResolveDefaultModelPath()))</span>
+                                var installedModels = SlmModelDownloaderService.GetInstalledModelFiles();
+                                @if (installedModels.Count > 0)
+                                {
+                                    <div style="margin-bottom: 0.5rem;">
+                                        <div style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.3rem;">
+                                            <span>✅ Installed GGUF Models on Disk:</span>
+                                        </div>
+                                        <div style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 110px; overflow-y: auto;">
+                                            @foreach (var modelPath in installedModels)
+                                            {
+                                                long sizeMb = 0;
+                                                try { sizeMb = new FileInfo(modelPath).Length / (1024 * 1024); } catch { }
+                                                string fName = Path.GetFileName(modelPath);
+                                                <div style="display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 0.25rem 0.4rem;">
+                                                    <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px;">
+                                                        <span style="font-weight: 600; color: var(--text-primary);">@fName</span>
+                                                        <span style="color: var(--text-muted); font-size: 0.65rem; margin-left: 0.3rem;">(@sizeMb MB)</span>
+                                                    </div>
+                                                    <button class="btn btn-secondary" style="padding: 0.1rem 0.35rem; font-size: 0.6rem; color: #f87171; border-color: #7f1d1d;"
+                                                            title="Delete model file from disk"
+                                                            @onclick="() => DeleteLocalModelAsync(modelPath)">
+                                                        🗑️ Delete
+                                                    </button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div style="color: var(--accent-amber); font-weight: 600; margin-bottom: 0.4rem;">
+                                        ⚠️ No local GGUF model found in Models/
+                                    </div>
+                                }
+
+                                <div style="display: flex; gap: 0.4rem; align-items: center; border-top: 1px solid #334155; padding-top: 0.4rem;">
+                                    <div style="flex: 1;">
+                                        <label class="form-label" style="font-size: 0.65rem; margin-bottom: 0.1rem;">Download Model Preset:</label>
+                                        <CustomSelect @bind-Value="_selectedDownloadModelId" Options="_downloadModelOptions" />
+                                    </div>
+                                    <button class="btn btn-primary" style="padding: 0.35rem 0.6rem; font-size: 0.65rem; align-self: flex-end;" @onclick="DownloadSlmModelAsync">
+                                        📥 Download Model
+                                    </button>
                                 </div>
                             }
                         </div>
@@ -574,15 +605,23 @@
     private bool _isDownloadingSlm;
     private double _downloadProgressPercent;
     private string _downloadProgressStatus = "";
+    private string _selectedDownloadModelId = SlmModelDownloaderService.AvailableModels[0].Id;
+    private List<CustomSelect.DropdownOption> _downloadModelOptions = SlmModelDownloaderService.AvailableModels
+        .Select(m => new CustomSelect.DropdownOption(m.Id, $"{m.DisplayName} ({m.ApproxSizeMb:F0} MB)"))
+        .ToList();
 
     private async Task DownloadSlmModelAsync()
     {
+        var targetModel = SlmModelDownloaderService.AvailableModels
+            .FirstOrDefault(m => m.Id == _selectedDownloadModelId) 
+            ?? SlmModelDownloaderService.AvailableModels[0];
+
         _isDownloadingSlm = true;
         _downloadProgressPercent = 0.01;
-        _downloadProgressStatus = "Connecting...";
+        _downloadProgressStatus = $"Connecting for {targetModel.FileName}...";
         StateHasChanged();
 
-        bool ok = await Task.Run(() => SlmModelDownloaderService.DownloadDefaultModelAsync((pct, msg) =>
+        bool ok = await Task.Run(() => SlmModelDownloaderService.DownloadModelAsync(targetModel, (pct, msg) =>
         {
             InvokeAsync(() =>
             {
@@ -595,12 +634,28 @@
         _isDownloadingSlm = false;
         if (ok)
         {
-            _detectionStatus = "✅ Qwen 2.5 3B GGUF Model downloaded & ready for local C# SLM roleplay!";
+            _detectionStatus = $"✅ {targetModel.DisplayName} downloaded & ready for local C# SLM roleplay!";
             await DetectRoleplayEngines(force: true);
         }
         else
         {
             _warningMessage = "Model download failed. Please check internet connection.";
+        }
+        StateHasChanged();
+    }
+
+    private async Task DeleteLocalModelAsync(string modelPath)
+    {
+        string fileName = Path.GetFileName(modelPath);
+        bool deleted = SlmModelDownloaderService.DeleteModelFile(modelPath);
+        if (deleted)
+        {
+            _detectionStatus = $"🗑️ Deleted model file '{fileName}'";
+            await DetectRoleplayEngines(force: true);
+        }
+        else
+        {
+            _warningMessage = $"Failed to delete '{fileName}'. Check if file is in use.";
         }
         StateHasChanged();
     }

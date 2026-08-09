@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic;
 
 public class RoleplaySessionData
@@ -29,7 +31,7 @@ public static class SessionService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[SessionService] Failed to save session: {ex.Message}");
+            AppLogger.Warning($"[SessionService] Failed to save session: {ex.Message}");
             return false;
         }
     }
@@ -44,7 +46,7 @@ public static class SessionService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[SessionService] Failed to load session from {path}: {ex.Message}");
+            AppLogger.Warning($"[SessionService] Failed to load session from {path}: {ex.Message}");
             return null;
         }
     }

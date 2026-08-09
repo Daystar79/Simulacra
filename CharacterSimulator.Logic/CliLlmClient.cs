@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,9 +26,11 @@ public class CliLlmClient : ILLMClient, IDisposable
     public int TimeoutMs { get; set; } = 180_000;
     public int MaxRetries { get; set; } = 2;
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(2);
+    public int MaxPromptLength { get; set; } = 32000;
     
     private readonly ProcessExecutor _executor;
     private readonly object _pathLock = new object();
+    private readonly CircuitBreaker _circuitBreaker;
     private string _extendedPath;
     private bool _disposed = false;
     
@@ -37,11 +40,22 @@ public class CliLlmClient : ILLMClient, IDisposable
     /// <param name="name">Client name for identification</param>
     /// <param name="executablePath">Path to the CLI executable</param>
     /// <param name="argumentsTemplate">Argument template with {0} for prompt</param>
+    /// <summary>
+    /// Circuit breaker failure threshold (default: 5 consecutive failures)
+    /// </summary>
+    public int CircuitBreakerFailureThreshold { get; set; } = 5;
+    
+    /// <summary>
+    /// Circuit breaker reset timeout (default: 1 minute)
+    /// </summary>
+    public TimeSpan CircuitBreakerResetTimeout { get; set; } = TimeSpan.FromMinutes(1);
+    
     public CliLlmClient(string name, string executablePath, string argumentsTemplate = "-p {0}")
     {
         Name = name ?? "CLI_LLM";
         ExecutablePath = executablePath ?? throw new ArgumentNullException(nameof(executablePath));
         ArgumentsTemplate = argumentsTemplate ?? "-p {0}";
+        _circuitBreaker = new CircuitBreaker(CircuitBreakerFailureThreshold, CircuitBreakerResetTimeout);
         
         try
         {
@@ -61,52 +75,97 @@ public class CliLlmClient : ILLMClient, IDisposable
     /// <summary>
     /// Synchronous prompt execution (backward compatibility)
     /// </summary>
-    public string SendPrompt(Character character, string input, string sceneContext, string goalContext = "")
+    public string SendPrompt(Character character, string input, string sceneContext, string goalContext = "", string? conversationHistory = null)
     {
         // Handle case where executor wasn't created (executable not found)
         if (_executor == null)
         {
-            return $"[CLI ERROR: {Name}] Executable not found: '{ExecutablePath}'. " +
+            return $"[{Name}] Executable not found: '{ExecutablePath}'. " +
                    "Check that it is installed and visible on PATH (GUI apps may miss ~/.local/bin).";
         }
         
-        return SendPromptAsync(character, input, sceneContext, goalContext, CancellationToken.None)
+        return SendPromptAsync(character, input, sceneContext, goalContext, CancellationToken.None, conversationHistory)
             .GetAwaiter().GetResult();
     }
     
     /// <summary>
     /// Asynchronous prompt execution with cancellation support
     /// </summary>
-    public async Task<string> SendPromptAsync(Character character, string input, string sceneContext, 
-        string goalContext = "", CancellationToken ct = default)
+    public async Task<string> SendPromptAsync(
+        Character character,
+        string input,
+        string sceneContext,
+        string goalContext = "",
+        CancellationToken ct = default,
+        string? conversationHistory = null)
     {
+        // Check circuit breaker
+        if (!_circuitBreaker.CanExecute())
+        {
+            return $"[{Name}] Circuit breaker open. Too many failures. Retry in {_circuitBreaker.TimeUntilReset.TotalSeconds:F0}s or restart.";
+        }
+        
         // Handle case where executor wasn't created (executable not found)
         if (_executor == null)
         {
-            return $"[CLI ERROR: {Name}] Executable not found: '{ExecutablePath}'. " +
+            _circuitBreaker.RecordFailure();
+            return $"[{Name}] Executable not found: '{ExecutablePath}'. " +
                    "Check that it is installed and visible on PATH (GUI apps may miss ~/.local/bin).";
         }
         
-        string prompt = PromptBuilder.BuildFullPrompt(character, input, sceneContext, goalContext);
-        return await ExecuteWithRetryAsync(prompt, ct).ConfigureAwait(false);
+        string prompt = PromptBuilder.BuildFullPrompt(character, input, sceneContext, goalContext, conversationHistory);
+        
+        if (prompt.Length > MaxPromptLength)
+        {
+            return $"[{Name}] Prompt too long ({prompt.Length} chars > {MaxPromptLength} max). Please reduce character card complexity or conversation history.";
+        }
+        
+        try
+        {
+            string raw = await ExecuteWithRetryAsync(prompt, ct).ConfigureAwait(false);
+            _circuitBreaker.RecordSuccess();
+            return LlmResponseSanitizer.ClampToFirstReply(raw);
+        }
+        catch (Exception)
+        {
+            _circuitBreaker.RecordFailure();
+            throw;
+        }
     }
 
     /// <summary>
     /// Free-form completion without RP prompt assembly (card builders, tools).
     /// </summary>
-    public Task<string> CompleteRawAsync(string prompt, CancellationToken ct = default)
+    public async Task<string> CompleteRawAsync(string prompt, CancellationToken ct = default)
     {
+        if (!_circuitBreaker.CanExecute())
+        {
+            return $"[{Name}] Circuit breaker open. Too many failures. Retry in {_circuitBreaker.TimeUntilReset.TotalSeconds:F0}s or restart.";
+        }
+
         if (_executor == null)
         {
-            return Task.FromResult(
-                $"[CLI ERROR: {Name}] Executable not found: '{ExecutablePath}'. " +
-                "Check that it is installed and visible on PATH (GUI apps may miss ~/.local/bin).");
+            _circuitBreaker.RecordFailure();
+            return $"[{Name}] Executable not found: '{ExecutablePath}'. Check that it is installed and visible on PATH (GUI apps may miss ~/.local/bin).";
         }
 
         if (string.IsNullOrWhiteSpace(prompt))
-            return Task.FromResult("[CLI ERROR] Empty prompt.");
+            return $"[{Name}] Empty prompt.";
+        
+        if (prompt.Length > MaxPromptLength)
+            return $"[{Name}] Prompt too long ({prompt.Length} chars > {MaxPromptLength} max).";
 
-        return ExecuteWithRetryAsync(prompt, ct);
+        try
+        {
+            var result = await ExecuteWithRetryAsync(prompt, ct).ConfigureAwait(false);
+            _circuitBreaker.RecordSuccess();
+            return result;
+        }
+        catch (Exception)
+        {
+            _circuitBreaker.RecordFailure();
+            throw;
+        }
     }
     
     /// <summary>
@@ -169,17 +228,17 @@ public class CliLlmClient : ILLMClient, IDisposable
             return result.ExitReason switch
             {
                 ProcessExitReason.FileNotFound => 
-                    $"[CLI ERROR: {Name}] Executable not found: '{ExecutablePath}'. " +
+                    $"[{Name}] Executable not found: '{ExecutablePath}'. " +
                     "Check that it is installed and visible on PATH (GUI apps may miss ~/.local/bin).",
                 ProcessExitReason.PermissionDenied => 
-                    $"[CLI ERROR: {Name}] Permission denied executing '{Path.GetFileName(ExecutablePath)}'.",
+                    $"[{Name}] Permission denied executing '{Path.GetFileName(ExecutablePath)}'.",
                 ProcessExitReason.Timeout => 
-                    $"[CLI ERROR: {Name}] Timed out after {TimeoutMs / 1000}s waiting for '{Path.GetFileName(ExecutablePath)}'. " +
+                    $"[{Name}] Timed out after {TimeoutMs / 1000}s waiting for '{Path.GetFileName(ExecutablePath)}'. " +
                     "The provider may be waiting for tool approval or network. Try again or use Mock.",
                 ProcessExitReason.Cancelled => 
-                    $"[CLI ERROR: {Name}] Operation cancelled by user request.",
+                    $"[{Name}] Operation cancelled by user request.",
                 _ => 
-                    $"[CLI ERROR: {Name}] Exit {result.ExitCode} with empty stdout/stderr."
+                    $"[{Name}] Exit {result.ExitCode} with empty stdout/stderr."
             };
         }
         
@@ -196,7 +255,7 @@ public class CliLlmClient : ILLMClient, IDisposable
             return FormatCliError(result.ExitCode, result.StandardError);
         }
         
-        return result.ErrorMessage ?? $"[CLI ERROR: {Name}] Unknown error with exit code {result.ExitCode}";
+        return result.ErrorMessage ?? $"[{Name}] Unknown error with exit code {result.ExitCode}";
     }
     
     /// <summary>
@@ -206,10 +265,10 @@ public class CliLlmClient : ILLMClient, IDisposable
     {
         return ex switch
         {
-            TimeoutException => $"[CLI ERROR: {Name}] Request timed out after multiple attempts",
-            FileNotFoundException fnf => $"[CLI ERROR: {Name}] {fnf.Message}",
-            OperationCanceledException => $"[CLI ERROR: {Name}] Operation was cancelled",
-            _ => $"[CLI ERROR: {Name}] Unexpected error: {ex.Message}"
+            TimeoutException => $"[{Name}] Request timed out after multiple attempts",
+            FileNotFoundException fnf => $"[{Name}] {fnf.Message}",
+            OperationCanceledException => $"[{Name}] Operation was cancelled",
+            _ => $"[{Name}] Unexpected error: {ex.Message}"
         };
     }
     
@@ -218,7 +277,7 @@ public class CliLlmClient : ILLMClient, IDisposable
     /// </summary>
     private string FormatMaxRetriesError(Exception lastException)
     {
-        return $"[CLI ERROR: {Name}] Failed after {MaxRetries + 1} attempts. " +
+        return $"[{Name}] Failed after {MaxRetries + 1} attempts. " +
                (lastException != null ? lastException.Message : "Unknown error");
     }
     
@@ -263,8 +322,12 @@ public class CliLlmClient : ILLMClient, IDisposable
         if (!string.IsNullOrEmpty(home))
             parts.Insert(0, Path.Combine(home, ".local", "bin"));
         
-        parts.Insert(0, "/usr/local/bin");
-        parts.Insert(0, "/usr/bin");
+        // Add Unix paths only on Unix-like systems
+        if (!OperatingSystem.IsWindows())
+        {
+            parts.Insert(0, "/usr/local/bin");
+            parts.Insert(0, "/usr/bin");
+        }
         
         // Remove duplicates while preserving order
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -290,7 +353,7 @@ public class CliLlmClient : ILLMClient, IDisposable
             msg.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("subscription", StringComparison.OrdinalIgnoreCase))
         {
-            return $"[CLI ERROR: {Name}] Quota/limit: {msg}";
+            return $"[{Name}] Quota/limit: {msg}";
         }
         
         if (msg.Contains("auth", StringComparison.OrdinalIgnoreCase) ||
@@ -298,10 +361,10 @@ public class CliLlmClient : ILLMClient, IDisposable
             msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("api key", StringComparison.OrdinalIgnoreCase))
         {
-            return $"[CLI ERROR: {Name}] Auth: {msg}";
+            return $"[{Name}] Auth: {msg}";
         }
         
-        return $"[CLI ERROR: {Name}] Exit {code}: {msg}";
+        return $"[{Name}] Exit {code}: {msg}";
     }
     
     /// <summary>

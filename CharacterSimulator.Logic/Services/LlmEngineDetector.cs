@@ -40,9 +40,9 @@ public class LlmEngineDetector
         bool slmFound = SlmModelDownloaderService.HasAnyGgufModel();
         engines.Add(new DetectedLlmEngine(
             "LlamaSharp",
-            "💻 Embedded C# SLM (LLamaSharp)",
+            "💻 Embedded C# SLM (LLamaSharp · Uncensored Dolphin)",
             true, // C# engine is compiled natively into the host
-            slmFound ? "GGUF model ready in Models/" : "No .gguf model in Models/ (Download available)"
+            slmFound ? "GGUF Dolphin model ready in Models/" : "No .gguf model in Models/ (Download available)"
         ));
 
         // 1. Check AGY (Antigravity CLI / API)

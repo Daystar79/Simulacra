@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Text.Json;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic;
 
 public class AppSettings
@@ -64,7 +66,7 @@ public static class AppConfigService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("[AppConfigService] LoadSettings: " + ex.Message);
+            AppLogger.Warning("[AppConfigService] LoadSettings: " + ex.Message);
         }
         return new AppSettings();
     }
@@ -81,7 +83,7 @@ public static class AppConfigService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("[AppConfigService] SaveSettings: " + ex.Message);
+            AppLogger.Warning("[AppConfigService] SaveSettings: " + ex.Message);
         }
     }
 

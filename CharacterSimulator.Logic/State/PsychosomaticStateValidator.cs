@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic.State;
 
 public class ValidationResult
@@ -306,7 +308,7 @@ public static class PsychosomaticStateValidator
         var validationResult = Validate(snapshot);
         if (!validationResult.IsValid)
         {
-            System.Diagnostics.Debug.WriteLine($"[PsychosomaticStateValidator] Validation failed after sanitize: " + 
+            AppLogger.Warning($"[PsychosomaticStateValidator] Validation failed after sanitize: " + 
                 string.Join("; ", validationResult.Errors));
             return false;
         }
@@ -342,7 +344,7 @@ public static class PsychosomaticStateValidator
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[PsychosomaticStateValidator] Apply failed: {ex.Message}");
+            AppLogger.Warning($"[PsychosomaticStateValidator] Apply failed: {ex.Message}");
             return false;
         }
     }

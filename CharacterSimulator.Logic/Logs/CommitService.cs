@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic.Logs;
 
 /// <summary>
@@ -42,7 +44,7 @@ public class CommitService
         DurableLogStore.SaveLog(logPath, log);
         character.DurableLog = log;
 
-        System.Diagnostics.Debug.WriteLine($"[CommitService] Committed durable log for '{character.Name}' to '{logPath}' on {triggerReason}.");
+        AppLogger.Warning($"[CommitService] Committed durable log for '{character.Name}' to '{logPath}' on {triggerReason}.");
     }
 
     public static void CommitSession(Character charA, Character? charB, string sceneContext, string movementId = "session_close")
@@ -96,6 +98,6 @@ public class CommitService
         // Save to disk
         DurableLogStore.SaveLog(logPath, character.DurableLog);
 
-        System.Diagnostics.Debug.WriteLine($"[CommitService] Explicit save for '{character.Name}' to '{logPath}'.");
+        AppLogger.Warning($"[CommitService] Explicit save for '{character.Name}' to '{logPath}'.");
     }
 }

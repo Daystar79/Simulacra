@@ -76,14 +76,18 @@ public class SimulationHostTests
         var host = new SimulationHost(control);
         host.SetStagedCharacter(card);
         var lines = new List<DialogueLine>();
-        host.OnDialogueLine += lines.Add;
+        var sync = new object();
+        host.OnDialogueLine += l => { lock (sync) lines.Add(l); };
 
         host.Play();
         // Wait for background session
         for (int i = 0; i < 100 && host.IsSessionRunning; i++)
             await Task.Delay(50);
 
-        Assert.True(lines.Count > 0, "Expected at least system start line");
-        Assert.Contains(lines, l => !l.IsSystem && l.SpeakerName != "Player");
+        List<DialogueLine> snapshot;
+        lock (sync) snapshot = lines.ToList();
+
+        Assert.True(snapshot.Count > 0, "Expected at least system start line");
+        Assert.Contains(snapshot, l => !l.IsSystem && l.SpeakerName != "Player");
     }
 }

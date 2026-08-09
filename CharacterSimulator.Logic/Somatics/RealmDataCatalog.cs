@@ -5,6 +5,8 @@ using System.Linq;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
+using static CharacterSimulator.Logic.AppLogger;
+
 namespace CharacterSimulator.Logic.Somatics;
 
 public class VocalBehavior
@@ -83,17 +85,17 @@ public static class RealmDataCatalog
                             }
                         }
                         _loaded = true;
-                        System.Diagnostics.Debug.WriteLine($"[RealmDataCatalog] Loaded realm_data.yaml from: {selectedPath}");
+                        AppLogger.Warning($"[RealmDataCatalog] Loaded realm_data.yaml from: {selectedPath}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[RealmDataCatalog] Failed loading realm_data.yaml: {ex.Message}");
+                    AppLogger.Warning($"[RealmDataCatalog] Failed loading realm_data.yaml: {ex.Message}");
                 }
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[RealmDataCatalog] Warning: No realm_data.yaml found in any search path");
+                AppLogger.Warning($"[RealmDataCatalog] Warning: No realm_data.yaml found in any search path");
             }
         }
     }

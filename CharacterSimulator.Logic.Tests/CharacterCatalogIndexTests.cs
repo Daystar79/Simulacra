@@ -5,8 +5,11 @@ using CharacterSimulator.Logic;
 using CharacterSimulator.Logic.Data.Db;
 using Xunit;
 
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
 namespace CharacterSimulator.Logic.Tests;
 
+[Collection("StaticStateTests")]
 public class CharacterCatalogIndexTests
 {
     [Fact]

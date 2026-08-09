@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace CharacterSimulator.Logic;
 
@@ -221,9 +222,13 @@ public static class LlmDiscoveryService
         if (!string.IsNullOrEmpty(home))
             searchDirs.Insert(0, Path.Combine(home, ".local", "bin"));
 
-        searchDirs.Add("/usr/local/bin");
-        searchDirs.Add("/usr/bin");
-        searchDirs.Add("/bin");
+        // Add Unix paths only on Unix-like systems
+        if (!OperatingSystem.IsWindows())
+        {
+            searchDirs.Add("/usr/local/bin");
+            searchDirs.Add("/usr/bin");
+            searchDirs.Add("/bin");
+        }
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var dir in searchDirs)

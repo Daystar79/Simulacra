@@ -4,6 +4,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using CharacterSimulator.Logic.Safety;
 
+using static CharacterSimulator.Logic.SimulationConstants;
+
 namespace CharacterSimulator.Logic;
 
 /// <summary>
@@ -199,15 +201,15 @@ public sealed class SimulationHost
     public void SetRoleplayMode(string mode)
     {
         var settings = _control.CurrentSettings ?? new AppSettings();
-        bool auto = mode.Equals("AutoPlay", StringComparison.OrdinalIgnoreCase)
+        bool auto = mode.Equals(ModeAutoPlay, StringComparison.OrdinalIgnoreCase)
                     || mode.Contains("Auto", StringComparison.OrdinalIgnoreCase);
-        settings.RoleplayMode = auto ? "AutoPlay" : "PlayerGuided";
+        settings.RoleplayMode = auto ? ModeAutoPlay : ModePlayerGuided;
         _control.UpdateSettings(settings);
-        string badge = auto ? "🤖 Auto-Play" : "🎮 Player-Guided";
+        string badge = auto ? ModeDisplayAutoPlay : ModeDisplayPlayerGuided;
         OnModeChanged?.Invoke(badge);
         PostSystem(auto
-            ? "Mode: Auto-Play (turns advance on delay)."
-            : "Mode: Player-Guided (pauses after each turn; Send or Step to continue).");
+            ? ModeDescriptionAutoPlay
+            : ModeDescriptionPlayerGuided);
     }
 
     // ── commands ──────────────────────────────────────────────────────────
@@ -335,7 +337,7 @@ public sealed class SimulationHost
         lock (_gate)
         {
             if (_turnManager != null)
-                _turnManager.InjectUserInput("Player", line);
+                _turnManager.InjectUserInput(RolePlayer, line);
             else
                 _pendingInject = line;
         }
@@ -358,6 +360,8 @@ public sealed class SimulationHost
         TurnManager manager;
         string scene;
         int maxTurns;
+        bool isPlayerSession = false;
+        int effectiveMaxTurns = 0;
 
         try
         {
@@ -411,8 +415,11 @@ public sealed class SimulationHost
             if (maxTurns < 4) maxTurns = 4;
             if (maxTurns > 200) maxTurns = 200;
 
-            bool playerGuided = !string.Equals(settings.RoleplayMode, "AutoPlay", StringComparison.OrdinalIgnoreCase);
+            bool playerGuided = !string.Equals(settings.RoleplayMode, ModeAutoPlay, StringComparison.OrdinalIgnoreCase);
             _pauseAfterEachTurn = playerGuided || stepOnce;
+
+            isPlayerSession = playerGuided || charB == null || (charB != null && string.Equals(charB.Name, "None", StringComparison.OrdinalIgnoreCase));
+            effectiveMaxTurns = isPlayerSession ? int.MaxValue : maxTurns;
 
             string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Output");
             Directory.CreateDirectory(logDir);
@@ -451,12 +458,14 @@ public sealed class SimulationHost
             }
 
             if (!string.IsNullOrEmpty(inject))
-                manager.InjectUserInput("Player", inject);
+                manager.InjectUserInput(RolePlayer, inject);
 
-            string vs = charB?.Name ?? "Player (solo)";
+            string vs = charB?.Name ?? RolePlayer + " (solo)";
+            string turnsDisplay = isPlayerSession ? "Uncapped (Player Session)" : $"{maxTurns} (AI-vs-AI Cap)";
+
             PostSystem($"▶ Starting: {charA.Name} vs {vs} | LLM: {providerA}" +
                        (charB != null ? $" / {providerB}" : "") +
-                       $" | Mode: {(playerGuided ? "Player-Guided" : "Auto-Play")} | Turns: {maxTurns}");
+                       $" | Mode: {(playerGuided ? ModeDisplayPlayerGuided : ModeDisplayAutoPlay)} | Turns: {turnsDisplay}");
             OnLog?.Invoke($"Log: {logPath}");
             OnStatus?.Invoke($"Running: {charA.Name}");
             OnCharacterStateChanged?.Invoke();
@@ -474,13 +483,15 @@ public sealed class SimulationHost
         {
             try
             {
-                await manager.RunConversationAsync(charA, charB, scene, maxTurns, _control)
+                await manager.RunConversationAsync(charA, charB, scene, effectiveMaxTurns, _control)
                     .ConfigureAwait(false);
 
                 if (_control.CancellationToken.IsCancellationRequested)
                     PostSystem("Session ended (stopped).");
+                else if (isPlayerSession)
+                    PostSystem("Session ended.");
                 else
-                    PostSystem($"Simulation complete ({maxTurns} turn cap). Play or Send to start again.");
+                    PostSystem($"Simulation complete ({maxTurns} AI-vs-AI turn cap). Play or Send to start again.");
             }
             catch (OperationCanceledException)
             {

@@ -98,7 +98,7 @@ public class InstalledEngineRepository
     public void ReplaceCategory(string category, IReadOnlyList<InstalledEngineRecord> rows)
     {
         if (string.IsNullOrWhiteSpace(category))
-            throw new ArgumentException("category required", nameof(category));
+            throw new ArgumentException("Category cannot be null or empty", nameof(category));
 
         lock (_conn)
         {

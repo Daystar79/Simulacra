@@ -59,3 +59,105 @@ public class Logger
     public void LogGoalFailure(string character, string goalType, string target) =>
         SafeAppend($"[GOAL FAILURE] {character} failed {goalType} with {target}.\n");
 }
+
+/// <summary>
+/// Centralized application logging with multiple output targets
+/// </summary>
+public static class AppLogger
+{
+    private static readonly object _consoleLock = new object();
+    private static readonly object _debugLock = new object();
+    
+    /// <summary>
+    /// Log levels for filtering
+    /// </summary>
+    public enum LogLevel
+    {
+        Debug,
+        Info,
+        Warning,
+        Error,
+        Critical
+    }
+    
+    /// <summary>
+    /// Minimum log level to output (default: Info)
+    /// </summary>
+    public static LogLevel MinLogLevel { get; set; } = LogLevel.Info;
+    
+    /// <summary>
+    /// Whether to log to Debug output
+    /// </summary>
+    public static bool LogToDebug { get; set; } = true;
+    
+    /// <summary>
+    /// Whether to log to console
+    /// </summary>
+    public static bool LogToConsole { get; set; } = true;
+    
+    /// <summary>
+    /// Log a message with the specified level
+    /// </summary>
+    public static void Log(LogLevel level, string message, Exception? exception = null)
+    {
+        if (level < MinLogLevel) return;
+        
+        string formattedMessage = FormatMessage(level, message, exception);
+        
+        if (LogToDebug)
+        {
+            lock (_debugLock)
+            {
+                System.Diagnostics.Debug.WriteLine(formattedMessage);
+            }
+        }
+        
+        if (LogToConsole)
+        {
+            lock (_consoleLock)
+            {
+                Console.WriteLine(formattedMessage);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Log debug message
+    /// </summary>
+    public static void Debug(string message) => Log(LogLevel.Debug, message);
+    
+    /// <summary>
+    /// Log information message
+    /// </summary>
+    public static void Info(string message) => Log(LogLevel.Info, message);
+    
+    /// <summary>
+    /// Log warning message
+    /// </summary>
+    public static void Warning(string message) => Log(LogLevel.Warning, message);
+    
+    /// <summary>
+    /// Log error message
+    /// </summary>
+    public static void Error(string message, Exception? exception = null) => Log(LogLevel.Error, message, exception);
+    
+    /// <summary>
+    /// Log critical message
+    /// </summary>
+    public static void Critical(string message, Exception? exception = null) => Log(LogLevel.Critical, message, exception);
+    
+    private static string FormatMessage(LogLevel level, string message, Exception? exception)
+    {
+        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        string levelStr = level.ToString().ToUpper();
+        
+        string baseMessage = $"[{timestamp}] [{levelStr}] {message}";
+        
+        if (exception != null)
+        {
+            baseMessage += $"\n[EXCEPTION] {exception.GetType().Name}: {exception.Message}\n{exception.StackTrace}";
+        }
+        
+        return baseMessage;
+    }
+}

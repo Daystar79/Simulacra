@@ -8,27 +8,13 @@ namespace CharacterSimulator.Logic.Services;
 
 public class ProfileService : IDisposable
 {
-    private static readonly object SyncLock = new();
-    private static ProfileService? _instance;
+    private static readonly Lazy<ProfileService> _lazyInstance = new Lazy<ProfileService>(() => new ProfileService());
     private bool _disposed = false;
 
-    public static bool HasInstance => _instance != null;
-    public static UserProfile? ActiveProfileOrNull => _instance?.ActiveProfile;
+    public static bool HasInstance => _lazyInstance.IsValueCreated;
+    public static UserProfile? ActiveProfileOrNull => _lazyInstance.Value.ActiveProfile;
 
-    public static ProfileService Instance
-    {
-        get
-        {
-            if (_instance == null)
-            {
-                lock (SyncLock)
-                {
-                    _instance ??= new ProfileService();
-                }
-            }
-            return _instance;
-        }
-    }
+    public static ProfileService Instance => _lazyInstance.Value;
 
     private readonly SqliteConnection _conn;
     private readonly ProfileRepository _profileRepo;

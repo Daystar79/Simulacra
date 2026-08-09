@@ -14,11 +14,15 @@ public class MockLLMClient : ILLMClient
 {
     private static readonly Random _rng = new();
 
-    public string SendPrompt(Character character, string input, string sceneContext, string goalContext = "")
+    public string SendPrompt(Character character, string input, string sceneContext, string goalContext = "", string? conversationHistory = null)
     {
+        if (character == null) throw new ArgumentNullException(nameof(character));
+        
+        // History is host-owned; mock still keys off the latest stimulus only.
+        _ = conversationHistory;
         string inputLower = (input ?? "").ToLowerInvariant();
         string appearanceCue = FirstAppearanceCue(character);
-        string voiceHint = character.Attributes.GetValueOrDefault("voice", "");
+        string voiceHint = character.Attributes?.GetValueOrDefault("voice", "") ?? "";
         string bioSnippet = FirstSentence(character.Bio);
         string sceneNote = string.IsNullOrWhiteSpace(sceneContext)
             ? "this place"
@@ -94,7 +98,7 @@ public class MockLLMClient : ILLMClient
         }
 
         // Soft-apply hard bans: if mock line violates a known ban keyword, fall back
-        if (character.Attributes.TryGetValue("hard_bans", out var bans) && !string.IsNullOrWhiteSpace(bans))
+        if (character.Attributes?.TryGetValue("hard_bans", out var bans) == true && !string.IsNullOrWhiteSpace(bans))
         {
             // Mock lines are written to be generic; no action needed beyond not inventing banned registers.
             _ = bans;
@@ -164,10 +168,16 @@ public class MockLLMClient : ILLMClient
         return lines[idx];
     }
     
-    public Task<string> SendPromptAsync(Character character, string input, string sceneContext, string goalContext = "", CancellationToken ct = default)
+    public Task<string> SendPromptAsync(
+        Character character,
+        string input,
+        string sceneContext,
+        string goalContext = "",
+        CancellationToken ct = default,
+        string? conversationHistory = null)
     {
         // Mock client is synchronous and fast, so just return completed task
-        return Task.FromResult(SendPrompt(character, input, sceneContext, goalContext));
+        return Task.FromResult(SendPrompt(character, input, sceneContext, goalContext, conversationHistory));
     }
 
     public Task<string> CompleteRawAsync(string prompt, CancellationToken ct = default)

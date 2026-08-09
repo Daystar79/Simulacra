@@ -1,6 +1,18 @@
 # TODO — New features & product roadmap
 
-Work that is **not** bugfix (see `fixme.md`). Ordered for a friend-testable build first.
+Work that is **not** bugfix (see `fixme.md` and `to_do.md`). Ordered for a friend-testable build first.
+
+### [x] Local SLM & Embedded Dolphin Prompt Builder
+- [x] Broken out local model / embedded SLM prompt builder into `LocalSlmPromptBuilder.cs`
+- [x] Supports Dolphin 3.0 (`LocalSlmFormat.Dolphin`), ChatML (`<|im_start|>`), Llama3 (`<|start_header_id|>`), Alpaca, and Plaintext formats
+- [x] Auto-detects Dolphin and Llama3 models from GGUF file paths / names (`DetectFormat`)
+- [x] Created `CharacterRuntime_Dolphin.md` in `/mnt/Books/Source/CharacterSimulator/Simulator/`
+- [x] Context-aware transcript trimming (6 lines max) and top-of-system safety mandate placement
+- [x] Integrated into `LlamaSharpLlmClient` and `OllamaLlmClient`
+- [x] Model Downloader Catalog with Dolphin 3.0 1B/3B, HuggingFace CDN redirect fixes, user-agent headers, and disk deletion manager
+- [x] Token Offloading pass: C# deterministic bond/goal/somatic inference, trimmed baselines & memories
+- [x] Formatting Hygiene: Clamped prompt leaks (`[Player]:`), bracket unwrapping, and styled narration prose CSS
+
 
 Architecture reminder:
 

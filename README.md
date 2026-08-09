@@ -31,7 +31,7 @@ Upstream cognitive / card **schemas** live in **CharacterSimulator** (or Cogniti
 
 | Project | Role |
 |:---|:---|
-| `CharacterSimulator.GUI` | Photino + Blazor desktop shell (**Simulacra**) — **images** (left) · dialogue (center) · character + scene controls (right) |
+| `CharacterSimulator.GUI` | Photino + Blazor desktop shell (**Simulacra**) — **stage still** (left: physical + scene, one button) · dialogue (center) · character + scene controls (right) |
 | `CharacterSimulator.Logic` | Host services: cards, catalog, safety, prompts, images, SQLite |
 | `CharacterSimulator.Logic.Tests` | xUnit tests |
 | `Characters/` | Card templates + sample cast (JSON/MD) |

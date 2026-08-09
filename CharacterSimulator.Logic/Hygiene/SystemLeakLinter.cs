@@ -68,9 +68,11 @@ public static class SystemLeakLinter
                     Message = pattern.Description
                 });
             }
-            if (matches.Count > 0)
+
+            // Strip framework jargon, engine terms, AI safety preachiness, and OOC leaks (preserve natural dialogue words)
+            if (pattern.Category != "Psychological Labels (Therapy Speak)" && matches.Count > 0)
             {
-                currentText = pattern.Regex.Replace(currentText, "[REDACTED]");
+                currentText = pattern.Regex.Replace(currentText, "").Trim();
             }
         }
 

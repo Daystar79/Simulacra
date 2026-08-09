@@ -45,6 +45,83 @@ public static class CharacterPortraitService
     }
 
     /// <summary>
+    /// Try to resolve an emotion-specific portrait sprite URI for a character and emotion name
+    /// (e.g. cardId="kira", emotion="Smirking" -> looks for kira_smirking.png or DB record "kira_smirking").
+    /// Returns null if no emotion-specific sprite file or DB record is found.
+    /// </summary>
+    public static string? TryGetExpressionDataUri(string cardId, string? emotion)
+    {
+        if (string.IsNullOrWhiteSpace(cardId) || string.IsNullOrWhiteSpace(emotion)) return null;
+
+        string normEmotion = emotion.Trim().ToLowerInvariant()
+            .Replace(" ", "_")
+            .Replace("-", "_");
+
+        string key = $"{cardId}_{normEmotion}";
+
+        CharacterPortraitRepository? repo;
+        lock (BindLock) repo = _portraits;
+        if (repo != null)
+        {
+            string? uri = repo.GetDataUri(key);
+            if (!string.IsNullOrEmpty(uri))
+                return uri;
+        }
+
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string charDir = CharacterCatalog.ResolveCharactersDirectory();
+        string[] candidates = new[]
+        {
+            System.IO.Path.Combine(baseDir, "Assets", "Portraits", key + ".png"),
+            System.IO.Path.Combine(baseDir, "Assets", "Portraits", key + ".jpg"),
+            System.IO.Path.Combine(baseDir, "Assets", "Portraits", key + ".jpeg"),
+            System.IO.Path.Combine(baseDir, "Assets", "Portraits", cardId, normEmotion + ".png"),
+            System.IO.Path.Combine(baseDir, "Assets", "Portraits", cardId, normEmotion + ".jpg"),
+            System.IO.Path.Combine(charDir, key + ".png"),
+            System.IO.Path.Combine(charDir, key + ".jpg"),
+            System.IO.Path.Combine(charDir, cardId, normEmotion + ".png"),
+            System.IO.Path.Combine(charDir, cardId, normEmotion + ".jpg")
+        };
+
+        foreach (var file in candidates)
+        {
+            if (System.IO.File.Exists(file))
+            {
+                try
+                {
+                    byte[] bytes = System.IO.File.ReadAllBytes(file);
+                    string mime = file.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
+                    if (repo != null)
+                        return SavePortrait(key, bytes, mime);
+                    else
+                        return $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+                }
+                catch { }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves best available display URI for a character:
+    /// Emotion sprite URI if available -> Base character portrait URI -> null.
+    /// </summary>
+    public static string? GetBestPortraitUri(string cardId, string? emotion = null)
+    {
+        if (string.IsNullOrWhiteSpace(cardId)) return null;
+
+        if (!string.IsNullOrWhiteSpace(emotion))
+        {
+            string? exprUri = TryGetExpressionDataUri(cardId, emotion);
+            if (!string.IsNullOrEmpty(exprUri))
+                return exprUri;
+        }
+
+        return TryGetStoredDataUri(cardId);
+    }
+
+    /// <summary>
     /// Resolve display URI for a card: DB BLOB → data URI; else disk cache file → auto-import to DB; else null.
     /// </summary>
     public static string? TryGetStoredDataUri(string cardId)
@@ -207,7 +284,14 @@ public static class CharacterPortraitService
                     engine.ToString());
             }
 
-            // Fallback: remote URL only (not persisted as BLOB)
+            if (!string.IsNullOrEmpty(result.DisplayUri))
+            {
+                string? saved = await SaveFromDataUriOrUrlAsync(cardId, result.DisplayUri, appearancePrompt, engine.ToString(), ct)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(saved))
+                    return saved;
+            }
+
             return result.DisplayUri ?? "";
         }
         catch (OperationCanceledException)
@@ -262,6 +346,42 @@ public static class CharacterPortraitService
         }
 
         // Non-data URI: leave as remote src; no BLOB without download
+        return dataUriOrUrl;
+    }
+
+    /// <summary>
+    /// Persist a data-URI or download a remote http/https URL and store as SQLite BLOB & cache file.
+    /// </summary>
+    public static async Task<string?> SaveFromDataUriOrUrlAsync(
+        string cardId,
+        string dataUriOrUrl,
+        string? prompt = null,
+        string? engine = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(cardId) || string.IsNullOrWhiteSpace(dataUriOrUrl))
+            return null;
+
+        string? result = SaveFromDataUriOrUrl(cardId, dataUriOrUrl, prompt, engine);
+        if (result != null && result.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return result;
+
+        if ((dataUriOrUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+             dataUriOrUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) && HasStore)
+        {
+            try
+            {
+                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                byte[] bytes = await http.GetByteArrayAsync(dataUriOrUrl, ct).ConfigureAwait(false);
+                if (bytes is { Length: > 0 })
+                {
+                    string mime = dataUriOrUrl.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
+                    return SavePortrait(cardId, bytes, mime, prompt, engine);
+                }
+            }
+            catch { }
+        }
+
         return dataUriOrUrl;
     }
 }

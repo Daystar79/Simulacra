@@ -15,7 +15,7 @@
         IsGenerating="@_isGeneratingStage"
         IsCharacterLoaded="@_isCharacterLoaded"
         CharName="@_charName"
-        OnGenerate="GenerateStageArtwork"
+        OnGenerate="() => GenerateStageArtwork(forceRegenerate: true)"
         OnOpenImagingSettings="GeneratePortraitImage" />
 
     <DialoguePanel
@@ -63,6 +63,7 @@
     <GeneratePortraitModal
         CardFileName="@_selectedCharFile"
         CharacterAppearance="@BuildPortraitAppearance()"
+        OnPortraitGenerated="OnPortraitGeneratedFromModal"
         OnClosed="OnPortraitModalClosed"
         OnOpenSetup="OpenSetupFromPortraitModal" />
 }
@@ -168,8 +169,21 @@
     /// <summary>
     /// One left-rail still: physical + style of the loaded character composited into the scene.
     /// </summary>
-    private async Task GenerateStageArtwork()
+    private async Task GenerateStageArtwork(bool forceRegenerate = false)
     {
+        string cardId = _isCharacterLoaded ? CharacterCatalog.GetCardId(_selectedCharFile) : "";
+
+        if (!forceRegenerate && !string.IsNullOrEmpty(cardId))
+        {
+            string? stored = CharacterPortraitService.TryGetStoredDataUri(cardId);
+            if (!string.IsNullOrEmpty(stored))
+            {
+                _stageImagePath = stored;
+                await ApplySceneBackdropAsync(_stageImagePath);
+                return;
+            }
+        }
+
         PersistSceneFields();
         _isGeneratingStage = true;
         using var busy = BusyTaskService.BeginTask("stage_artwork",
@@ -199,10 +213,31 @@
                 characterPhysical: appearance,
                 artStyleId: artStyleId);
 
-            _stageImagePath = await AiImageGeneratorService.GeneratePortraitAsync(
-                stagePrompt, "stage_still", engineEnum, imageModel,
+            string slug = !string.IsNullOrEmpty(cardId) ? cardId : "stage_still";
+
+            var result = await AiImageGeneratorService.GeneratePortraitDetailedAsync(
+                stagePrompt, slug, engineEnum, default, imageModel,
                 allowPollinationsFallback: true, artStyleId: artStyleId, applyArtStyle: false);
 
+            string imageUri = result.DisplayUri;
+
+            if (!string.IsNullOrEmpty(cardId) && CharacterPortraitService.HasStore)
+            {
+                if (result.ImageBytes != null && result.ImageBytes.Length > 0)
+                {
+                    imageUri = CharacterPortraitService.SavePortrait(
+                        cardId, result.ImageBytes, result.MimeType, stagePrompt, engineEnum.ToString());
+                }
+                else if (!string.IsNullOrEmpty(result.DisplayUri))
+                {
+                    string? saved = await CharacterPortraitService.SaveFromDataUriOrUrlAsync(
+                        cardId, result.DisplayUri, stagePrompt, engineEnum.ToString());
+                    if (!string.IsNullOrEmpty(saved))
+                        imageUri = saved;
+                }
+            }
+
+            _stageImagePath = imageUri;
             await ApplySceneBackdropAsync(_stageImagePath);
 
             _outputLogs.Add(new LogEntryModel
@@ -210,7 +245,7 @@
                 Timestamp = DateTime.Now,
                 Message = $"Stage image · {SceneGenreCatalog.GetById(_selectedGenre).DisplayName} · " +
                           $"style {ImageArtStyleCatalog.GetById(artStyleId).DisplayName}" +
-                          (_isCharacterLoaded ? $" · {_charName} (physical+style in scene)" : " · environment only") +
+                          (_isCharacterLoaded ? $" · {_charName} (saved portrait)" : " · environment only") +
                           " · app backdrop updated",
                 LevelClass = "log-success"
             });
@@ -458,8 +493,26 @@
 
             StateHasChanged();
 
-            // Rebuild combined stage still (physical + scene) for the left rail
-            _ = GenerateStageArtwork();
+            string cardId = CharacterCatalog.GetCardId(fileName);
+            string? storedPortrait = !string.IsNullOrEmpty(cardId) 
+                ? CharacterPortraitService.GetBestPortraitUri(cardId, SimHost.CharacterA?.Emotion) 
+                : null;
+
+            if (!string.IsNullOrEmpty(storedPortrait))
+            {
+                _stageImagePath = storedPortrait;
+                await ApplySceneBackdropAsync(_stageImagePath);
+                _outputLogs.Add(new LogEntryModel
+                {
+                    Timestamp = DateTime.Now,
+                    Message = $"Loaded saved portrait for {info.Name}",
+                    LevelClass = "log-info"
+                });
+            }
+            else
+            {
+                _ = GenerateStageArtwork(forceRegenerate: false);
+            }
         }
         catch (Exception ex)
         {
@@ -467,7 +520,7 @@
             _outputLogs.Add(new LogEntryModel
             {
                 Timestamp = DateTime.Now,
-                Message = $"Skipped character load ({fileName}): {ex.Message}",
+                Message = $"Failed to load character {fileName}: {ex.Message}",
                 LevelClass = "log-error"
             });
         }
@@ -530,6 +583,18 @@
                 IsLeft = line.IsLeft,
                 IsSystem = line.IsSystem
             });
+
+            if (_isCharacterLoaded && SimHost.CharacterA != null)
+            {
+                string cardId = CharacterCatalog.GetCardId(_selectedCharFile);
+                string? bestPortrait = CharacterPortraitService.GetBestPortraitUri(cardId, SimHost.CharacterA.Emotion);
+                if (!string.IsNullOrEmpty(bestPortrait) && bestPortrait != _stageImagePath)
+                {
+                    _stageImagePath = bestPortrait;
+                    _ = ApplySceneBackdropAsync(_stageImagePath);
+                }
+            }
+
             RequestScrollPanels();
             StateHasChanged();
         });
@@ -742,6 +807,16 @@
     {
         _showGeneratePortraitModal = true;
         await Task.CompletedTask;
+    }
+
+    private async Task OnPortraitGeneratedFromModal(string imagePath)
+    {
+        if (!string.IsNullOrEmpty(imagePath))
+        {
+            _stageImagePath = imagePath;
+            await ApplySceneBackdropAsync(_stageImagePath);
+            StateHasChanged();
+        }
     }
 
     private void OnPortraitModalClosed()

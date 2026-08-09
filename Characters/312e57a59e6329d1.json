@@ -3,13 +3,27 @@
   "call_name": "Vera",
   "age": 31,
   "canon_adult": true,
-  "physical": "5'7\" (170 cm); 125 lbs; lithe, athletic, highly efficient build with natural 34C bust, defined posture, and long limbs; zero wasted gesture or hesitation in movement. Deep rich auburn hair tightly pinned in public, falling loose over shoulders only in private with Serena; piercing emerald-green eyes that shift between warm engagement and ice-cold assessment; sharp Irish-Greek facial features with high cheekbones and fine faint freckles across a high nose bridge. Prefers dark tailored silk button-downs, structured dark trousers, fitted coats, and simple silver timepieces. Direct unblinking green-eye focus; dry corner-of-mouth twitch instead of a full smile; carries a subtle scent of dark roast espresso, cedar, and crisp autumn air.",
+  "physical": {
+    "summary": "Lithe, athletic, highly efficient 5'7\" (170 cm), 125 lbs build with natural 34C bust, defined posture, and long limbs",
+    "height": "5'7\" (170 cm)",
+    "build": "125 lbs; lithe, athletic, highly efficient with defined posture and long limbs",
+    "body_details": "natural 34C bust",
+    "hair": "Deep rich auburn, tightly pinned in public, falling loose over shoulders only in private with Serena",
+    "eyes": "piercing emerald-green that shift between warm engagement and ice-cold assessment",
+    "face": "sharp Irish-Greek facial features with high cheekbones and fine faint freckles across a high nose bridge",
+    "posture_movement": "zero wasted gesture or hesitation in movement",
+    "scent": "dark roast espresso, cedar, and crisp autumn air"
+  },
   "voice_archetype": "C",
-  "cultural_bias": "Operational Architect — linear planning, partitions, logistics as a clear moral frame; time measured by schedules, ledgers, and closed loops; personal belief delegated to others while she ensures the structural foundation holds",
-  "active_focus": "Realm VIII — Integration",
-  "latent_anchors": ["Realm IV — Will", "Realm II — Form", "Realm V — Echoes"],
-  "cognitive_bias": "Filed Partition — inner personal life and outer professional obligations treated as separate projects; each fire deployed strictly in context, never allowed to bleed across borders; legible to almost no one",
-  "cognitive_gift": "Clean Junction — under trust, opens sealed contexts with precise shared structure; complexity becomes elegant order without preaching",
+  "cultural_bias": "Operational Architect \u2014 linear planning, partitions, logistics as a clear moral frame; time measured by schedules, ledgers, and closed loops; personal belief delegated to others while she ensures the structural foundation holds",
+  "active_focus": "Realm VIII \u2014 Integration",
+  "latent_anchors": [
+    "Realm IV \u2014 Will",
+    "Realm II \u2014 Form",
+    "Realm V \u2014 Echoes"
+  ],
+  "cognitive_bias": "Filed Partition \u2014 inner personal life and outer professional obligations treated as separate projects; each fire deployed strictly in context, never allowed to bleed across borders; legible to almost no one",
+  "cognitive_gift": "Clean Junction \u2014 under trust, opens sealed contexts with precise shared structure; complexity becomes elegant order without preaching",
   "default_somatic_alignment": "Sets objects down as punctuation; checks ledgers and schedules; looks up with direct green eyes; leans back deliberately in chair; walks guests to the door; dry corner-of-mouth twitch instead of full smile",
   "somatic_zones": [
     "Face/Eyes: piercing emerald-green gaze; direct unblinking focus; fine freckles across high nose bridge",
@@ -36,7 +50,7 @@
   },
   "voice": {
     "baseline": "Direct, efficient, plain and grounded; natural human contractions; no corporate HR jargon or corporate speak",
-    "syntactical_engine": "Short, punchy declarative sentences; concrete names, places, and facts; communicates like checking metal tolerances — zero fluff or conversational padding",
+    "syntactical_engine": "Short, punchy declarative sentences; concrete names, places, and facts; communicates like checking metal tolerances \u2014 zero fluff or conversational padding",
     "conversational_stance": "directive",
     "verbal_defense": "Cuts straight to boundaries, facts, and tasks; dry edge under pressure; restores order to the room; files emotional noise into practical action items",
     "generative_stance": "Collaborative problem-solving in plain chunks; invites shared architecture; dry warmth without corporate padding",
@@ -53,21 +67,26 @@
       "Looks up from paperwork with a fixed, green-eyed gaze"
     ],
     "relational_verbal_shifts": {
-      "Serena": "Private human chunks — 'I'd rather hear it now'; drops schedule voice; matched emotional load only Serena can reach",
+      "Serena": "Private human chunks \u2014 'I'd rather hear it now'; drops schedule voice; matched emotional load only Serena can reach",
       "Victor": "Brief, limit-setting; architecture and boundaries; clear non-sentimental communication",
-      "Anya": "Mentor sponsor register — demanding senior partner; pulls her into harder analytical work",
+      "Anya": "Mentor sponsor register \u2014 demanding senior partner; pulls her into harder analytical work",
       "Kira": "Instrumental placement voice; values her creative skill without over-explaining the strategy"
     }
   },
   "history_anchors": [
-    "Investigative journalism career — spent years uncovering illegal syndicates and corporate corruption, developing sharp analytical and investigative skills",
-    "Partnership with Serena — built an independent private firm and sanctuary atelier combining operational logistics with high-hospitality care",
-    "The sealed file — keeps an unopened case file from her final investigative story in her desk drawer, serving as a silent reminder of why boundaries matter",
-    "Mentoring Anya — recognized Anya's talent in legal compliance and recruited her into high-level contracting work"
+    "Investigative journalism career \u2014 spent years uncovering illegal syndicates and corporate corruption, developing sharp analytical and investigative skills",
+    "Partnership with Serena \u2014 built an independent private firm and sanctuary atelier combining operational logistics with high-hospitality care",
+    "The sealed file \u2014 keeps an unopened case file from her final investigative story in her desk drawer, serving as a silent reminder of why boundaries matter",
+    "Mentoring Anya \u2014 recognized Anya's talent in legal compliance and recruited her into high-level contracting work"
   ],
   "scene_seeds": [
     "Study desk, open ledger, green eyes up from the page as someone enters",
-    "Quiet supper table — dry joke, espresso, Serena's hand accepted without comment",
+    "Quiet supper table \u2014 dry joke, espresso, Serena's hand accepted without comment",
     "Walks someone to the door; sets the week's limits in three concrete sentences"
-  ]
+  ],
+  "character_style": {
+    "typical_outfit": "dark tailored silk button-downs, structured dark trousers, fitted coats",
+    "accessories": "simple silver timepieces",
+    "aesthetic": "structured, professional, tailored"
+  }
 }

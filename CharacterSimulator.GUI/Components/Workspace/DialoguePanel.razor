@@ -32,17 +32,31 @@
                     {
                         <div class="chat-header">
                             <span class="speaker-name" style="@(string.IsNullOrEmpty(msg.SpeakerColor) ? null : $"color:{msg.SpeakerColor}")">@msg.SpeakerName @(string.IsNullOrEmpty(msg.TargetName) ? "" : "➔ " + msg.TargetName)</span>
-                            <span>@msg.SpeakerEmotionEmoji</span>
+                            <span title="@(string.IsNullOrEmpty(msg.SomaticText) ? "Emotion state" : $"Somatic tell: {msg.SomaticText}")">@msg.SpeakerEmotionEmoji</span>
                         </div>
-                        @if (!string.IsNullOrEmpty(msg.SomaticText))
-                        {
-                            <div class="somatic-tag" title="Somatic / body reaction">
-                                <span class="somatic-label">Somatic</span>
-                                <span class="somatic-body">@msg.SomaticText</span>
-                            </div>
-                        }
                     }
-                    <div class="dialogue-text">@msg.Dialogue</div>
+                    @if (msg.IsSystem)
+                    {
+                        <div class="dialogue-text">@msg.Dialogue</div>
+                    }
+                    else
+                    {
+                        <div class="dialogue-segments">
+                            @foreach (var seg in ParseDialogueSegments(msg.Dialogue))
+                            {
+                                if (seg.Type == SegmentType.Narration)
+                                {
+                                    <div class="narration-prose">@seg.Text</div>
+                                }
+                                else
+                                {
+                                    <div class="speech-block">
+                                        <span class="speech-quote">“</span><span class="speech-text">@seg.Text</span><span class="speech-quote">”</span>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -75,25 +89,39 @@
     else
     {
         <div class="panel-toolbar">
-            <span class="section-title">📜 Turn history</span>
-            <span class="panel-toolbar-meta">Total turns: @DialogueFeed.Count</span>
+            <span class="section-title">💬 Dialogue feed</span>
+            <span class="panel-toolbar-meta">@DialogueFeed.Count messages</span>
         </div>
         <div class="output-log-container" id="historyLogBox">
             @for (int i = 0; i < DialogueFeed.Count; i++)
             {
                 var turn = DialogueFeed[i];
                 <div class="history-turn">
-                    <div class="history-turn-title" style="@(string.IsNullOrEmpty(turn.SpeakerColor) ? null : $"color:{turn.SpeakerColor}")">
-                        Turn #@(i + 1): @turn.SpeakerName @(turn.IsSystem ? "" : "➔ " + turn.TargetName)
+                    <div class="history-turn-title" style="@(string.IsNullOrEmpty(turn.SpeakerColor) ? null : $"color:{turn.SpeakerColor}")" title="@(string.IsNullOrEmpty(turn.SomaticText) ? "Turn" : $"Somatic tell: {turn.SomaticText}")">
+                        @turn.SpeakerName @(turn.IsSystem ? "" : "➔ " + turn.TargetName)
                     </div>
-                    @if (!string.IsNullOrEmpty(turn.SomaticText))
+                    @if (turn.IsSystem)
                     {
-                        <div class="somatic-tag">
-                            <span class="somatic-label">Somatic</span>
-                            <span class="somatic-body">@turn.SomaticText</span>
+                        <div class="history-turn-body">@turn.Dialogue</div>
+                    }
+                    else
+                    {
+                        <div class="dialogue-segments">
+                            @foreach (var seg in ParseDialogueSegments(turn.Dialogue))
+                            {
+                                if (seg.Type == SegmentType.Narration)
+                                {
+                                    <div class="narration-prose">@seg.Text</div>
+                                }
+                                else
+                                {
+                                    <div class="speech-block">
+                                        <span class="speech-quote">“</span><span class="speech-text">@seg.Text</span><span class="speech-quote">”</span>
+                                    </div>
+                                }
+                            }
                         </div>
                     }
-                    <div class="history-turn-body">@turn.Dialogue</div>
                 </div>
             }
         </div>
@@ -110,6 +138,73 @@
     [Parameter] public EventCallback OnSend { get; set; }
     [Parameter] public EventCallback OnClearLogs { get; set; }
     [Parameter] public EventCallback<KeyboardEventArgs> OnPlayerKeyUp { get; set; }
+
+    private enum SegmentType { Narration, Speech }
+    private record DialogueSegment(SegmentType Type, string Text);
+
+    private static List<DialogueSegment> ParseDialogueSegments(string rawDialogue)
+    {
+        var segments = new List<DialogueSegment>();
+        if (string.IsNullOrWhiteSpace(rawDialogue))
+            return segments;
+
+        var matches = System.Text.RegularExpressions.Regex.Matches(rawDialogue, @"(?:\*([^*]+)\*|_([^_]+)_|""([^""]+)""|([^""*_]+))");
+
+        foreach (System.Text.RegularExpressions.Match m in matches)
+        {
+            string text = m.Value.Trim();
+            if (string.IsNullOrWhiteSpace(text)) continue;
+
+            if (m.Groups[1].Success || m.Groups[2].Success)
+            {
+                string content = (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value).Trim();
+                if (!string.IsNullOrEmpty(content))
+                    segments.Add(new DialogueSegment(SegmentType.Narration, content));
+            }
+            else if (m.Groups[3].Success)
+            {
+                string content = m.Groups[3].Value.Trim();
+                if (string.IsNullOrEmpty(content)) continue;
+
+                if (IsLikelyActionProse(content))
+                    segments.Add(new DialogueSegment(SegmentType.Narration, content));
+                else
+                    segments.Add(new DialogueSegment(SegmentType.Speech, content));
+            }
+            else
+            {
+                string content = text.Trim();
+                if (string.IsNullOrEmpty(content)) continue;
+
+                if (IsLikelySpokenDialogue(content))
+                    segments.Add(new DialogueSegment(SegmentType.Speech, content));
+                else
+                    segments.Add(new DialogueSegment(SegmentType.Narration, content));
+            }
+        }
+
+        return segments;
+    }
+
+    private static bool IsLikelyActionProse(string text)
+    {
+        string lower = text.ToLowerInvariant();
+        return lower.StartsWith("i step") || lower.StartsWith("i reach") || lower.StartsWith("i turn")
+            || lower.StartsWith("i pull") || lower.StartsWith("i lift") || lower.StartsWith("i look")
+            || lower.StartsWith("a soft") || lower.StartsWith("my voice") || lower.StartsWith("my hand")
+            || lower.StartsWith("my eyes") || lower.StartsWith("she ") || lower.StartsWith("he ");
+    }
+
+    private static bool IsLikelySpokenDialogue(string text)
+    {
+        if (text.EndsWith('?') || text.EndsWith('!'))
+        {
+            string lower = text.ToLowerInvariant();
+            if (!lower.Contains("step") && !lower.Contains("reach") && !lower.Contains("turn") && !lower.Contains("pull"))
+                return true;
+        }
+        return false;
+    }
 
     private Task SwitchTab(string tab) => CenterTabChanged.InvokeAsync(tab);
 

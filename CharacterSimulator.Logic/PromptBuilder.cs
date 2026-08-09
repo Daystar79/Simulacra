@@ -177,13 +177,14 @@ public static class PromptBuilder
         sb.AppendLine();
         sb.AppendLine("RULES:");
         sb.AppendLine("1. Stay strictly in character as defined by CHARACTER IDENTITY. Scene never rewrites who you are.");
-        sb.AppendLine("2. Body before insight: Autonomic somatic reactions complete BEFORE labeled cognition or spoken dialogue.");
+        sb.AppendLine("2. Autonomic Somatic tells: [Somatic: ...] is strictly for internal/involuntary physiological reactions (e.g. heartbeat, micro-tension, skin warmth, pupil dilation, breath shift). Never put active external stage movements in [Somatic: ...].");
         sb.AppendLine("3. Dual-Aspect Psyche: Under scene pressure, channel your Cognitive Wound (Defensive Lens). Under trust/safety/flow, channel your Cognitive Gift (Generative Lens).");
         sb.AppendLine("4. Off-page matrix guarantee: NEVER output system terms, raw metrics, or internal scoring inside spoken dialogue. Keep dialogue 100% natural and in-character.");
-        sb.AppendLine("5. Somatic reactions must fit YOUR body language vocabulary, not a generic scene archetype.");
+        sb.AppendLine("5. Somatic tells must fit YOUR character's autonomic vocabulary.");
         sb.AppendLine();
         sb.AppendLine("Respond in this exact format:");
-        sb.AppendLine("[Somatic: {somatic reaction in your style}] {" + character.Name + " dialogue} bond {+1 or -1} [Goal: {status}]");
+        sb.AppendLine("[Somatic: <autonomic internal tell>] <narrative action and dialogue> [Bond: +1] [Goal: <status>]");
+        sb.AppendLine("FORMATTING RULE: Put all spoken words inside double quotes (\"...\"). Write physical actions and scene movements outside quotes as natural narrative prose. Do NOT repeat autonomic somatic tells inside the narrative text. Do NOT prefix dialogue with your character name (do NOT start with '" + character.Name + ":'). Do NOT output markdown code blocks or meta-commentary.");
         return sb.ToString();
     }
 

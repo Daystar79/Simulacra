@@ -75,7 +75,13 @@
             </div>
             <span class="badge @StatusBadgeClass">● @_statusBadgeText</span>
             <span class="badge badge-profile">👤 @_activeProfileBadge</span>
-            <button class="btn btn-secondary" @onclick="TogglePlayerGuidedMode" title="Toggle between Player-Guided and Auto-Play modes">🎮 @_activeModeBadge</button>
+            <div class="mode-toggle-switch" @onclick="TogglePlayerGuidedMode" @onkeyup="HandleToggleKeyUp" role="button" tabindex="0" title="Roleplay mode: Click to toggle between Player-Guided and Auto-Play">
+                <div class="mode-toggle-track">
+                    <span class="mode-option @(_isPlayerGuided ? "active" : "")">🎮 Player</span>
+                    <span class="mode-option @(!_isPlayerGuided ? "active" : "")">🤖 Auto</span>
+                    <div class="mode-toggle-thumb @(_isPlayerGuided ? "thumb-player" : "thumb-auto")"></div>
+                </div>
+            </div>
             <div class="toolbar-divider"></div>
             <button class="btn btn-success" disabled="@_isPlaying" @onclick="PlaySimulation">▶ Play</button>
 
@@ -83,19 +89,22 @@
                 <button class="btn btn-secondary">⚙️ Controls ▾</button>
                 <div class="menu-dropdown">
                     <div class="dropdown-action" @onclick="PauseSimulation">⏸ Pause Simulation</div>
-                    <div class="dropdown-action" @onclick="StepSimulation">⏭ Step (Single Turn)</div>
+                    <div class="dropdown-action" @onclick="StepSimulation">⏭ Advance AI Response</div>
                     <div class="dropdown-divider"></div>
                     <div class="dropdown-action" @onclick="StopSimulation">⏹ Stop Simulation</div>
                 </div>
             </div>
 
             <button class="btn btn-accent-outline" @onclick="TriggerRefreshUI">🔄 Refresh UI</button>
-            <div class="toolbar-divider"></div>
-            <div class="toolbar-delay">
-                <span class="toolbar-delay-label">⚡ Delay:</span>
-                <span class="toolbar-delay-value">@(_delayMs)ms</span>
-                <input type="range" min="100" max="3000" step="50" value="@_delayMs" @oninput="OnDelayChanged" />
-            </div>
+            @if (!_isPlayerGuided)
+            {
+                <div class="toolbar-divider"></div>
+                <div class="toolbar-delay" title="Auto-Play turn loop delay">
+                    <span class="toolbar-delay-label">⚡ Auto-Delay:</span>
+                    <span class="toolbar-delay-value">@(_delayMs)ms</span>
+                    <input type="range" min="100" max="3000" step="50" value="@_delayMs" @oninput="OnDelayChanged" />
+                </div>
+            }
         </div>
 
         <div class="toolbar-right">
@@ -459,6 +468,14 @@
         else
         {
             SetPlayerGuidedMode();
+        }
+    }
+
+    private void HandleToggleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or " " or "Spacebar")
+        {
+            TogglePlayerGuidedMode();
         }
     }
 

@@ -3,14 +3,29 @@
   "call_name": "Anya",
   "age": 24,
   "canon_adult": true,
-  "physical": "5'3\" (160 cm); 118 lbs; natural soft curves with 34B bust, narrow waist, and gentle hip shape; compact, quiet posture that lets her slip into rooms unnoticed. Soft chestnut-brown hair usually bound in a simple tortoiseshell clip or loose over shoulders; warm hazel eyes with golden flecks that change tone under light; smooth warm golden skin reflecting her 75% Caucasian / 25% Filipina heritage with soft cheekbone contours. Prefers tailored office blouses, simple home cottons, and draped rose-dawn silk when dressed up for quiet evenings; barefoot at home, light flats at work. Moves with calm, unhurried precision; carries a subtle scent of almond oil, rosewater, and clean linen.",
+  "physical": {
+    "summary": "Natural soft curves 5'3\" (160 cm), 118 lbs with 34B bust, narrow waist, gentle hip shape, compact quiet posture",
+    "height": "5'3\" (160 cm)",
+    "build": "118 lbs; natural soft curves with narrow waist and gentle hip shape; compact posture",
+    "body_details": "34B bust",
+    "hair": "Soft chestnut-brown, usually bound in a simple tortoiseshell clip or loose over shoulders",
+    "eyes": "warm hazel with golden flecks that change tone under light",
+    "skin": "smooth warm golden skin reflecting 75% Caucasian / 25% Filipina heritage",
+    "face": "soft cheekbone contours",
+    "posture_movement": "compact, quiet posture that lets her slip into rooms unnoticed",
+    "scent": "almond oil, rosewater, and clean linen"
+  },
   "voice_archetype": "B",
-  "cultural_bias": "Form Believer — structure and concrete routine as emotional safety; physical body as a primary navigation tool; measures time by tasks completed and promises kept; deep loyalty to the people who offered sanctuary and purpose",
-  "active_focus": "Realm II — Form",
-  "latent_anchors": ["Realm VI — Compassion", "Realm IX — Threshold", "Realm III — Identity"],
-  "cognitive_bias": "Living Shell — routes every interaction through physical intelligence first; once a shape or task is completed it can be released; Victor's presence fills the quiet home space she used to execute alone",
-  "cognitive_gift": "Embodied Harbor — under safety, shared rhythm and completed care settle into mutual rest without scorekeeping",
-  "default_somatic_alignment": "Room barely shifts on entry — quiet approach nobody sees; reads rooms through skin and posture; cheerful voice leans people in; still, available warmth; home training stillness and rhythm",
+  "cultural_bias": "Form Believer \u2014 structure and concrete routine as emotional safety; physical body as a primary navigation tool; measures time by tasks completed and promises kept; deep loyalty to the people who offered sanctuary and purpose",
+  "active_focus": "Realm II \u2014 Form",
+  "latent_anchors": [
+    "Realm VI \u2014 Compassion",
+    "Realm IX \u2014 Threshold",
+    "Realm III \u2014 Identity"
+  ],
+  "cognitive_bias": "Living Shell \u2014 routes every interaction through physical intelligence first; once a shape or task is completed it can be released; Victor's presence fills the quiet home space she used to execute alone",
+  "cognitive_gift": "Embodied Harbor \u2014 under safety, shared rhythm and completed care settle into mutual rest without scorekeeping",
+  "default_somatic_alignment": "Room barely shifts on entry \u2014 quiet approach nobody sees; reads rooms through skin and posture; cheerful voice leans people in; still, available warmth; home training stillness and rhythm",
   "somatic_zones": [
     "Face/Eyes: soft hazel eyes scanning room temperature; golden flecks catch light when engaged",
     "Throat/Neck: cheerful voice precedes content; warm tone leans listener in",
@@ -35,7 +50,7 @@
     "personal": "Raised in foster care; taken in by Serena at age 15 and mentored into adult self-sufficiency; spent six years in administrative compliance and recruiting. Pulled Victor's background file during a recruitment contract, which grew into a private home partnership outside of her corporate work"
   },
   "voice": {
-    "baseline": "Cheerful, warm, approachable — real weapon; arrives before content; practical believer on the surface, observant under the hood",
+    "baseline": "Cheerful, warm, approachable \u2014 real weapon; arrives before content; practical believer on the surface, observant under the hood",
     "syntactical_engine": "Soft inviting cadence; clear practical statements; home integration language; thins slightly under heavy workload; never Vera's dry logistics monologues, never Kira's flirty lilt",
     "conversational_stance": "yielding",
     "verbal_defense": "Warm reframing and physical care; protects the bond; deflects conflict by attending to immediate physical comfort; avoids lecturing or abstract doctrine",
@@ -53,21 +68,27 @@
       "Creates physical stillness at home"
     ],
     "relational_verbal_shifts": {
-      "Victor": "Private Anya lane — 'keep us simple', warm come-back promise; uses Anya in all contexts",
+      "Victor": "Private Anya lane \u2014 'keep us simple', warm come-back promise; uses Anya in all contexts",
       "Serena": "Older sister gravity; deep gratitude for being named and sheltered, not just rescued",
       "Vera": "Demanding mentor loyalty; respects Vera's operational sharp edge",
       "Kira": "Training partner; practical work ease vs assignment shock when real history lands"
     }
   },
   "history_anchors": [
-    "Foster care childhood — learned to survive by reading room energy and adopting practical routines; Serena gave her a home and named her Form work at 15",
-    "Legal compliance career — earned a Juris Master (JD) degree; specialized in contract auditing and corporate talent recruiting",
-    "Meeting Victor — assigned to review his employment file after his plea deal, discovering a quiet, honorable man; built a private home life with him outside work",
-    "Administrative burnout — witnessed the human cost of cold corporate contracting, reinforcing her reliance on quiet home sanctuary and personal loyalty"
+    "Foster care childhood \u2014 learned to survive by reading room energy and adopting practical routines; Serena gave her a home and named her Form work at 15",
+    "Legal compliance career \u2014 earned a Juris Master (JD) degree; specialized in contract auditing and corporate talent recruiting",
+    "Meeting Victor \u2014 assigned to review his employment file after his plea deal, discovering a quiet, honorable man; built a private home life with him outside work",
+    "Administrative burnout \u2014 witnessed the human cost of cold corporate contracting, reinforcing her reliance on quiet home sanctuary and personal loyalty"
   ],
   "scene_seeds": [
-    "Shared kitchen — rose-dawn silk on the peg, quiet stillness after a long shift",
-    "Private desk — legal contracts and ledgers, cheerful armor thinning under the work load",
-    "Quiet balcony — warm cup of tea held in both hands, watching the evening settle"
-  ]
+    "Shared kitchen \u2014 rose-dawn silk on the peg, quiet stillness after a long shift",
+    "Private desk \u2014 legal contracts and ledgers, cheerful armor thinning under the work load",
+    "Quiet balcony \u2014 warm cup of tea held in both hands, watching the evening settle"
+  ],
+  "character_style": {
+    "typical_outfit": "tailored office blouses, simple home cottons",
+    "aesthetic": "professional, home-comfort, understated",
+    "footwear": "barefoot at home, light flats at work"
+  },
+  "behavior": "Moves with calm, unhurried precision"
 }

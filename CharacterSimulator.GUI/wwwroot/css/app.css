@@ -675,6 +675,79 @@ html.has-scene-backdrop .app-container::before {
     accent-color: var(--accent);
 }
 
+/* MODE TOGGLE SWITCH */
+.mode-toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+    margin: 0;
+}
+
+.mode-toggle-switch:focus-visible .mode-toggle-track {
+    box-shadow: 0 0 0 2px var(--accent-muted);
+    border-color: var(--accent);
+}
+
+.mode-toggle-track {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    background: var(--surface-0);
+    border: 1px solid var(--border-default);
+    border-radius: 9999px;
+    padding: 2px;
+    gap: 0;
+    height: 30px;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    overflow: hidden;
+}
+
+.mode-toggle-track:hover {
+    border-color: var(--border-highlight);
+}
+
+.mode-option {
+    position: relative;
+    z-index: 2;
+    font-size: 0.73rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    color: var(--text-tertiary);
+    transition: color 0.2s ease;
+    white-space: nowrap;
+    user-select: none;
+    line-height: 1.2;
+}
+
+.mode-option.active {
+    color: var(--text-primary);
+}
+
+.mode-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    border-radius: 9999px;
+    z-index: 1;
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.thumb-player {
+    transform: translateX(0);
+    background: color-mix(in srgb, var(--accent) 85%, #000);
+}
+
+.thumb-auto {
+    transform: translateX(100%);
+    background: color-mix(in srgb, var(--accent-purple, #a855f7) 85%, #000);
+}
+
 .app-badge-title {
     display: flex;
     align-items: center;
@@ -950,7 +1023,7 @@ html.has-scene-backdrop .workspace-grid {
     justify-content: center;
     text-align: center;
     padding: var(--space-4);
-    font-size: var(--text-sm);
+    font-size: 0.88rem;
     color: var(--text-tertiary);
     line-height: 1.45;
     border: 1px dashed var(--border-default);
@@ -1152,8 +1225,9 @@ html.has-scene-backdrop .workspace-grid {
     min-height: 6rem;
     width: 100%;
     box-sizing: border-box;
-    font-size: var(--text-sm);
-    line-height: 1.45;
+    font-size: 0.92rem;
+    color: var(--text-primary);
+    line-height: 1.5;
     resize: none;
     font-family: inherit;
 }
@@ -1370,6 +1444,48 @@ html.has-scene-backdrop .workspace-grid {
     font-size: 0.85rem;
     word-break: break-word;
     white-space: pre-wrap;
+}
+
+/* NARRATION & SPEECH SEGMENTS */
+.dialogue-segments {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.25rem;
+}
+
+.narration-prose {
+    font-size: 0.84rem;
+    font-style: italic;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    word-break: break-word;
+    padding: 0.15rem 0.2rem;
+}
+
+.speech-block {
+    display: inline-block;
+    padding: 0.4rem 0.65rem;
+    background: rgba(56, 189, 248, 0.07);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    line-height: 1.5;
+    margin: 0.1rem 0;
+}
+
+.speech-quote {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--accent);
+    opacity: 0.85;
+    user-select: none;
+}
+
+.speech-text {
+    font-size: 0.87rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    word-break: break-word;
 }
 
 .bond-badge {
@@ -1956,8 +2072,9 @@ select.form-control option {
 .char-detail-tab {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 0.62rem;
-    padding: 0.35rem 0.25rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.4rem 0.35rem;
     letter-spacing: 0.02em;
     white-space: nowrap;
 }
@@ -1999,11 +2116,11 @@ select.form-control option {
     flex: 1;
     min-height: 0;
     height: 100%;
-    font-size: var(--text-sm);
-    color: var(--text-secondary);
-    line-height: 1.45;
+    font-size: 0.92rem;
+    color: var(--text-primary);
+    line-height: 1.5;
     background: var(--surface-0);
-    padding: 0.5rem;
+    padding: 0.6rem;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-default);
     resize: none;

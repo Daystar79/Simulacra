@@ -269,5 +269,5 @@ public class PingResult
     public bool TimedOut { get; set; }
 
     /// <summary>Error message if any</summary>
-    public string ErrorMessage { get; set; }
+    public string? ErrorMessage { get; set; }
 }

@@ -365,13 +365,18 @@ public class TurnManager
     private (string Dialogue, List<string> SomaticZones, int BondDelta, string GoalStatus, string? ImagePrompt, State.PsychosomaticStateSnapshot? LiveState) ParseResponse(string response, Character character)
     {
         if (character == null) character = new Character { Name = "Unknown" };
-        
-        var somaticMatch = Regex.Match(response, @"\[Somatic:\s*(.*?)\]");
+        if (string.IsNullOrWhiteSpace(response)) return ("", new List<string>(), 0, "None", null, null);
+
+        // 1. Strip ANSI escape sequences (terminal color codes from CLI output)
+        response = Regex.Replace(response, @"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "");
+
+        // 2. Somatic extraction
+        var somaticMatch = Regex.Match(response, @"\[Somatic:\s*(.*?)\]", RegexOptions.IgnoreCase);
         var somaticZones = somaticMatch.Success ?
-            somaticMatch.Groups[1].Value.Split(',').Select(s => s.Trim()).ToList() :
+            somaticMatch.Groups[1].Value.Split(',').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList() :
             new List<string>();
 
-        // Try extracting structured state block if present e.g. [State: {...}] or <state>{...}</state>
+        // 3. Structured state snapshot extraction
         State.PsychosomaticStateSnapshot? liveState = null;
         string? extractedJson = State.PsychosomaticStateValidator.ExtractStateJson(response);
         if (!string.IsNullOrWhiteSpace(extractedJson))
@@ -380,7 +385,6 @@ public class TurnManager
         }
         else
         {
-            // Fallback to old regex pattern for backwards compatibility
             var stateMatch = Regex.Match(response, @"(?:\[State:\s*|<=?state>?\s*)([\s\S]*?)(?:\]|</state>)", RegexOptions.IgnoreCase);
             if (stateMatch.Success)
             {
@@ -389,21 +393,62 @@ public class TurnManager
             }
         }
 
+        // 4. Bond Delta extraction — handles [Bond: +1], bond +1, bond: -1, [bond: 2], etc.
         var bondDelta = 0;
-        var bondMatch = Regex.Match(response, @"\bbond\s*(\+|-)(\d+)\b", RegexOptions.IgnoreCase);
-        if (bondMatch.Success)
+        var bondMatch = Regex.Match(response, @"(?:\[?Bond:?\s*|bond\s*)([\+\-]?\d+)(?:\]|\b)", RegexOptions.IgnoreCase);
+        if (bondMatch.Success && int.TryParse(bondMatch.Groups[1].Value, out int bVal))
         {
-            bondDelta = int.Parse(bondMatch.Groups[2].Value) * (bondMatch.Groups[1].Value == "+" ? 1 : -1);
+            bondDelta = bVal;
         }
 
-        var dialogue = Regex.Replace(response, @"\[Somatic:\s*.*?\]", "").Trim();
-        dialogue = Regex.Replace(dialogue, @"\[Goal:\s*.*?\]", "").Trim();
-        dialogue = Regex.Replace(dialogue, @"\[Image:\s*.*?\]", "").Trim();
+        // 5. Goal & Image prompt extraction
+        var goalStatus = "None";
+        var goalMatch = Regex.Match(response, @"\[Goal:\s*(.*?)\]", RegexOptions.IgnoreCase);
+        if (goalMatch.Success)
+        {
+            goalStatus = goalMatch.Groups[1].Value.Trim();
+        }
+
+        string? imagePrompt = null;
+        var imgMatch = Regex.Match(response, @"\[Image:\s*(.*?)\]", RegexOptions.IgnoreCase);
+        if (imgMatch.Success)
+        {
+            imagePrompt = imgMatch.Groups[1].Value.Trim();
+        }
+
+        // 6. Dialogue Tag Cleanup — remove meta-tags and code fences
+        var dialogue = Regex.Replace(response, @"\[Somatic:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"\[Goal:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"\[Image:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"(?:\[State:\s*|<=?state>?\s*)([\s\S]*?)(?:\]|</state>)", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"\bbond\s*(\+|-)\d+\b", "", RegexOptions.IgnoreCase).Trim();
-        // Also clean fenced json blocks and state tags
-        dialogue = Regex.Replace(dialogue, @"```json[\s\S]*?```", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"\[?Bond:?\s*[\+\-]?\d+\]?", "", RegexOptions.IgnoreCase).Trim();
+        dialogue = Regex.Replace(dialogue, @"```[\s\S]*?```", "", RegexOptions.IgnoreCase).Trim();
         dialogue = Regex.Replace(dialogue, @"<state>[\s\S]*?</state>", "", RegexOptions.IgnoreCase).Trim();
+
+        // 7. Strip leading LLM meta-preamble lines (e.g. "Sure, here is the response:")
+        var lines = dialogue.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l)).ToList();
+        if (lines.Count > 1 && (
+            lines[0].StartsWith("Sure", StringComparison.OrdinalIgnoreCase) ||
+            lines[0].StartsWith("Here is", StringComparison.OrdinalIgnoreCase) ||
+            lines[0].StartsWith("As ", StringComparison.OrdinalIgnoreCase) ||
+            lines[0].EndsWith(":") && !lines[0].Contains('"')))
+        {
+            lines.RemoveAt(0);
+            dialogue = string.Join("\n", lines);
+        }
+
+        // 8. Strip redundant speaker name prefix if the model outputted "CharacterName: ..."
+        if (!string.IsNullOrWhiteSpace(character.Name))
+        {
+            string namePattern = @"^(?:\*\*)?" + Regex.Escape(character.Name) + @"(?:\*\*)?\s*:\s*";
+            dialogue = Regex.Replace(dialogue, namePattern, "", RegexOptions.IgnoreCase).Trim();
+        }
+
+        // 9. Unwrap outer quotes if model wrapped full response in quotes
+        if (dialogue.StartsWith('"') && dialogue.EndsWith('"') && dialogue.Length >= 2)
+        {
+            dialogue = dialogue[1..^1].Trim();
+        }
 
         if (string.IsNullOrWhiteSpace(dialogue) && !string.IsNullOrWhiteSpace(response))
         {
@@ -417,20 +462,6 @@ public class TurnManager
         // Output hygiene linter (P4)
         var leakAudit = Hygiene.SystemLeakLinter.Audit(dialogue);
         dialogue = leakAudit.SanitizedDialogue;
-
-        var goalStatus = "None";
-        var goalMatch = Regex.Match(response, @"\[Goal: (.*?)\]");
-        if (goalMatch.Success)
-        {
-            goalStatus = goalMatch.Groups[1].Value;
-        }
-
-        string? imagePrompt = null;
-        var imgMatch = Regex.Match(response, @"\[Image: (.*?)\]");
-        if (imgMatch.Success)
-        {
-            imagePrompt = imgMatch.Groups[1].Value;
-        }
 
         return (dialogue, somaticZones, bondDelta, goalStatus, imagePrompt, liveState);
     }

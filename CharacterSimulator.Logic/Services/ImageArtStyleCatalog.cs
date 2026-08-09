@@ -145,10 +145,8 @@ public static class ImageArtStyleCatalog
     }
 
     /// <summary>
-    /// Scene art: environment + optional character appearance, same art style as portraits.
-    /// </summary>
-    /// <summary>
-    /// Scene art: environment + optional character appearance, same art style as portraits.
+    /// Combined stage still: character physical (required when present) + scene place.
+    /// Appearance is early in the prompt so Pollinations/Flux honor body details.
     /// </summary>
     public static string BuildScenePrompt(
         string? scenePlaceOrContext,
@@ -161,28 +159,36 @@ public static class ImageArtStyleCatalog
         string place = string.IsNullOrWhiteSpace(scenePlaceOrContext)
             ? "Quiet interior room, soft ambient light"
             : scenePlaceOrContext.Trim();
-
-        // Cap length for URL-based generators (Pollinations).
-        place = Truncate(place, 260);
-
-        var sb = new StringBuilder();
-        sb.Append(style.SceneCue);
-        sb.Append(". Location and setting: ");
-        sb.Append(place);
+        place = Truncate(place, 240);
 
         string appearance = FirstNonEmpty(characterPhysical, characterDescription);
+        appearance = string.IsNullOrWhiteSpace(appearance) ? "" : Truncate(SanitizeAppearancePrompt(appearance), 320);
+
+        var sb = new StringBuilder();
+
         if (!string.IsNullOrWhiteSpace(appearance))
         {
-            appearance = Truncate(appearance!, 180);
-            string who = string.IsNullOrWhiteSpace(characterName) ? "a character" : characterName.Trim();
-            sb.Append(". Featuring ");
+            string who = string.IsNullOrWhiteSpace(characterName) ? "the character" : characterName.Trim();
+            // Character first — combined stage image is person-in-place, not empty environment.
+            sb.Append("Cinematic full-body shot of ");
             sb.Append(who);
-            sb.Append(" in scene (");
+            sb.Append(" (");
             sb.Append(appearance);
-            sb.Append(")");
+            sb.Append("), standing or present in this location: ");
+            sb.Append(place);
+            sb.Append(". Match the character's hair, eyes, skin, face, build, and clothing exactly. ");
+            sb.Append("Same person, coherent lighting with the environment. ");
+        }
+        else
+        {
+            sb.Append("Cinematic environment establishing shot of: ");
+            sb.Append(place);
+            sb.Append(". Atmospheric location, no people unless implied. ");
         }
 
-        sb.Append(". Wide shot, environmental storytelling, no text, no watermark, no UI.");
+        sb.Append("Art style: ");
+        sb.Append(style.SceneCue);
+        sb.Append(". No text, no watermark, no UI, no logo.");
 
         return sb.ToString();
     }

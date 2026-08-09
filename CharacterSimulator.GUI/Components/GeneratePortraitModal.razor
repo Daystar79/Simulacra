@@ -417,6 +417,14 @@
                 {
                     _generatedImagePath = result.DisplayUri;
                     _engineUsed = $"{engineId} / {modelId} / {styleName}";
+
+                    if (CharacterPortraitService.HasStore && !string.IsNullOrEmpty(_cardId))
+                    {
+                        var saved = await CharacterPortraitService.SaveFromDataUriOrUrlAsync(
+                            _cardId, _generatedImagePath, _prompt, engineId);
+                        if (!string.IsNullOrEmpty(saved))
+                            _generatedImagePath = saved;
+                    }
                 }
                 else
                 {
@@ -431,7 +439,7 @@
                 _generatedImagePath = result.DisplayUri;
                 _engineUsed = $"{engineId} / {modelId} / {styleName}";
 
-                if (CharacterPortraitService.HasStore)
+                if (CharacterPortraitService.HasStore && !string.IsNullOrEmpty(_cardId))
                 {
                     _generatedImagePath = CharacterPortraitService.SavePortrait(
                         _cardId, _generatedBytes, _generatedMime, _prompt, engineId);
@@ -468,7 +476,7 @@
         else if (!string.IsNullOrEmpty(_generatedImagePath) && CharacterPortraitService.HasStore &&
                  !string.IsNullOrEmpty(_cardId))
         {
-            var saved = CharacterPortraitService.SaveFromDataUriOrUrl(
+            var saved = await CharacterPortraitService.SaveFromDataUriOrUrlAsync(
                 _cardId, _generatedImagePath, _prompt, _selectedEngine);
             if (!string.IsNullOrEmpty(saved))
                 _generatedImagePath = saved;

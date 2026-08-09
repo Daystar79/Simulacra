@@ -103,4 +103,75 @@ public class CharacterPortraitStoreTests
             try { File.Delete(tempDb); } catch { }
         }
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task SaveFromDataUriOrUrlAsync_DataUri_PersistsInStore()
+    {
+        string tempDb = Path.Combine(Path.GetTempPath(), $"test_portrait_datauri_{Guid.NewGuid():N}.db");
+        string cardId = $"card_{Guid.NewGuid():N}";
+        try
+        {
+            using var conn = AppDbInitializer.CreateConnection(tempDb);
+            AppDbInitializer.InitializeDatabase(conn);
+            var repo = new CharacterPortraitRepository(conn);
+            CharacterPortraitService.Bind(repo);
+
+            byte[] bytes = Encoding.UTF8.GetBytes("portrait-image-bytes");
+            string dataUri = $"data:image/jpeg;base64,{Convert.ToBase64String(bytes)}";
+
+            string? saved = await CharacterPortraitService.SaveFromDataUriOrUrlAsync(cardId, dataUri, "test prompt", "TestEngine");
+            Assert.NotNull(saved);
+            Assert.StartsWith("data:image/jpeg;base64,", saved);
+            Assert.True(CharacterPortraitService.HasPortrait(cardId));
+
+            string? reloaded = CharacterPortraitService.TryGetStoredDataUri(cardId);
+            Assert.Equal(saved, reloaded);
+        }
+        finally
+        {
+            CharacterPortraitService.Bind(null);
+            try { File.Delete(tempDb); } catch { }
+        }
+    }
+
+    [Fact]
+    public void GetBestPortraitUri_ExpressionSpritePack_ResolvesEmotionSpecificImage()
+    {
+        string tempDb = Path.Combine(Path.GetTempPath(), $"test_portrait_expr_{Guid.NewGuid():N}.db");
+        string cardId = $"cardexpr_{Guid.NewGuid():N}";
+        try
+        {
+            using var conn = AppDbInitializer.CreateConnection(tempDb);
+            AppDbInitializer.InitializeDatabase(conn);
+            var repo = new CharacterPortraitRepository(conn);
+            CharacterPortraitService.Bind(repo);
+
+            byte[] baseBytes = Encoding.UTF8.GetBytes("base-portrait");
+            byte[] smirkBytes = Encoding.UTF8.GetBytes("smirking-expression-sprite");
+
+            // Save base portrait and an emotion-specific sprite (e.g. "cardexpr_smirking")
+            CharacterPortraitService.SavePortrait(cardId, baseBytes, "image/jpeg");
+            CharacterPortraitService.SavePortrait($"{cardId}_smirking", smirkBytes, "image/png");
+
+            // 1. Emotion = null -> resolves base portrait
+            string? baseUri = CharacterPortraitService.GetBestPortraitUri(cardId, emotion: null);
+            Assert.NotNull(baseUri);
+            Assert.Contains(Convert.ToBase64String(baseBytes), baseUri!);
+
+            // 2. Emotion = "Smirking" -> resolves emotion-specific sprite instantly
+            string? smirkUri = CharacterPortraitService.GetBestPortraitUri(cardId, emotion: "Smirking");
+            Assert.NotNull(smirkUri);
+            Assert.Contains(Convert.ToBase64String(smirkBytes), smirkUri!);
+            Assert.NotEqual(baseUri, smirkUri);
+
+            // 3. Emotion = "Flustered" (no sprite file) -> falls back cleanly to base portrait
+            string? fallbackUri = CharacterPortraitService.GetBestPortraitUri(cardId, emotion: "Flustered");
+            Assert.Equal(baseUri, fallbackUri);
+        }
+        finally
+        {
+            CharacterPortraitService.Bind(null);
+            try { File.Delete(tempDb); } catch { }
+        }
+    }
 }

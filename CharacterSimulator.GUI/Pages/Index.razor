@@ -144,7 +144,7 @@
             if (!string.IsNullOrWhiteSpace(settings.SelectedCharA)
                 && !settings.SelectedCharA.StartsWith("None", StringComparison.OrdinalIgnoreCase))
             {
-                _ = SelectCharacter(settings.SelectedCharA, autoPlay: false);
+                _ = SelectCharacter(settings.SelectedCharA, autoPlay: true);
             }
         }
         else
@@ -727,7 +727,7 @@
                 {
                     if (!string.Equals(_selectedCharFile, desired, StringComparison.Ordinal)
                         || !_isCharacterLoaded)
-                        await SelectCharacter(desired!, autoPlay: false);
+                        await SelectCharacter(desired!, autoPlay: true);
                 }
                 else if (_isCharacterLoaded || !string.IsNullOrEmpty(_selectedCharFile))
                 {

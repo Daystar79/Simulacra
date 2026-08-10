@@ -12,18 +12,26 @@ public class BusyTaskServiceTests
     {
         BusyTaskService.ClearAll();
         bool eventFired = false;
-        BusyTaskService.OnTaskStateChanged += () => eventFired = true;
-
-        Assert.False(BusyTaskService.IsBusy);
-
-        using (var token = BusyTaskService.BeginTask("test_task_1", "Thinking about test operation..."))
+        Action handler = () => eventFired = true;
+        BusyTaskService.OnTaskStateChanged += handler;
+        try
         {
-            Assert.True(BusyTaskService.IsBusy);
-            Assert.Equal("Thinking about test operation...", BusyTaskService.ActiveTaskText);
-            Assert.True(eventFired);
-        }
+            Assert.False(BusyTaskService.IsBusy);
 
-        Assert.False(BusyTaskService.IsBusy);
-        Assert.Equal("", BusyTaskService.ActiveTaskText);
+            using (var token = BusyTaskService.BeginTask("test_task_1", "Thinking about test operation..."))
+            {
+                Assert.True(BusyTaskService.IsBusy);
+                Assert.Equal("Thinking about test operation...", BusyTaskService.ActiveTaskText);
+                Assert.True(eventFired);
+            }
+
+            Assert.False(BusyTaskService.IsBusy);
+            Assert.Equal("", BusyTaskService.ActiveTaskText);
+        }
+        finally
+        {
+            BusyTaskService.OnTaskStateChanged -= handler;
+            BusyTaskService.ClearAll();
+        }
     }
 }

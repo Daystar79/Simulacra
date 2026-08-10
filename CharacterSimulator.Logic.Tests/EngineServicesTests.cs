@@ -7,6 +7,7 @@ using CharacterSimulator.Logic;
 
 namespace CharacterSimulator.Logic.Tests;
 
+[Collection("StaticStateTests")]
 public class EngineServicesTests
 {
     [Fact]

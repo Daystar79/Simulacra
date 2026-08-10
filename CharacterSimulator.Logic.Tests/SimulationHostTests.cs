@@ -7,6 +7,7 @@ using Xunit;
 
 namespace CharacterSimulator.Logic.Tests;
 
+[Collection("StaticStateTests")]
 public class SimulationHostTests
 {
     [Fact]

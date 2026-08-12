@@ -80,4 +80,35 @@ public class CharacterProgressRepository
             return null;
         }
     }
+
+    public List<CharacterProgressRecord> GetAllProgressForProfile(string profileId)
+    {
+        lock (_conn)
+        {
+            var list = new List<CharacterProgressRecord>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT profile_id, character_slug, bias_strength, active_focus, bias_state, snapshot_json, updated_at
+                FROM character_progress
+                WHERE profile_id = @pid
+                ORDER BY updated_at DESC;";
+            cmd.Parameters.AddWithValue("@pid", profileId);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                list.Add(new CharacterProgressRecord
+                {
+                    ProfileId = reader.GetString(0),
+                    CharacterSlug = reader.GetString(1),
+                    BiasStrength = reader.GetInt32(2),
+                    ActiveFocus = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    BiasState = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    SnapshotJson = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                    UpdatedAt = DateTime.Parse(reader.GetString(6))
+                });
+            }
+            return list;
+        }
+    }
 }

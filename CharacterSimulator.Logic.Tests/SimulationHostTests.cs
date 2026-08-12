@@ -63,7 +63,6 @@ public class SimulationHostTests
             SelectedCharB = "",
             RoleplayLlmProvider = "Mock / Simulation",
             SelectedLlmA = "Mock",
-            RoleplayMode = "AutoPlay",
             MaxTurns = 2,
             ScenePrompt = "Quiet test room",
             SelectedGenre = SceneGenreCatalog.DefaultGenreId

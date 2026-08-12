@@ -31,13 +31,7 @@
                 <div class="dropdown-action" @onclick="OpenChangePinModal">🔒 Security PIN & Recovery...</div>
             </div>
         </div>
-        <div class="menu-item">
-            <span>🎮 Mode</span>
-            <div class="menu-dropdown">
-                <div class="dropdown-action" @onclick="SetAutoPlayMode">🤖 Auto-Play Mode</div>
-                <div class="dropdown-action" @onclick="SetPlayerGuidedMode">🎮 Player-Guided Mode</div>
-            </div>
-        </div>
+
         <div class="menu-item">
             <span>⏯ Playback</span>
             <div class="menu-dropdown">
@@ -75,13 +69,7 @@
             </div>
             <span class="badge @StatusBadgeClass">● @_statusBadgeText</span>
             <span class="badge badge-profile">👤 @_activeProfileBadge</span>
-            <div class="mode-toggle-switch" @onclick="TogglePlayerGuidedMode" @onkeyup="HandleToggleKeyUp" role="button" tabindex="0" title="Roleplay mode: Click to toggle between Player-Guided and Auto-Play">
-                <div class="mode-toggle-track">
-                    <span class="mode-option @(_isPlayerGuided ? "active" : "")">🎮 Player</span>
-                    <span class="mode-option @(!_isPlayerGuided ? "active" : "")">🤖 Auto</span>
-                    <div class="mode-toggle-thumb @(_isPlayerGuided ? "thumb-player" : "thumb-auto")"></div>
-                </div>
-            </div>
+
             <div class="toolbar-divider"></div>
             <button class="btn btn-success" disabled="@_isPlaying" @onclick="PlaySimulation">▶ Play</button>
 
@@ -96,15 +84,7 @@
             </div>
 
             <button class="btn btn-accent-outline" @onclick="TriggerRefreshUI">🔄 Refresh UI</button>
-            @if (!_isPlayerGuided)
-            {
-                <div class="toolbar-divider"></div>
-                <div class="toolbar-delay" title="Auto-Play turn loop delay">
-                    <span class="toolbar-delay-label">⚡ Auto-Delay:</span>
-                    <span class="toolbar-delay-value">@(_delayMs)ms</span>
-                    <input type="range" min="100" max="3000" step="50" value="@_delayMs" @oninput="OnDelayChanged" />
-                </div>
-            }
+
         </div>
 
         <div class="toolbar-right">
@@ -191,8 +171,6 @@
     };
 
     private string _activeProfileBadge = "Player 1 (Age 25)";
-    private bool _isPlayerGuided = true;
-    private string _activeModeBadge = "🎮 Player-Guided";
     private string _statusText = "Ready. Click File ➔ Simulation Setup to configure characters.";
     private string _activeLlmInfo = "Agent A: Mock | Agent B: Mock";
     private int _delayMs = 600;
@@ -225,7 +203,6 @@
         ControlContext.OnSettingsChanged += OnSettingsUpdated;
         SimHost.OnWaitingChanged += OnHostWaitingChanged;
         SimHost.OnStatus += OnHostStatus;
-        SimHost.OnModeChanged += OnHostModeChanged;
         SimHost.OnRequestSetup += OnHostRequestSetup;
         BusyTaskService.OnTaskStateChanged += OnBusyTaskStateChanged;
     }
@@ -294,7 +271,6 @@
         ControlContext.OnSettingsChanged -= OnSettingsUpdated;
         SimHost.OnWaitingChanged -= OnHostWaitingChanged;
         SimHost.OnStatus -= OnHostStatus;
-        SimHost.OnModeChanged -= OnHostModeChanged;
         SimHost.OnRequestSetup -= OnHostRequestSetup;
         BusyTaskService.OnTaskStateChanged -= OnBusyTaskStateChanged;
         if (_profileSvc != null)
@@ -319,15 +295,7 @@
         });
     }
 
-    private void OnHostModeChanged(string badge)
-    {
-        InvokeAsync(() =>
-        {
-            _activeModeBadge = badge;
-            _isPlayerGuided = badge.Contains("Player-Guided");
-            StateHasChanged();
-        });
-    }
+
 
     private void OnHostRequestSetup()
     {
@@ -346,8 +314,6 @@
     private void ApplySettings(AppSettings settings)
     {
         if (settings == null) return;
-        _activeModeBadge = settings.RoleplayMode == "AutoPlay" ? "🤖 Auto-Play" : "🎮 Player-Guided";
-        _isPlayerGuided = settings.RoleplayMode != "AutoPlay";
         _activeLlmInfo = $"Roleplay: {settings.RoleplayLlmProvider} | Image: {settings.ImageEngine}";
         _statusText = $"Active Engine: {settings.RoleplayLlmProvider} / {settings.ImageEngine}";
         if (!string.IsNullOrEmpty(settings.UiTheme) && settings.UiTheme != _activeThemeId)
@@ -445,39 +411,7 @@
         SimHost.Stop();
     }
 
-    private void SetAutoPlayMode()
-    {
-        SimHost.SetRoleplayMode("AutoPlay");
-        _activeModeBadge = "🤖 Auto-Play";
-        _isPlayerGuided = false;
-    }
 
-    private void SetPlayerGuidedMode()
-    {
-        SimHost.SetRoleplayMode("PlayerGuided");
-        _activeModeBadge = "🎮 Player-Guided";
-        _isPlayerGuided = true;
-    }
-
-    private void TogglePlayerGuidedMode()
-    {
-        if (_isPlayerGuided)
-        {
-            SetAutoPlayMode();
-        }
-        else
-        {
-            SetPlayerGuidedMode();
-        }
-    }
-
-    private void HandleToggleKeyUp(KeyboardEventArgs e)
-    {
-        if (e.Key is "Enter" or " " or "Spacebar")
-        {
-            TogglePlayerGuidedMode();
-        }
-    }
 
     private void OpenProfilePickerModal()
     {

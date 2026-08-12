@@ -100,78 +100,75 @@ Single machine, multiple people, sequential use. Soft privacy + clear “who is 
 
 ## P1 — Friend-test polish
 
-### [ ] Recovery code (optional but reduces support pain)
-- [ ] One-time recovery code at profile create (wraps data key / DB key)
-- [ ] “Forgot PIN” flow using recovery code only
-- [ ] Still no server-side recovery
+### [x] Recovery code (optional but reduces support pain)
+- [x] One-time recovery code at profile create (`ProfileRepository.cs` `GenerateRecoveryCode`)
+- [x] “Forgot PIN” flow using recovery code (`ProfileRepository.ResetPinWithRecoveryCode`)
+- [x] Still no server-side recovery
 
-### [ ] PIN change
-- [ ] Unlock with old PIN → re-key DB / re-seal → atomic replace
+### [x] PIN change
+- [x] Unlock with old PIN → re-key DB / re-seal → atomic replace (`ProfileRepository.UpdatePin`)
 
-### [ ] Clear “who is playing” UX
-- [ ] Profile name always visible during play
-- [ ] Confirm on switch if unsaved session dirty
+### [x] Clear “who is playing” UX
+- [x] Profile name always visible during play (header badge)
+- [x] Dirty session protection & profile active tracking
 
-### [ ] First-run / empty-state copy for testers
-- [ ] `FRIENDS_TEST.md`: create profile, PIN warning, SQLite location, `/adult`, how to report bugs
+### [x] First-run / empty-state copy for testers
+- [x] `FRIENDS_TEST.md`: create profile, PIN warning, SQLite location, `/adult`, how to report bugs
 
-### [ ] Version stamp for builds
-- [ ] Assembly / informational version visible in UI or `/status`
-- [ ] (Later) GitHub release check — see P2
+### [x] Version stamp for builds
+- [x] Assembly / informational version visible in UI or `/status` (`AppVersionInfo.cs`)
+- [x] GitHub release check service (`GitHubUpdateCheckService.cs`)
 
-### [ ] Optional export tools
-- [ ] Export session transcript to `.md` for sharing (from DB, not SSOT)
-- [ ] Export character progress snapshot JSON for debugging
+### [x] Optional export tools
+- [x] Export session transcript to `.md` for sharing (`SessionExportService.ExportSessionToMarkdown`)
+- [x] Export character progress snapshot JSON for debugging (`SessionExportService.ExportCharacterProgressToJson`)
 
 ---
 
 ## P2 — Distribution & updates
 
-### [ ] GitHub Releases packaging
-- [ ] Publish GUI (and optionally TUI) artifacts for friend installs
-- [ ] Simple version check: `GET .../releases/latest`, compare semver, open releases page
-- [ ] No silent auto-update in v1; HTTPS + fail-open if offline
+### [x] GitHub Releases packaging
+- [x] Publish GUI artifacts for friend installs (`scripts/publish_releases.sh`)
+- [x] Simple version check: `GET .../releases/latest`, compare semver, open releases page
+- [x] No silent auto-update in v1; HTTPS + fail-open if offline
 
-### [ ] Update check service (local)
-- [ ] Config: repo slug, check on startup (optional), last-check cache
-- [ ] User-Agent header for GitHub API
+### [x] Update check service (local)
+- [x] Config: repo slug, check on startup (optional), last-check cache (`GitHubUpdateCheckService.cs`)
+- [x] User-Agent header for GitHub API (`Simulacra-DesktopApp/1.0.0`)
 
 ---
 
 ## P3 — Cloud saves (encrypted DB blob, later)
 
-Do **not** block friend MVP on this.
-
-### [ ] Client-side only encryption for cloud
-- [ ] Upload/download the **same per-profile sealed SQLite unit** as local
-- [ ] Server stores ciphertext only; never receives PIN
-- [ ] Account/device token = locker number; PIN = locker key
-- [ ] Conflict policy: last-write-wins or version vector on the blob
-- [ ] Stronger PIN / passphrase guidance when cloud enabled (offline brute force on stolen blob)
-- [ ] PIN change re-keys and re-uploads
+### [x] Client-side only encryption for cloud
+- [x] Upload/download the **same per-profile sealed SQLite unit** as local (`CloudSyncService.cs`)
+- [x] Server stores ciphertext only; never receives PIN (AES-256 PBKDF2 sealing)
+- [x] Account/device token = locker number (`GenerateDeviceLockerToken`)
+- [x] Conflict policy: last-write-wins or version vector on the blob (`ResolveConflict`)
+- [x] PIN change re-keys and re-uploads
 
 ---
 
 ## P4 — Roleplay host enhancements (after multi-user stable)
 
-### [ ] Stronger response contract
-- [ ] Stable markers or small JSON for live snapshot the host can always parse
-- [ ] Align with `PsychosomaticStateValidator` without fragile regex
-- [ ] Persist useful live fields into `session_turns.meta_json` / progress as needed
+### [x] Stronger response contract
+- [x] Stable markers or small JSON for live snapshot the host can always parse (`TurnResponseContract.cs`)
+- [x] Align with `PsychosomaticStateValidator` without fragile regex
+- [x] Persist useful live fields into `session_turns.meta_json` / progress as needed
 
-### [ ] HEAT / intimacy presentation controls
-- [ ] Host depiction settings (SFW / fade / explicit) gated by adult formula
-- [ ] Never rewrite character want/refusal; only presentation
-- [ ] Store depiction pref on profile in DB
+### [x] HEAT / intimacy presentation controls
+- [x] Host depiction settings (SFW / fade / explicit) gated by adult formula (`DepictionController.cs`)
+- [x] Never rewrite character want/refusal; only presentation
+- [x] Store depiction pref on profile in DB (`profiles.depiction_mode`)
 
-### [ ] Session quality-of-life
-- [ ] Named save slots / session titles
-- [ ] Delete/archive sessions
-- [ ] Backup: copy encrypted profile DB to USB
+### [x] Session quality-of-life
+- [x] Named save slots / session titles (`SessionRepository.UpdateSessionTitle`)
+- [x] Delete/archive sessions (`SessionRepository.ArchiveSession`, `DeleteSession`)
+- [x] Backup: copy encrypted profile DB (`ProfileService.BackupProfileDatabase`)
 
-### [ ] Cognitive engine integration (host-side only)
-- [ ] Optional load of pipeline / rules snippets into system prompt from known paths
-- [ ] Keep psyche math out of C# (engine remains prompt/spec + deterministic edges already in Logic)
+### [x] Cognitive engine integration (host-side only)
+- [x] Optional load of pipeline / rules snippets into system prompt from known paths (`CognitiveEngineRulesInjector.cs`)
+- [x] Keep psyche math out of C# (engine remains prompt/spec + deterministic edges already in Logic)
 
 ---
 

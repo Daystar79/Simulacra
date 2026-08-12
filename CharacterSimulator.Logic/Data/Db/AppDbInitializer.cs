@@ -182,6 +182,14 @@ public static class AppDbInitializer
         }
         catch { }
 
+        try
+        {
+            using var alterDepictCmd = conn.CreateCommand();
+            alterDepictCmd.CommandText = "ALTER TABLE profiles ADD COLUMN depiction_mode TEXT DEFAULT 'Explicit';";
+            alterDepictCmd.ExecuteNonQuery();
+        }
+        catch { }
+
         // Forward-compatible: tables added after initial ship.
         try
         {

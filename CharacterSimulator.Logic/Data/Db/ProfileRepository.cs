@@ -22,7 +22,7 @@ public class ProfileRepository
             var list = new List<UserProfile>();
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = @"
-                SELECT id, display_name, dob_year, dob_month, dob_day, pin_hash, pin_salt, is_adult_attested, created_at, last_opened_at, recovery_code
+                SELECT id, display_name, dob_year, dob_month, dob_day, pin_hash, pin_salt, is_adult_attested, created_at, last_opened_at, recovery_code, depiction_mode
                 FROM profiles
                 ORDER BY last_opened_at DESC;";
 
@@ -41,7 +41,7 @@ public class ProfileRepository
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = @"
-                SELECT id, display_name, dob_year, dob_month, dob_day, pin_hash, pin_salt, is_adult_attested, created_at, last_opened_at, recovery_code
+                SELECT id, display_name, dob_year, dob_month, dob_day, pin_hash, pin_salt, is_adult_attested, created_at, last_opened_at, recovery_code, depiction_mode
                 FROM profiles
                 WHERE id = @id LIMIT 1;";
             cmd.Parameters.AddWithValue("@id", profileId);
@@ -86,8 +86,8 @@ public class ProfileRepository
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = @"
-                INSERT INTO profiles (id, display_name, dob_year, dob_month, dob_day, pin_hash, pin_salt, recovery_code, is_adult_attested, created_at, last_opened_at)
-                VALUES (@id, @name, @year, @month, @day, @hash, @salt, @rec, @adult, @created, @opened);";
+                INSERT INTO profiles (id, display_name, dob_year, dob_month, dob_day, pin_hash, pin_salt, recovery_code, is_adult_attested, created_at, last_opened_at, depiction_mode)
+                VALUES (@id, @name, @year, @month, @day, @hash, @salt, @rec, @adult, @created, @opened, @depict);";
             cmd.Parameters.AddWithValue("@id", profile.Id);
             cmd.Parameters.AddWithValue("@name", profile.DisplayName);
             cmd.Parameters.AddWithValue("@year", profile.DobYear);
@@ -99,6 +99,7 @@ public class ProfileRepository
             cmd.Parameters.AddWithValue("@adult", profile.IsAdultAttested ? 1 : 0);
             cmd.Parameters.AddWithValue("@created", profile.CreatedAt.ToString("o"));
             cmd.Parameters.AddWithValue("@opened", profile.LastOpenedAt.ToString("o"));
+            cmd.Parameters.AddWithValue("@depict", profile.DepictionMode);
             cmd.ExecuteNonQuery();
         }
 
@@ -195,8 +196,26 @@ public class ProfileRepository
         }
     }
 
+    public void SetDepictionMode(string profileId, string depictionMode)
+    {
+        lock (_conn)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "UPDATE profiles SET depiction_mode = @depict WHERE id = @id;";
+            cmd.Parameters.AddWithValue("@depict", depictionMode);
+            cmd.Parameters.AddWithValue("@id", profileId);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
     private static UserProfile ReadProfile(SqliteDataReader reader)
     {
+        string depict = "Explicit";
+        if (reader.FieldCount > 11 && !reader.IsDBNull(11))
+        {
+            depict = reader.GetString(11);
+        }
+
         return new UserProfile
         {
             Id = reader.GetString(0),
@@ -209,7 +228,8 @@ public class ProfileRepository
             IsAdultAttested = reader.GetInt32(7) == 1,
             CreatedAt = DateTime.Parse(reader.GetString(8)),
             LastOpenedAt = DateTime.Parse(reader.GetString(9)),
-            RecoveryCode = reader.IsDBNull(10) ? null : reader.GetString(10)
+            RecoveryCode = reader.IsDBNull(10) ? null : reader.GetString(10),
+            DepictionMode = depict
         };
     }
 

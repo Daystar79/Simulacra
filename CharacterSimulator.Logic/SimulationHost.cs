@@ -26,7 +26,6 @@ public sealed class SimulationHost
     private string _sceneOverride = "";
     private string? _pendingInject;
     private volatile bool _waitingForLlm;
-    private volatile bool _pauseAfterEachTurn;
     private volatile bool _sessionStartInFlight;
 
     public SimulationHost(TurnControlContext control)
@@ -58,9 +57,6 @@ public sealed class SimulationHost
 
     /// <summary>UI should open Simulation Setup (/setup).</summary>
     public event Action? OnRequestSetup;
-
-    /// <summary>Mode badge text changed (Auto-Play / Player-Guided).</summary>
-    public event Action<string>? OnModeChanged;
 
     /// <summary>Status bar one-liner.</summary>
     public event Action<string>? OnStatus;
@@ -198,19 +194,6 @@ public sealed class SimulationHost
         // If already Running, input is queued for the next turn boundary.
     }
 
-    public void SetRoleplayMode(string mode)
-    {
-        var settings = _control.CurrentSettings ?? new AppSettings();
-        bool auto = mode.Equals(ModeAutoPlay, StringComparison.OrdinalIgnoreCase)
-                    || mode.Contains("Auto", StringComparison.OrdinalIgnoreCase);
-        settings.RoleplayMode = auto ? ModeAutoPlay : ModePlayerGuided;
-        _control.UpdateSettings(settings);
-        string badge = auto ? ModeDisplayAutoPlay : ModeDisplayPlayerGuided;
-        OnModeChanged?.Invoke(badge);
-        PostSystem(auto
-            ? ModeDescriptionAutoPlay
-            : ModeDescriptionPlayerGuided);
-    }
 
     // ── commands ──────────────────────────────────────────────────────────
 
@@ -243,12 +226,6 @@ public sealed class SimulationHost
             case PlayerCommandKind.Setup:
                 OnRequestSetup?.Invoke();
                 PostSystem("Opening simulation setup…");
-                break;
-            case PlayerCommandKind.AutoPlay:
-                SetRoleplayMode("AutoPlay");
-                break;
-            case PlayerCommandKind.PlayerGuided:
-                SetRoleplayMode("PlayerGuided");
                 break;
             case PlayerCommandKind.Status:
             case PlayerCommandKind.State:
@@ -415,10 +392,7 @@ public sealed class SimulationHost
             if (maxTurns < 4) maxTurns = 4;
             if (maxTurns > 200) maxTurns = 200;
 
-            bool playerGuided = !string.Equals(settings.RoleplayMode, ModeAutoPlay, StringComparison.OrdinalIgnoreCase);
-            _pauseAfterEachTurn = playerGuided || stepOnce;
-
-            isPlayerSession = playerGuided || charB == null || (charB != null && string.Equals(charB.Name, "None", StringComparison.OrdinalIgnoreCase));
+            isPlayerSession = charB == null || string.Equals(charB.Name, "None", StringComparison.OrdinalIgnoreCase);
             effectiveMaxTurns = isPlayerSession ? int.MaxValue : maxTurns;
 
             string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Output");
@@ -465,7 +439,7 @@ public sealed class SimulationHost
 
             PostSystem($"▶ Starting: {charA.Name} vs {vs} | LLM: {providerA}" +
                        (charB != null ? $" / {providerB}" : "") +
-                       $" | Mode: {(playerGuided ? ModeDisplayPlayerGuided : ModeDisplayAutoPlay)} | Turns: {turnsDisplay}");
+                       $" | Turns: {turnsDisplay}");
             OnLog?.Invoke($"Log: {logPath}");
             OnStatus?.Invoke($"Running: {charA.Name}");
             OnCharacterStateChanged?.Invoke();
@@ -505,7 +479,6 @@ public sealed class SimulationHost
             finally
             {
                 SetWaiting(false);
-                _pauseAfterEachTurn = false;
                 try
                 {
                     if (_control.State == SimulationState.Running || _control.State == SimulationState.Paused)
@@ -574,12 +547,9 @@ public sealed class SimulationHost
         OnCharacterStateChanged?.Invoke();
         OnStatus?.Invoke($"T{e.TurnIndex} {e.SpeakerName}");
 
-        // Player-Guided / single-step: park between speaker turns so Send or Step continues.
-        if (_pauseAfterEachTurn)
-        {
-            try { _control.Pause(); }
-            catch { /* ignore */ }
-        }
+        // Park between turns so player prompt or Step continues.
+        try { _control.Pause(); }
+        catch { /* ignore */ }
     }
 
     private void PostSystem(string text)

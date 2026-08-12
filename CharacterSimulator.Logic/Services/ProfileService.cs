@@ -124,6 +124,55 @@ public class ProfileService : IDisposable
         return success;
     }
 
+    public bool UpdatePin(string profileId, string? oldPin, string? newPin)
+    {
+        bool success = _profileRepo.UpdatePin(profileId, oldPin, newPin);
+        if (success && ActiveProfile?.Id == profileId)
+        {
+            ActiveProfile = _profileRepo.GetById(profileId);
+        }
+        return success;
+    }
+
+    public bool ResetPinWithRecoveryCode(string profileId, string recoveryCode, string? newPin)
+    {
+        bool success = _profileRepo.ResetPinWithRecoveryCode(profileId, recoveryCode, newPin);
+        if (success && ActiveProfile?.Id == profileId)
+        {
+            ActiveProfile = _profileRepo.GetById(profileId);
+        }
+        return success;
+    }
+
+    public void SetDepictionMode(string profileId, string depictionMode)
+    {
+        string normalized = Safety.DepictionController.NormalizeDepictionMode(ActiveProfile, depictionMode);
+        _profileRepo.SetDepictionMode(profileId, normalized);
+        if (ActiveProfile?.Id == profileId)
+        {
+            ActiveProfile.DepictionMode = normalized;
+        }
+    }
+
+    public bool BackupProfileDatabase(string destinationPath)
+    {
+        try
+        {
+            string srcPath = AppDbInitializer.GetDatabasePath();
+            if (!File.Exists(srcPath)) return false;
+
+            var dir = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            File.Copy(srcPath, destinationPath, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public ProfileRepository Profiles => _profileRepo;
     public SessionRepository Sessions => _sessionRepo;
     public CharacterProgressRepository Progress => _progressRepo;

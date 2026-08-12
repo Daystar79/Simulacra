@@ -587,14 +587,31 @@ public class TurnManager
             dialogue = Regex.Replace(dialogue, namePattern, "", RegexOptions.IgnoreCase).Trim();
         }
 
-        // 9. Unwrap outer quotes if model wrapped full response in quotes
-        if (dialogue.StartsWith('"') && dialogue.EndsWith('"') && dialogue.Length >= 2)
+        // 9. Unwrap outer quotes and clean up dangling quotes
+        dialogue = dialogue.Replace('“', '"').Replace('”', '"').Replace('‘', '\'').Replace('’', '\'');
+        if (dialogue.StartsWith('"'))
         {
-            dialogue = dialogue[1..^1].Trim();
+            if (dialogue.EndsWith('"') && dialogue.Length >= 2)
+            {
+                dialogue = dialogue[1..^1].Trim();
+            }
+            else
+            {
+                int nextQuote = dialogue.IndexOf('"', 1);
+                if (nextQuote < 0)
+                {
+                    // Unclosed opening quote at start
+                    dialogue = dialogue[1..].TrimStart();
+                }
+            }
         }
 
-        // 10. Truncate prompt leak headers (e.g. "[They just said/did]:", "Serena's response", "[Player]:")
-        int leakIdx = dialogue.IndexOf("[They just said", StringComparison.OrdinalIgnoreCase);
+        // 10. Truncate prompt leak headers (e.g. "PLAYER QUESTION", "[They just said/did]:", "Serena's response", "[Player]:")
+        int leakIdx = dialogue.IndexOf("PLAYER QUESTION", StringComparison.OrdinalIgnoreCase);
+        if (leakIdx >= 0) dialogue = dialogue[..leakIdx].Trim();
+        leakIdx = dialogue.IndexOf("PLAYER STATEMENT", StringComparison.OrdinalIgnoreCase);
+        if (leakIdx >= 0) dialogue = dialogue[..leakIdx].Trim();
+        leakIdx = dialogue.IndexOf("[They just said", StringComparison.OrdinalIgnoreCase);
         if (leakIdx >= 0) dialogue = dialogue[..leakIdx].Trim();
         leakIdx = dialogue.IndexOf("[Player]", StringComparison.OrdinalIgnoreCase);
         if (leakIdx >= 0) dialogue = dialogue[..leakIdx].Trim();

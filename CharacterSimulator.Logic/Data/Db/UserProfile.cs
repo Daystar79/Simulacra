@@ -12,6 +12,7 @@ public class UserProfile
     public string? PinHash { get; set; }
     public string? PinSalt { get; set; }
     public string? RecoveryCode { get; set; }
+    public string DepictionMode { get; set; } = "Explicit";
     public bool IsAdultAttested { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastOpenedAt { get; set; } = DateTime.UtcNow;

@@ -14,6 +14,12 @@ public static class LlmResponseSanitizer
 {
     private static readonly string[] LeakMarkers =
     {
+        "PLAYER QUESTION",
+        "PLAYER STATEMENT",
+        "PLAYER QUESTION / STATEMENT:",
+        "PLAYER QUESTION / INPUT:",
+        "MANDATE:",
+        "First-Person Perspective:",
         "\n[Somatic:",
         "\r\n[Somatic:",
         "[Somatic:", // second occurrence handled separately

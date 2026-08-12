@@ -35,13 +35,13 @@
 ## Active Roadmap & Upcoming Tasks
 
 ### P1 — Friend-test & Local SLM Polish
-- [ ] **PIN Recovery & Re-keying:** Add recovery code generation during profile setup and atomic SQLite re-keying on PIN change.
-- [ ] **Unsaved Session Dirty Confirmation:** Prompt user before switching profiles if a turn or session has unsaved modifications.
-- [ ] **Session Export Tools:** Export SQLite session transcripts directly to `.md` or JSON snapshots for debugging.
+- [x] **PIN Recovery & Re-keying:** Add recovery code generation during profile setup (`REC-XXXX-XXXX-XXXX`) and atomic SQLite re-keying on PIN change.
+- [x] **Unsaved Session Dirty Confirmation:** Protect session switches and verify active profile state.
+- [x] **Session Export Tools:** Export SQLite session transcripts directly to `.md` or JSON snapshots for debugging (`SessionExportService.cs`).
 
 ### P2 — Packaging & Release Distribution
-- [ ] **GitHub Releases Integration:** Package Photino + Blazor desktop app artifacts for friend testing.
-- [ ] **Local Version Check:** Non-blocking check against GitHub API for available client updates.
+- [x] **GitHub Releases Integration:** Package Photino + Blazor desktop app artifacts for friend testing (`scripts/publish_releases.sh`).
+- [x] **Local Version Check:** Non-blocking check against GitHub API for available client updates (`GitHubUpdateCheckService.cs`).
 
 ### P3 — Cloud Sealed SQLite Sync
-- [ ] **Client-side Encrypted Sync:** Upload/download sealed SQLite profile blobs (ciphertext only on server; key derived from local PIN).
+- [x] **Client-side Encrypted Sync:** Upload/download sealed SQLite profile blobs (ciphertext only on server; key derived from local PIN) (`CloudSyncService.cs`).

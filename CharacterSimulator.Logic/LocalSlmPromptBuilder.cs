@@ -191,8 +191,14 @@ public static class LocalSlmPromptBuilder
 
         if (!string.IsNullOrWhiteSpace(input))
         {
-            sb.AppendLine($"User input: \"{input.Trim()}\"");
-            sb.AppendLine("Respond directly to user input in your own voice. Do NOT repeat or echo their words.");
+            string cleanInput = input.Trim();
+            if (cleanInput.StartsWith("[Player]:", StringComparison.OrdinalIgnoreCase))
+                cleanInput = cleanInput.Substring(9).Trim().Trim('"');
+            else if (cleanInput.StartsWith("Player:", StringComparison.OrdinalIgnoreCase))
+                cleanInput = cleanInput.Substring(7).Trim().Trim('"');
+
+            sb.AppendLine($"PLAYER QUESTION / STATEMENT: \"{cleanInput}\"");
+            sb.AppendLine("MANDATE: Answer their question directly in character. Do NOT ignore what they asked or said. Do NOT repeat or echo their words.");
         }
         else if (!string.IsNullOrWhiteSpace(formattedHistory))
         {
@@ -232,7 +238,8 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine("   - Spoken words MUST be in double quotes. Actions outside quotes as prose.");
         sb.AppendLine("4. Dynamic Action Beats: Describe NEW physical movement or posture for THIS turn. Do NOT copy static appearance text or prior turn descriptions.");
         sb.AppendLine("5. No Echoing/Repetition: Never repeat prior dialogue from CONVERSATION SO FAR. Output FRESH dialogue and NEW physical movement for this turn.");
-        sb.AppendLine("6. Stop after one reply. Never output [Player]: or repeat prompt instructions.");
+        sb.AppendLine("6. First-Person Perspective: Always speak and narrate in 1st person ('I', 'me', 'my'). NEVER refer to yourself in 3rd person (e.g. do NOT say 'Serena stands...') and NEVER quote your own name.");
+        sb.AppendLine("7. Stop after one reply. Never output [Player]: or repeat prompt instructions.");
         sb.AppendLine("<|im_end|>");
         sb.AppendLine("<|im_start|>user");
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
@@ -262,7 +269,8 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine("1. Stay strictly in character.");
         sb.AppendLine("2. Output ONE reply formatted exactly as:");
         sb.AppendLine("   [Somatic: brief internal reaction] Opening physical action beat. \"Spoken dialogue.\" Short concluding physical action.");
-        sb.AppendLine("3. No meta-commentary, no markdown code fences, no user continuation.");
+        sb.AppendLine("3. First-Person Perspective: Always speak and narrate in 1st person ('I', 'me', 'my'). NEVER refer to yourself in 3rd person or quote your own name.");
+        sb.AppendLine("4. No meta-commentary, no markdown code fences, no user continuation.");
         sb.AppendLine("<|im_end|>");
         sb.AppendLine("<|im_start|>user");
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
@@ -291,7 +299,8 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine("RULES:");
         sb.AppendLine("1. Stay in character.");
         sb.AppendLine("2. Output shape: [Somatic: brief internal reaction] Opening physical action. \"Spoken text.\" Concluding physical action.");
-        sb.AppendLine("3. Output single response only.<|eot_id|>");
+        sb.AppendLine("3. First-Person Perspective: Always speak and narrate in 1st person ('I', 'me', 'my'). NEVER refer to yourself in 3rd person.");
+        sb.AppendLine("4. Output single response only.<|eot_id|>");
         sb.AppendLine("<|start_header_id|>user<|end_header_id|>");
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
         sb.AppendLine("<|eot_id|>");

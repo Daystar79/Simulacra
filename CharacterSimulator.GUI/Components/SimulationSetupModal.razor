@@ -38,10 +38,7 @@
                     <textarea class="form-control" rows="2" @bind="_sceneContext" placeholder="Describe the scene setting..."></textarea>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">Execution Mode:</label>
-                    <CustomSelect @bind-Value="_mode" Options="_modeOptions" />
-                </div>
+
 
                 <!-- ROLEPLAY LLM ENGINE SECTION -->
                 <div style="background: #0f172a; border: 1px solid var(--accent-purple); border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem;">
@@ -265,11 +262,7 @@
         new("Noir", "Noir")
     };
 
-    private List<CustomSelect.DropdownOption> _modeOptions = new()
-    {
-        new("AutoPlay", "🤖 Auto-Play Mode (Autonomous AI Roleplay)"),
-        new("PlayerGuided", "🎮 Player-Guided Mode (Human Prompt Injected)")
-    };
+
 
     private List<CustomSelect.DropdownOption> _llmProviderOptions = new()
     {
@@ -299,7 +292,7 @@
     private string _selectedCharB = "";
     private string _selectedGenre = "Contemporary";
     private string _sceneContext = "Quiet city apartment at midnight during a rainstorm.";
-    private string _mode = "PlayerGuided";
+
     private string _selectedRoleplayLlmProvider = "AGY";
     private string _roleplayModelIdentifier = "agy-pro";
     private string _selectedImageEngine = ImageEngineDetector.DefaultEngineId;
@@ -322,7 +315,7 @@
             _selectedCharB = saved.SelectedCharB;
             _selectedGenre = saved.SelectedGenre;
             _sceneContext = saved.ScenePrompt;
-            _mode = saved.RoleplayMode;
+
             _selectedRoleplayLlmProvider = saved.RoleplayLlmProvider;
             _roleplayModelIdentifier = saved.RoleplayModelIdentifier;
             _temperature = saved.Temperature;
@@ -668,7 +661,7 @@
             SelectedCharB = _selectedCharB,
             SelectedGenre = _selectedGenre,
             ScenePrompt = _sceneContext,
-            RoleplayMode = _mode,
+
             RoleplayLlmProvider = _selectedRoleplayLlmProvider,
             RoleplayModelIdentifier = _roleplayModelIdentifier,
             Temperature = _temperature,

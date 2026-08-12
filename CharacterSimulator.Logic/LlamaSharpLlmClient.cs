@@ -21,9 +21,9 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
 {
     public string Name { get; }
     public string ModelPath { get; }
-    public int ContextSize { get; set; } = 8192;
-    public int GpuLayerCount { get; set; } = 0; // 0 = CPU, >0 = Offload layers to GPU
-    
+    public int ContextSize { get; set; } = 4096;
+    public int GpuLayerCount { get; set; } = 20; // 0 = CPU, >0 = Offload layers to GPU if available
+
     private readonly CircuitBreaker _circuitBreaker;
     
     /// <summary>
@@ -48,10 +48,8 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
         // Auto-configure context size and max tokens based on model specs
         if (!string.IsNullOrWhiteSpace(ModelPath) && File.Exists(ModelPath))
         {
-            int modelContextSize = SlmModelDownloaderService.GetModelContextSize(ModelPath, 8192);
-            int modelMaxTokens = SlmModelDownloaderService.GetModelMaxTokens(ModelPath, 512);
-            ContextSize = modelContextSize;
-            // Note: MaxTokens is set per-request in inferenceParams, not here
+            int modelContextSize = SlmModelDownloaderService.GetModelContextSize(ModelPath, 4096);
+            ContextSize = Math.Min(modelContextSize, 4096);
         }
     }
 
@@ -165,17 +163,35 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
         try
         {
             LLamaWeights weights;
+            int effectiveGpuLayers = GpuLayerCount;
             lock (CacheLock)
             {
                 if (!WeightsCache.TryGetValue(ModelPath, out weights!))
                 {
-                    var modelParams = new ModelParams(ModelPath)
+                    try
                     {
-                        ContextSize = (uint)ContextSize,
-                        GpuLayerCount = GpuLayerCount,
-                        Threads = Math.Min(Environment.ProcessorCount, 8)
-                    };
-                    weights = LLamaWeights.LoadFromFile(modelParams);
+                        var modelParams = new ModelParams(ModelPath)
+                        {
+                            ContextSize = (uint)ContextSize,
+                            GpuLayerCount = GpuLayerCount,
+                            Threads = Math.Max(1, Math.Min(Environment.ProcessorCount, 8)),
+                            BatchSize = 512
+                        };
+                        weights = LLamaWeights.LoadFromFile(modelParams);
+                    }
+                    catch (Exception ex) when (GpuLayerCount > 0)
+                    {
+                        AppLogger.Warning($"[LlamaSharp] GPU/Vulkan offloading failed ({ex.Message}); falling back to CPU mode.");
+                        effectiveGpuLayers = 0;
+                        var cpuParams = new ModelParams(ModelPath)
+                        {
+                            ContextSize = (uint)ContextSize,
+                            GpuLayerCount = 0,
+                            Threads = Math.Max(1, Math.Min(Environment.ProcessorCount, 8)),
+                            BatchSize = 512
+                        };
+                        weights = LLamaWeights.LoadFromFile(cpuParams);
+                    }
                     WeightsCache[ModelPath] = weights;
                 }
             }
@@ -183,14 +199,15 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
             var parameters = new ModelParams(ModelPath)
             {
                 ContextSize = (uint)ContextSize,
-                GpuLayerCount = GpuLayerCount,
-                Threads = Math.Min(Environment.ProcessorCount, 8)
+                GpuLayerCount = effectiveGpuLayers,
+                Threads = Math.Max(1, Math.Min(Environment.ProcessorCount, 8)),
+                BatchSize = 512
             };
 
             var executor = new StatelessExecutor(weights, parameters);
             
-            // Get max tokens for this specific model
-            int maxTokens = SlmModelDownloaderService.GetModelMaxTokens(ModelPath, 512);
+            // Get max tokens for this specific model (cap at 256 for fast single-turn roleplay)
+            int maxTokens = Math.Min(SlmModelDownloaderService.GetModelMaxTokens(ModelPath, 256), 256);
             
             var inferenceParams = new InferenceParams
             {

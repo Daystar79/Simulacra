@@ -280,4 +280,29 @@ public class SessionRepository
             }
         }
     }
+
+    public bool UpdateSessionTitle(string sessionId, string newTitle)
+    {
+        lock (_conn)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "UPDATE sessions SET title = @title, updated_at = @now WHERE id = @sid;";
+            cmd.Parameters.AddWithValue("@title", newTitle);
+            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
+            cmd.Parameters.AddWithValue("@sid", sessionId);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    public bool ArchiveSession(string sessionId)
+    {
+        lock (_conn)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "UPDATE sessions SET status = 'Archived', updated_at = @now WHERE id = @sid;";
+            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
+            cmd.Parameters.AddWithValue("@sid", sessionId);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
 }

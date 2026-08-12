@@ -34,7 +34,7 @@
         CharName="@_charName"
         SelectedCharFile="@_selectedCharFile"
         CharacterOptions="@_characterDropdownOptions"
-        OnCharacterSelected="file => SelectCharacter(file, autoPlay: true)"
+        OnCharacterSelected="file => SelectCharacter(file)"
         OnClearCharacter="ClearCharacter"
         DetailTab="@_charDetailTab"
         DetailTabChanged="v => _charDetailTab = v"
@@ -144,7 +144,7 @@
             if (!string.IsNullOrWhiteSpace(settings.SelectedCharA)
                 && !settings.SelectedCharA.StartsWith("None", StringComparison.OrdinalIgnoreCase))
             {
-                _ = SelectCharacter(settings.SelectedCharA, autoPlay: true);
+                _ = SelectCharacter(settings.SelectedCharA);
             }
         }
         else
@@ -414,7 +414,7 @@
             : settings.ScenePrompt;
     }
 
-    private async Task SelectCharacter(string fileName, bool autoPlay = false)
+    private async Task SelectCharacter(string fileName)
     {
         if (string.IsNullOrEmpty(fileName) ||
             fileName.StartsWith('(') ||
@@ -471,25 +471,12 @@
                 LevelClass = "log-success"
             });
 
-            if (autoPlay)
+            _dialogueFeed.Add(new ChatMessageModel
             {
-                _dialogueFeed.Add(new ChatMessageModel
-                {
-                    SpeakerName = "System",
-                    Dialogue = $"🎭 {info.Name} loaded onto the stage. Auto-play starting...",
-                    IsSystem = true
-                });
-                SimHost.Play();
-            }
-            else
-            {
-                _dialogueFeed.Add(new ChatMessageModel
-                {
-                    SpeakerName = "System",
-                    Dialogue = $"🎭 {info.Name} loaded onto the stage. Press ▶ Play or send a line to start.",
-                    IsSystem = true
-                });
-            }
+                SpeakerName = "System",
+                Dialogue = $"🎭 {info.Name} loaded onto the stage. Send a line to begin dialogue.",
+                IsSystem = true
+            });
 
             StateHasChanged();
 
@@ -683,7 +670,7 @@
                 _outputLogs.Add(new LogEntryModel
                 {
                     Timestamp = DateTime.Now,
-                    Message = $"⚙️ Engine Settings Active — Roleplay: {settings.RoleplayLlmProvider} | Image: {settings.ImageEngine} ({settings.ImageResolution}) | Mode: {settings.RoleplayMode} | Scene: [{SceneGenreCatalog.GetById(settings.SelectedGenre).DisplayName}]",
+                    Message = $"⚙️ Engine Settings Active — Roleplay: {settings.RoleplayLlmProvider} | Image: {settings.ImageEngine} ({settings.ImageResolution}) | Scene: [{SceneGenreCatalog.GetById(settings.SelectedGenre).DisplayName}]",
                     LevelClass = "log-info"
                 });
                 RequestScrollPanels();
@@ -727,7 +714,7 @@
                 {
                     if (!string.Equals(_selectedCharFile, desired, StringComparison.Ordinal)
                         || !_isCharacterLoaded)
-                        await SelectCharacter(desired!, autoPlay: true);
+                        await SelectCharacter(desired!);
                 }
                 else if (_isCharacterLoaded || !string.IsNullOrEmpty(_selectedCharFile))
                 {

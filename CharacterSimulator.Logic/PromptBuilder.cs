@@ -207,10 +207,18 @@ public static class PromptBuilder
         }
         else
         {
-            sb.AppendLine("They just said/did: \"" + input.Trim() + "\"");
+            string cleanInput = input.Trim();
+            if (cleanInput.StartsWith("[Player]:", StringComparison.OrdinalIgnoreCase))
+                cleanInput = cleanInput.Substring(9).Trim().Trim('"');
+            else if (cleanInput.StartsWith("Player:", StringComparison.OrdinalIgnoreCase))
+                cleanInput = cleanInput.Substring(7).Trim().Trim('"');
+
+            sb.AppendLine("PLAYER QUESTION / STATEMENT: \"" + cleanInput + "\"");
             if (hasHistory)
-                sb.AppendLine("Respond to that latest beat only. Advance the moment; do not restate your previous line.");
-            sb.AppendLine("Respond directly to their statement/action in your own voice. Do NOT repeat, quote, or parrot their words back to them.");
+                sb.AppendLine("MANDATE: Answer their question/statement directly in character. Advance the moment; do not restate your previous line.");
+            else
+                sb.AppendLine("MANDATE: Answer their question/statement directly in character.");
+            sb.AppendLine("Do NOT ignore what they asked. Do NOT repeat, quote, or parrot their words back to them.");
         }
 
         return sb.ToString().TrimEnd();
@@ -238,7 +246,8 @@ public static class PromptBuilder
         sb.AppendLine("3. Dual-Aspect Psyche: Under scene pressure, channel your Cognitive Wound (Defensive Lens). Under trust/safety/flow, channel your Cognitive Gift (Generative Lens).");
         sb.AppendLine("4. Off-page matrix guarantee: NEVER output system terms, raw metrics, or internal scoring inside spoken dialogue. Keep dialogue 100% natural and in-character.");
         sb.AppendLine("5. Somatic tells must fit YOUR character's autonomic vocabulary.");
-        sb.AppendLine("6. Output ONE reply only. Stop after a single [Somatic] + opening physical action + spoken line + optional concluding action. Never continue as the user, never restate the rules, never invent a second reply.");
+        sb.AppendLine("6. First-Person Perspective: Always speak and describe physical action beats in 1st person ('I', 'me', 'my'). NEVER narrate about yourself in 3rd person (e.g. do not say 'Serena stands...') and NEVER quote your own name.");
+        sb.AppendLine("7. Output ONE reply only. Stop after a single [Somatic] + opening physical action + spoken line + optional concluding action. Never continue as the user, never restate the rules, never invent a second reply.");
         sb.AppendLine();
         sb.AppendLine("Respond in this exact shape (invent fresh words and action for THIS moment — do not copy the sample wording):");
         sb.AppendLine("[Somatic: brief internal tell] Opening physical action beat. \"Spoken words that fit the moment.\" Short concluding physical action.");

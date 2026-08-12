@@ -580,10 +580,11 @@ public class TurnManager
             dialogue = string.Join("\n", lines);
         }
 
-        // 8. Strip redundant speaker name prefix if the model outputted "CharacterName: ..."
+        // 8. Strip redundant speaker name prefix if the model outputted "CharacterName: ...", "[CharacterName] ...", etc.
         if (!string.IsNullOrWhiteSpace(character.Name))
         {
-            string namePattern = @"^(?:\*\*)?" + Regex.Escape(character.Name) + @"(?:\*\*)?\s*:\s*";
+            string escName = Regex.Escape(character.Name);
+            string namePattern = @"^(?:\[" + escName + @"\]|\*\*" + escName + @"\*\*|" + escName + @")\s*:?\s*(?:\[" + escName + @"\]\s*)?";
             dialogue = Regex.Replace(dialogue, namePattern, "", RegexOptions.IgnoreCase).Trim();
         }
 

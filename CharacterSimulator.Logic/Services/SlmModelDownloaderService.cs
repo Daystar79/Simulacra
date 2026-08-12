@@ -28,68 +28,44 @@ public class SlmModelOption
 /// </summary>
 public static class SlmModelDownloaderService
 {
-    public const string DefaultModelName = "Dolphin3.0-Llama3.2-1B.Q4_K_M.gguf";
-    public const string DefaultDownloadUrl = "https://huggingface.co/QuantFactory/Dolphin3.0-Llama3.2-1B-GGUF/resolve/main/Dolphin3.0-Llama3.2-1B.Q4_K_M.gguf";
+    public const string DefaultModelName = "dolphin-2.9-llama3-8b.Q4_K_M.gguf";
+    public const string DefaultDownloadUrl = "https://huggingface.co/QuantFactory/dolphin-2.9-llama3-8b-GGUF/resolve/main/dolphin-2.9-llama3-8b.Q4_K_M.gguf";
 
     public static readonly List<SlmModelOption> AvailableModels = new()
     {
         new SlmModelOption
         {
-            Id = "dolphin-3.0-1b",
-            DisplayName = "Dolphin 3.0 (Llama 3.2 1B) — Fast & Uncensored",
-            FileName = "Dolphin3.0-Llama3.2-1B.Q4_K_M.gguf",
-            DownloadUrl = "https://huggingface.co/QuantFactory/Dolphin3.0-Llama3.2-1B-GGUF/resolve/main/Dolphin3.0-Llama3.2-1B.Q4_K_M.gguf",
-            Description = "Uncensored 1B roleplay model; sub-second latency on CPU.",
-            ApproxSizeMb = 955,
-            ContextSize = 128000, // Llama 3.2 1B native context
+            Id = "dolphin-2.9-llama3-8b",
+            DisplayName = "Dolphin 2.9 (Llama 3 8B) — Uncensored 8B",
+            FileName = "dolphin-2.9-llama3-8b.Q4_K_M.gguf",
+            DownloadUrl = "https://huggingface.co/QuantFactory/dolphin-2.9-llama3-8b-GGUF/resolve/main/dolphin-2.9-llama3-8b.Q4_K_M.gguf",
+            Description = "Uncensored 8B model; handles complex character cards & full cognitive framework.",
+            ApproxSizeMb = 4900,
+            ContextSize = 8192,
             MaxTokens = 512,
             IsDefault = true
         },
         new SlmModelOption
         {
-            Id = "dolphin-3.0-3b",
-            DisplayName = "Dolphin 3.0 (Llama 3.2 3B) — Uncensored 3B",
-            FileName = "Dolphin3.0-Llama3.2-3B.Q4_K_M.gguf",
-            DownloadUrl = "https://huggingface.co/QuantFactory/Dolphin3.0-Llama3.2-3B-GGUF/resolve/main/Dolphin3.0-Llama3.2-3B.Q4_K_M.gguf",
-            Description = "Uncensored 3B model; deeper persona nuances and reasoning.",
-            ApproxSizeMb = 2240,
-            ContextSize = 128000,
-            MaxTokens = 512,
-            IsDefault = false
-        },
-        new SlmModelOption
-        {
-            Id = "qwen-2.5-3b",
-            DisplayName = "Qwen 2.5 (3B Instruct) — High Precision",
-            FileName = "qwen2.5-3b-instruct-q4_k_m.gguf",
-            DownloadUrl = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
-            Description = "High instruction compliance 3B model.",
-            ApproxSizeMb = 1900,
+            Id = "qwen-2.5-7b",
+            DisplayName = "Qwen 2.5 (7B Instruct) — High Precision 7B",
+            FileName = "qwen2.5-7b-instruct-q4_k_m.gguf",
+            DownloadUrl = "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf",
+            Description = "High precision 7B model for strict prompt adherence.",
+            ApproxSizeMb = 4500,
             ContextSize = 32768,
             MaxTokens = 512,
             IsDefault = false
         },
         new SlmModelOption
         {
-            Id = "llama-3.2-3b",
-            DisplayName = "Llama 3.2 (3B Instruct) — Meta Standard",
-            FileName = "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-            DownloadUrl = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-            Description = "Stock Meta 3B instruct model.",
-            ApproxSizeMb = 2000,
+            Id = "llama-3.1-8b",
+            DisplayName = "Llama 3.1 (8B Instruct) — Meta Standard 8B",
+            FileName = "Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+            DownloadUrl = "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+            Description = "Stock Meta 8B instruct model.",
+            ApproxSizeMb = 4900,
             ContextSize = 128000,
-            MaxTokens = 512,
-            IsDefault = false
-        },
-        new SlmModelOption
-        {
-            Id = "smollm2-1.7b",
-            DisplayName = "SmolLM2 (1.7B Instruct) — Lightweight",
-            FileName = "SmolLM2-1.7B-Instruct-Q4_K_M.gguf",
-            DownloadUrl = "https://huggingface.co/huggingface/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
-            Description = "Lightweight HuggingFace 1.7B model.",
-            ApproxSizeMb = 1000,
-            ContextSize = 32768,
             MaxTokens = 512,
             IsDefault = false
         }

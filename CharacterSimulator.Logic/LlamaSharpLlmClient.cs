@@ -135,11 +135,16 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
         int tokenCount = TokenCounter.GetCachedTokenCount(prompt);
         int modelContextSize = SlmModelDownloaderService.GetModelContextSize(ModelPath, ContextSize);
         
-        string raw = await CompleteRawAsync(prompt, ct).ConfigureAwait(false);
-        return LlmResponseSanitizer.ClampToFirstReply(raw, input);
+        string raw = await CompleteRawAsync(prompt, character?.Name, ct).ConfigureAwait(false);
+        return LlmResponseSanitizer.ClampToFirstReply(raw, input, conversationHistory);
     }
 
     public async Task<string> CompleteRawAsync(string prompt, CancellationToken ct = default)
+    {
+        return await CompleteRawAsync(prompt, null, ct).ConfigureAwait(false);
+    }
+
+    public async Task<string> CompleteRawAsync(string prompt, string? characterName, CancellationToken ct = default)
     {
         // Check circuit breaker
         if (!_circuitBreaker.CanExecute())
@@ -209,30 +214,38 @@ public class LlamaSharpLlmClient : ILLMClient, IDisposable
             // Get max tokens for this specific model (cap at 256 for fast single-turn roleplay)
             int maxTokens = Math.Min(SlmModelDownloaderService.GetModelMaxTokens(ModelPath, 256), 256);
             
+            var antiPrompts = new List<string>
+            {
+                "<|im_end|>",
+                "<|im_start|>",
+                "<|eot_id|>",
+                "<|end_of_text|>",
+                "[They just said",
+                "[Player]:",
+                "User:",
+                "Player:",
+                "System:",
+                "###",
+                "SCENE:",
+                "RULES:"
+            };
+
+            if (!string.IsNullOrWhiteSpace(characterName))
+            {
+                antiPrompts.Add($"[{characterName}]");
+                antiPrompts.Add($"[{characterName}]:");
+            }
+
             var inferenceParams = new InferenceParams
             {
                 MaxTokens = maxTokens,
-                AntiPrompts = new List<string>
-                {
-                    "<|im_end|>",
-                    "<|im_start|>",
-                    "<|eot_id|>",
-                    "<|end_of_text|>",
-                    "[They just said",
-                    "[Player]:",
-                    "User:",
-                    "Player:",
-                    "System:",
-                    "###",
-                    "SCENE:",
-                    "RULES:"
-                },
+                AntiPrompts = antiPrompts,
                 SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline
                 {
                     Temperature = 0.75f,
                     TopP = 0.9f,
-                    RepeatPenalty = 1.18f,
-                    PresencePenalty = 0.1f
+                    RepeatPenalty = 1.25f,
+                    PresencePenalty = 0.2f
                 }
             };
 

@@ -124,32 +124,39 @@ public static class LlmResponseSanitizer
             }
         }
 
-        // Strip duplicate dialogue lines re-printed from prior turns in conversation history
+        // Strip leading bracketed speaker prefix (e.g. "[Serena] *action*" or "[Serena]: hello")
+        text = Regex.Replace(text, @"^\[[A-Za-z0-9_\-\s]{2,30}\]\s*:?\s*", "", RegexOptions.IgnoreCase).Trim();
+
+        // Strip duplicate dialogue lines or action beats re-printed from prior turns in conversation history
         if (!string.IsNullOrWhiteSpace(conversationHistory))
         {
-            var historyQuotes = Regex.Matches(conversationHistory, "\"([^\"]{5,})\"")
-                .Cast<Match>()
-                .Select(m => m.Groups[1].Value.Trim())
-                .Where(q => q.Length > 8)
+            var historyLines = conversationHistory.Split('\n')
+                .Select(l => Regex.Replace(l.Trim(), @"^[A-Za-z0-9_\-\s]{2,30}\s*:\s*", "").Trim())
+                .Select(l => l.Trim('"', '\''))
+                .Where(l => l.Length > 8)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            foreach (var quote in historyQuotes)
+            foreach (var pastLine in historyLines)
             {
-                int quoteIdx = text.IndexOf(quote, StringComparison.OrdinalIgnoreCase);
-                if (quoteIdx >= 0 && quoteIdx < 120) // model re-emitted past turn quote at start
+                int lineIdx = text.IndexOf(pastLine, StringComparison.OrdinalIgnoreCase);
+                if (lineIdx >= 0 && lineIdx < 120) // model re-emitted past turn line at start
                 {
-                    int nextPara = text.IndexOf("\n\n", quoteIdx);
+                    int nextPara = text.IndexOf("\n\n", lineIdx);
                     if (nextPara > 0 && nextPara + 2 < text.Length)
                     {
                         text = text[(nextPara + 2)..].TrimStart();
                     }
                     else
                     {
-                        int nextLine = text.IndexOf('\n', quoteIdx + quote.Length);
+                        int nextLine = text.IndexOf('\n', lineIdx + pastLine.Length);
                         if (nextLine > 0 && nextLine + 1 < text.Length)
                         {
                             text = text[(nextLine + 1)..].TrimStart();
+                        }
+                        else
+                        {
+                            text = text[(lineIdx + pastLine.Length)..].TrimStart();
                         }
                     }
                     break;

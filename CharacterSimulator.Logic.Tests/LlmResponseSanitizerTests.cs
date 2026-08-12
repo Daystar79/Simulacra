@@ -141,6 +141,27 @@ public class LlmResponseSanitizerTests
         Assert.DoesNotContain("Moonlight has been my sanctuary", clamped);
     }
 
+    [Fact]
+    public void ClampToFirstReply_StripsBracketedSpeakerPrefix()
+    {
+        string raw = "[Serena] *gently traces a line from her nape to the crown of her head*";
+        string clamped = LlmResponseSanitizer.ClampToFirstReply(raw);
+        Assert.StartsWith("*gently traces", clamped);
+        Assert.DoesNotContain("[Serena]", clamped);
+    }
+
+    [Fact]
+    public void ClampToFirstReply_StripsUnquotedRepeatedActionBeatFromHistory()
+    {
+        string history = "Serena: *gently traces a line from her nape to the crown of her head with fingers that are long and tapered*";
+        string raw = "[Serena] *gently traces a line from her nape to the crown of her head with fingers that are long and tapered*\n\n\"The night is calm.\"";
+
+        string clamped = LlmResponseSanitizer.ClampToFirstReply(raw, userInput: null, conversationHistory: history);
+
+        Assert.Equal("\"The night is calm.\"", clamped);
+        Assert.DoesNotContain("gently traces a line", clamped);
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         int count = 0;

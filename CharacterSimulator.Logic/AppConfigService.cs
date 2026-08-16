@@ -9,6 +9,11 @@ namespace CharacterSimulator.Logic;
 public class AppSettings
 {
     public bool IsConfigured { get; set; } = false;
+    /// <summary>
+    /// Set only by the first-run wizard. Unlike <see cref="IsConfigured"/> this is not
+    /// flipped by incidental SaveSettings calls (scene blur, theme switch).
+    /// </summary>
+    public bool FirstSetupComplete { get; set; } = false;
     /// <summary>Opaque card filename (e.g. a1b2c3d4e5f60718.json), not the display name.</summary>
     public string SelectedCharA { get; set; } = "";
     /// <summary>Opaque card filename, empty for solo, or legacy "None (Solo Roleplay)".</summary>
@@ -19,6 +24,17 @@ public class AppSettings
     public string ScenePrompt { get; set; } = SceneGenreCatalog.DefaultSceneFor(SceneGenreCatalog.DefaultGenreId);
     public int MaxTurns { get; set; } = 10;
     public string RoleplayMode { get; set; } = "PlayerGuided";
+
+    /// <summary>
+    /// When the player is quiet, randomly prompt the character so they keep living in the scene.
+    /// Null (missing from older configs) means on.
+    /// </summary>
+    public bool? KeepAliveEnabled { get; set; }
+
+    public bool KeepAliveIsOn => KeepAliveEnabled != false;
+    public int KeepAliveMinSeconds { get; set; } = KeepAliveBeats.DefaultMinSeconds;
+    public int KeepAliveMaxSeconds { get; set; } = KeepAliveBeats.DefaultMaxSeconds;
+    public int KeepAliveMaxIdleBeats { get; set; } = KeepAliveBeats.DefaultMaxIdleBeats;
 
     // Roleplaying Engine Settings
     public string RoleplayLlmProvider { get; set; } = "AGY";
@@ -133,6 +149,25 @@ public static class AppConfigService
         {
             settings.UiTheme = Services.ThemeCatalog.DefaultThemeId;
         }
+
+        // Previous product default was 14–32s; bump saved copies to 15–120s.
+        if (settings.KeepAliveMinSeconds == 14 && settings.KeepAliveMaxSeconds == 32)
+        {
+            settings.KeepAliveMinSeconds = KeepAliveBeats.DefaultMinSeconds;
+            settings.KeepAliveMaxSeconds = KeepAliveBeats.DefaultMaxSeconds;
+        }
+        if (settings.KeepAliveMinSeconds <= 0)
+            settings.KeepAliveMinSeconds = KeepAliveBeats.DefaultMinSeconds;
+        if (settings.KeepAliveMaxSeconds <= 0)
+            settings.KeepAliveMaxSeconds = KeepAliveBeats.DefaultMaxSeconds;
+        if (settings.KeepAliveMaxIdleBeats <= 0)
+            settings.KeepAliveMaxIdleBeats = KeepAliveBeats.DefaultMaxIdleBeats;
+        int min = settings.KeepAliveMinSeconds;
+        int max = settings.KeepAliveMaxSeconds;
+        KeepAliveBeats.ClampRange(ref min, ref max);
+        settings.KeepAliveMinSeconds = min;
+        settings.KeepAliveMaxSeconds = max;
+        settings.KeepAliveMaxIdleBeats = KeepAliveBeats.ClampMaxIdleBeats(settings.KeepAliveMaxIdleBeats);
     }
 
     private static bool IsNoneSelection(string? value)

@@ -1457,7 +1457,7 @@ html.has-scene-backdrop .workspace-grid {
 .narration-prose {
     font-size: 0.88rem;
     font-style: italic;
-    color: #cbd5e1;
+    color: var(--text-secondary);
     line-height: 1.55;
     word-break: break-word;
     padding: 0.35rem 0.65rem;
@@ -1701,6 +1701,142 @@ html.has-scene-backdrop .workspace-grid {
     justify-content: flex-end;
     gap: var(--space-2);
     background: var(--surface-1);
+}
+
+/* FIRST-RUN WIZARD */
+.wizard-overlay {
+    z-index: 3000;
+}
+
+.wizard-card {
+    width: 560px;
+}
+
+.wizard-step-meta {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.wizard-progress {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0 1.25rem;
+}
+
+.wizard-progress-seg {
+    flex: 1;
+    height: 3px;
+    border-radius: 99px;
+    background: var(--border-default);
+}
+
+.wizard-progress-seg.done {
+    background: var(--accent);
+}
+
+.wizard-body {
+    gap: 0.75rem;
+}
+
+.wizard-lead {
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.wizard-bullets,
+.wizard-next {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+.wizard-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.wizard-check code,
+.wizard-body code {
+    font-size: 0.78em;
+    color: var(--accent);
+}
+
+.wizard-recovery {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-align: center;
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+    border: 1px solid var(--border-default);
+    color: var(--accent);
+}
+
+.wizard-callout {
+    font-size: 0.8rem;
+    line-height: 1.45;
+    padding: 0.7rem 0.8rem;
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+    border-left: 3px solid var(--accent);
+    color: var(--text-secondary);
+}
+
+.wizard-callout.ok {
+    border-left-color: var(--accent-green, var(--accent));
+}
+
+.wizard-callout strong {
+    display: block;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+}
+
+.wizard-dl-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.4rem;
+}
+
+.wizard-dl-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 99px;
+    background: var(--border-default);
+    overflow: hidden;
+}
+
+.wizard-dl-bar {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s ease;
+}
+
+.wizard-error {
+    color: var(--accent-rose, #fb7185);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.form-hint {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    line-height: 1.4;
 }
 
 .form-group {

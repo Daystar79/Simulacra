@@ -28,11 +28,23 @@ public class SlmModelOption
 /// </summary>
 public static class SlmModelDownloaderService
 {
-    public const string DefaultModelName = "dolphin-2.9-llama3-8b.Q4_K_M.gguf";
-    public const string DefaultDownloadUrl = "https://huggingface.co/QuantFactory/dolphin-2.9-llama3-8b-GGUF/resolve/main/dolphin-2.9-llama3-8b.Q4_K_M.gguf";
+    public const string DefaultModelName = "Dolphin3.0-Llama3.2-1B-Q4_K_M.gguf";
+    public const string DefaultDownloadUrl = "https://huggingface.co/bartowski/Dolphin3.0-Llama3.2-1B-GGUF/resolve/main/Dolphin3.0-Llama3.2-1B-Q4_K_M.gguf";
 
     public static readonly List<SlmModelOption> AvailableModels = new()
     {
+        new SlmModelOption
+        {
+            Id = "dolphin-3.0-llama3.2-1b",
+            DisplayName = "Dolphin 3.0 (Llama 3.2 1B) — First-run default",
+            FileName = "Dolphin3.0-Llama3.2-1B-Q4_K_M.gguf",
+            DownloadUrl = "https://huggingface.co/bartowski/Dolphin3.0-Llama3.2-1B-GGUF/resolve/main/Dolphin3.0-Llama3.2-1B-Q4_K_M.gguf",
+            Description = "Small uncensored model (~800 MB). Best first download; good enough to talk, easy on disk.",
+            ApproxSizeMb = 800,
+            ContextSize = 8192,
+            MaxTokens = 384,
+            IsDefault = true
+        },
         new SlmModelOption
         {
             Id = "dolphin-2.9-llama3-8b",
@@ -43,7 +55,7 @@ public static class SlmModelDownloaderService
             ApproxSizeMb = 4900,
             ContextSize = 8192,
             MaxTokens = 512,
-            IsDefault = true
+            IsDefault = false
         },
         new SlmModelOption
         {
@@ -196,6 +208,7 @@ public static class SlmModelDownloaderService
         {
             try
             {
+                LlamaSharpLlmClient.ReleaseCachedRuntime(targetPath);
                 File.Delete(targetPath);
                 LlmModelFetcher.ClearCache("LlamaSharp");
                 return true;

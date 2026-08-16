@@ -24,7 +24,7 @@
         DialogueFeed="@_dialogueFeed"
         OutputLogs="@_outputLogs"
         PlayerInput="@_playerInput"
-        PlayerInputChanged="v => _playerInput = v"
+        PlayerInputChanged="OnPlayerInputChanged"
         OnSend="SendPlayerInput"
         OnClearLogs="ClearLogs"
         OnPlayerKeyUp="OnPlayerInputKeyUp" />
@@ -749,6 +749,12 @@
 
     private string BuildPortraitAppearance() =>
         CardFieldFormatter.BuildImagingPrompt(_charPhysical, _charStyle, _charName);
+
+    private void OnPlayerInputChanged(string v)
+    {
+        _playerInput = v;
+        SimHost.NoteUserPresence();
+    }
 
     private void OnPlayerInputKeyUp(KeyboardEventArgs e)
     {

@@ -128,6 +128,11 @@
 </div>
 
 <!-- MODAL DIALOGS -->
+@if (_showFirstSetupWizard)
+{
+    <FirstSetupWizard OnCompleted="OnFirstSetupCompleted" />
+}
+
 @if (_showProfilePickerModal)
 {
     <ProfilePickerModal OnClosed="OnProfilePickerClosed" OnCreateRequested="OpenCreateProfileModal" />
@@ -170,13 +175,14 @@
         _ => "badge-ready"
     };
 
-    private string _activeProfileBadge = "Player 1 (Age 25)";
+    private string _activeProfileBadge = "No profile yet";
     private string _statusText = "Ready. Click File ➔ Simulation Setup to configure characters.";
     private string _activeLlmInfo = "Agent A: Mock | Agent B: Mock";
     private int _delayMs = 600;
     private bool _isPlaying = false;
     private bool _isWaitingForLlm = false;
 
+    private bool _showFirstSetupWizard = false;
     private bool _showProfilePickerModal = false;
     private bool _showCreateProfileModal = false;
     private bool _showSetupModal = false;
@@ -234,6 +240,14 @@
             _profileSvc = ProfileService.Instance;
             _profileSvc.OnActiveProfileChanged += OnProfileAutoRefresh;
             UpdateActiveProfileBadge();
+            try
+            {
+                _showFirstSetupWizard = FirstSetup.NeedsWizard(ControlContext.CurrentSettings);
+            }
+            catch
+            {
+                _showFirstSetupWizard = true;
+            }
             StateHasChanged();
         }
         catch (Exception ex)
@@ -349,6 +363,8 @@
             var profile = (_profileSvc ?? ProfileService.Instance).ActiveProfile;
             if (profile != null)
                 _activeProfileBadge = $"{profile.DisplayName} (Age {profile.CalculateAge()})";
+            else
+                _activeProfileBadge = "No profile yet";
         }
         catch
         {
@@ -412,6 +428,14 @@
     }
 
 
+
+    private void OnFirstSetupCompleted()
+    {
+        _showFirstSetupWizard = false;
+        UpdateActiveProfileBadge();
+        _statusText = "Setup complete. Load a character on the right and send a line.";
+        StateHasChanged();
+    }
 
     private void OpenProfilePickerModal()
     {

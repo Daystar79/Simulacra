@@ -74,8 +74,8 @@ public class LlmResponseSanitizerTests
 
         Assert.Contains("CONVERSATION SO FAR", situation);
         Assert.Contains("quiet companion", situation);
-        Assert.Contains("Continue the scene", situation);
-        Assert.DoesNotContain("scene has just opened", situation);
+        Assert.Contains("volitional beat", situation);
+        Assert.DoesNotContain("Open the scene in character", situation);
     }
 
     [Fact]
@@ -89,6 +89,7 @@ public class LlmResponseSanitizerTests
         Assert.DoesNotContain("leans back against the balustrade", full);
         Assert.DoesNotContain("Music... it is a quiet companion", chat);
         Assert.Contains("[Somatic: brief internal tell]", full);
+        Assert.DoesNotContain("Opening physical action beat", full);
     }
 
     [Fact]

@@ -52,6 +52,9 @@ public class LocalSlmPromptBuilderTests
         Assert.Contains("Dimly lit study", prompt);
         Assert.Contains("What did you find in the archives?", prompt);
         Assert.Contains("[Somatic:", prompt);
+        Assert.Contains("Winning drive this beat: Uncover hidden ledger", prompt);
+        Assert.Contains("volitional beat", prompt);
+        Assert.DoesNotContain("Answer their question directly", prompt);
     }
 
     [Fact]
@@ -105,8 +108,9 @@ public class LocalSlmPromptBuilderTests
 
         Assert.Contains("<|im_start|>system", prompt);
         Assert.Contains("CORE INVARIANTS:", prompt);
-        Assert.Contains("Opening physical action beat", prompt);
+        Assert.Contains("I [new physical move]", prompt);
         Assert.Contains("Stop after one reply. Never output [Player]:", prompt);
+        Assert.Contains("Volition: never a passive AI assistant", prompt);
     }
 
     [Fact]

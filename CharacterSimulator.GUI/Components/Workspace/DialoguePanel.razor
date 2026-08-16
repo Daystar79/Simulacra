@@ -41,10 +41,25 @@
                     }
                     else
                     {
+                        var body = BuildTurnBody(msg.Dialogue, msg.SomaticText);
+                        @if (!string.IsNullOrWhiteSpace(body.Somatic))
+                        {
+                            <div class="somatic-tag">
+                                <span class="somatic-label">Somatic</span>
+                                <span class="somatic-body">@body.Somatic</span>
+                            </div>
+                        }
                         <div class="dialogue-segments">
-                            @foreach (var seg in ParseDialogueSegments(msg.Dialogue))
+                            @foreach (var seg in body.Segments)
                             {
-                                if (seg.Type == SegmentType.Narration)
+                                @if (seg.Kind == DialogueSegmentKind.Somatic)
+                                {
+                                    <div class="somatic-tag">
+                                        <span class="somatic-label">Somatic</span>
+                                        <span class="somatic-body">@seg.Text</span>
+                                    </div>
+                                }
+                                else if (seg.Kind == DialogueSegmentKind.Narration)
                                 {
                                     <div class="narration-prose">@seg.Text</div>
                                 }
@@ -106,10 +121,25 @@
                     }
                     else
                     {
+                        var hist = BuildTurnBody(turn.Dialogue, turn.SomaticText);
+                        @if (!string.IsNullOrWhiteSpace(hist.Somatic))
+                        {
+                            <div class="somatic-tag">
+                                <span class="somatic-label">Somatic</span>
+                                <span class="somatic-body">@hist.Somatic</span>
+                            </div>
+                        }
                         <div class="dialogue-segments">
-                            @foreach (var seg in ParseDialogueSegments(turn.Dialogue))
+                            @foreach (var seg in hist.Segments)
                             {
-                                if (seg.Type == SegmentType.Narration)
+                                @if (seg.Kind == DialogueSegmentKind.Somatic)
+                                {
+                                    <div class="somatic-tag">
+                                        <span class="somatic-label">Somatic</span>
+                                        <span class="somatic-body">@seg.Text</span>
+                                    </div>
+                                }
+                                else if (seg.Kind == DialogueSegmentKind.Narration)
                                 {
                                     <div class="narration-prose">@seg.Text</div>
                                 }
@@ -139,78 +169,18 @@
     [Parameter] public EventCallback OnClearLogs { get; set; }
     [Parameter] public EventCallback<KeyboardEventArgs> OnPlayerKeyUp { get; set; }
 
-    private enum SegmentType { Narration, Speech }
-    private record DialogueSegment(SegmentType Type, string Text);
-
-    private static List<DialogueSegment> ParseDialogueSegments(string rawDialogue)
+    private static (string Somatic, List<DialogueSegment> Segments) BuildTurnBody(string dialogue, string? somaticText)
     {
-        var segments = new List<DialogueSegment>();
-        if (string.IsNullOrWhiteSpace(rawDialogue))
-            return segments;
+        var parsed = DialogueSegmentParser.Parse(dialogue);
+        bool headerSomatic = !string.IsNullOrWhiteSpace(somaticText);
+        var segments = parsed
+            .Where(s => !(headerSomatic && s.Kind == DialogueSegmentKind.Somatic))
+            .ToList();
 
-        // Clean leftover bracket tags and unwrap [Action] brackets
-        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[Somatic:?\s*.*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[Goal:\s*.*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[Image:\s*.*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        rawDialogue = System.Text.RegularExpressions.Regex.Replace(rawDialogue, @"\[\s*([^\]]+)\s*\]", "$1");
-        rawDialogue = rawDialogue.Replace("[", "").Replace("]", "").Trim();
+        if (segments.Count == 0 && !string.IsNullOrWhiteSpace(dialogue))
+            segments.Add(new DialogueSegment(DialogueSegmentKind.Speech, dialogue.Trim()));
 
-        var matches = System.Text.RegularExpressions.Regex.Matches(rawDialogue, @"(?:\*([^*]+)\*|_([^_]+)_|""([^""]+)""|([^""*_]+))");
-
-        foreach (System.Text.RegularExpressions.Match m in matches)
-        {
-            string text = m.Value.Trim();
-            if (string.IsNullOrWhiteSpace(text)) continue;
-
-            if (m.Groups[1].Success || m.Groups[2].Success)
-            {
-                string content = (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value).Trim();
-                if (!string.IsNullOrEmpty(content))
-                    segments.Add(new DialogueSegment(SegmentType.Narration, content));
-            }
-            else if (m.Groups[3].Success)
-            {
-                string content = m.Groups[3].Value.Trim();
-                if (string.IsNullOrEmpty(content)) continue;
-
-                if (IsLikelyActionProse(content))
-                    segments.Add(new DialogueSegment(SegmentType.Narration, content));
-                else
-                    segments.Add(new DialogueSegment(SegmentType.Speech, content));
-            }
-            else
-            {
-                string content = text.Trim();
-                if (string.IsNullOrEmpty(content)) continue;
-
-                if (IsLikelySpokenDialogue(content))
-                    segments.Add(new DialogueSegment(SegmentType.Speech, content));
-                else
-                    segments.Add(new DialogueSegment(SegmentType.Narration, content));
-            }
-        }
-
-        return segments;
-    }
-
-    private static bool IsLikelyActionProse(string text)
-    {
-        string lower = text.ToLowerInvariant();
-        return lower.StartsWith("i step") || lower.StartsWith("i reach") || lower.StartsWith("i turn")
-            || lower.StartsWith("i pull") || lower.StartsWith("i lift") || lower.StartsWith("i look")
-            || lower.StartsWith("a soft") || lower.StartsWith("my voice") || lower.StartsWith("my hand")
-            || lower.StartsWith("my eyes") || lower.StartsWith("she ") || lower.StartsWith("he ");
-    }
-
-    private static bool IsLikelySpokenDialogue(string text)
-    {
-        if (text.EndsWith('?') || text.EndsWith('!'))
-        {
-            string lower = text.ToLowerInvariant();
-            if (!lower.Contains("step") && !lower.Contains("reach") && !lower.Contains("turn") && !lower.Contains("pull"))
-                return true;
-        }
-        return false;
+        return (headerSomatic ? somaticText!.Trim() : "", segments);
     }
 
     private Task SwitchTab(string tab) => CenterTabChanged.InvokeAsync(tab);

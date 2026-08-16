@@ -48,6 +48,7 @@ public static class SystemLeakLinter
         new(new Regex(@"\bThreshold Vision\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), "Engine Bias & Gift Names", "Threshold Vision gift name leak"),
         new(new Regex(@"\b(look up|database|search the web|search web|as an AI|my database|retriev\w+ records|external search)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), "Out-of-Character Lookup / Temporal Leaks", "Out-of-character AI lookup / temporal leak"),
         new(new Regex(@"\b(it'?s important to remember|to be fair|let'?s look at this|while that is a common|actually, from a|safety guidelines?|safety protocols?|respectful conversation|inappropriate content|moral perspective|ethical considerations?|cannot fulfill this request)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), "AI Safety / Preachy Tone Leaks", "AI safety tone / preachiness leak"),
+        new(new Regex(@"\b(?:how can I help(?: you)?(?: today)?|what would you like me to (?:do|help with)|is there anything else I can (?:help with|do)(?: for you)?|let me know if you need anything)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), "Assistant Register", "Passive assistant / helpdesk register"),
     };
 
     public static LinterResult Audit(string text)

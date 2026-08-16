@@ -229,7 +229,7 @@ public static class LlmModelFetcher
         {
             return new List<LlmModel>
             {
-                new(SlmModelDownloaderService.DefaultModelName, "Dolphin 2.9 Llama 3 8B (Download Required)", "LlamaSharp", "Press 'Download Model' to fetch", true)
+                new(SlmModelDownloaderService.DefaultModelName, "Dolphin 3.0 Llama 3.2 1B (Download Required)", "LlamaSharp", "Press 'Download Model' to fetch", true)
             };
         }
 

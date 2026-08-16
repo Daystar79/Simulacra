@@ -143,6 +143,16 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="form-group" style="margin-top: 0.75rem;">
+                    <label class="form-label" style="display: flex; align-items: center; gap: 0.45rem; cursor: pointer;">
+                        <input type="checkbox" @bind="_keepAliveEnabled" />
+                        <span>Character keep-alive (idle life)</span>
+                    </label>
+                    <p style="font-size: 0.7rem; color: var(--text-secondary); margin: 0.25rem 0 0 1.4rem;">
+                        When you go quiet, the character takes a small unprompted beat after a random 15–120 seconds so they still feel present. Pause stops it. <code>/keepalive on|off|now</code>
+                    </p>
+                </div>
             }
             else
             {
@@ -301,6 +311,7 @@
     private string _selectedTheme = ThemeCatalog.DefaultThemeId;
     private double _temperature = 0.7;
     private int _maxTokens = 1024;
+    private bool _keepAliveEnabled = true;
     private string _detectionStatus = "";
     private string _warningMessage = "";
     private bool _isDetecting;
@@ -320,6 +331,7 @@
             _roleplayModelIdentifier = saved.RoleplayModelIdentifier;
             _temperature = saved.Temperature;
             _maxTokens = saved.MaxTokens;
+            _keepAliveEnabled = saved.KeepAliveIsOn;
             _selectedImageEngine = string.IsNullOrWhiteSpace(saved.ImageEngine)
                 ? ImageEngineDetector.DefaultEngineId
                 : saved.ImageEngine;
@@ -655,22 +667,20 @@
 
     private void SaveCurrentSettings()
     {
-        var settings = new AppSettings
-        {
-            SelectedCharA = _selectedCharA,
-            SelectedCharB = _selectedCharB,
-            SelectedGenre = _selectedGenre,
-            ScenePrompt = _sceneContext,
-
-            RoleplayLlmProvider = _selectedRoleplayLlmProvider,
-            RoleplayModelIdentifier = _roleplayModelIdentifier,
-            Temperature = _temperature,
-            MaxTokens = _maxTokens,
-            ImageEngine = _selectedImageEngine,
-            ImageModelIdentifier = _selectedImageModel,
-            ImageResolution = _imageResolution,
-            UiTheme = _selectedTheme
-        };
+        var settings = ControlContext.CurrentSettings ?? new AppSettings();
+        settings.SelectedCharA = _selectedCharA;
+        settings.SelectedCharB = _selectedCharB;
+        settings.SelectedGenre = _selectedGenre;
+        settings.ScenePrompt = _sceneContext;
+        settings.RoleplayLlmProvider = _selectedRoleplayLlmProvider;
+        settings.RoleplayModelIdentifier = _roleplayModelIdentifier;
+        settings.Temperature = _temperature;
+        settings.MaxTokens = _maxTokens;
+        settings.KeepAliveEnabled = _keepAliveEnabled;
+        settings.ImageEngine = _selectedImageEngine;
+        settings.ImageModelIdentifier = _selectedImageModel;
+        settings.ImageResolution = _imageResolution;
+        settings.UiTheme = _selectedTheme;
         ControlContext.UpdateSettings(settings);
     }
 

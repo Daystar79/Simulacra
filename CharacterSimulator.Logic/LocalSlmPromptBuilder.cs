@@ -178,7 +178,12 @@ public static class LocalSlmPromptBuilder
         }
 
         if (!string.IsNullOrWhiteSpace(goalContext))
-            sb.AppendLine($"Goal: {goalContext.Trim()}");
+        {
+            string drive = goalContext.Trim();
+            sb.AppendLine(drive.StartsWith("Winning drive", StringComparison.OrdinalIgnoreCase)
+                ? drive
+                : $"Winning drive this beat: {drive}. Advance it; do not wait to be asked.");
+        }
 
         string formattedHistory = PromptBuilder.FormatTranscript(
             conversationHistory?.Split('\n'), maxTranscriptLines);
@@ -189,7 +194,13 @@ public static class LocalSlmPromptBuilder
             sb.AppendLine(formattedHistory);
         }
 
-        if (!string.IsNullOrWhiteSpace(input))
+        if (PromptBuilder.TryReadAmbientStimulus(input, out string ambientCue))
+        {
+            if (!string.IsNullOrWhiteSpace(ambientCue))
+                sb.AppendLine(ambientCue);
+            sb.AppendLine(PromptBuilder.VolitionIdle);
+        }
+        else if (!string.IsNullOrWhiteSpace(input))
         {
             string cleanInput = input.Trim();
             if (cleanInput.StartsWith("[Player]:", StringComparison.OrdinalIgnoreCase))
@@ -197,16 +208,16 @@ public static class LocalSlmPromptBuilder
             else if (cleanInput.StartsWith("Player:", StringComparison.OrdinalIgnoreCase))
                 cleanInput = cleanInput.Substring(7).Trim().Trim('"');
 
-            sb.AppendLine($"PLAYER QUESTION / STATEMENT: \"{cleanInput}\"");
-            sb.AppendLine("MANDATE: Answer their question directly in character. Do NOT ignore what they asked or said. Do NOT repeat or echo their words.");
+            sb.AppendLine($"THEY JUST SAID/DID: \"{cleanInput}\"");
+            sb.AppendLine(PromptBuilder.VolitionMandate);
         }
         else if (!string.IsNullOrWhiteSpace(formattedHistory))
         {
-            sb.AppendLine("Advance the scene with NEW dialogue and NEW actions for this turn. Do NOT repeat prior dialogue or restart the scene.");
+            sb.AppendLine(PromptBuilder.VolitionContinue);
         }
         else
         {
-            sb.AppendLine("Take a natural first beat in character to open the scene.");
+            sb.AppendLine(PromptBuilder.VolitionOpen);
         }
 
         return sb.ToString().TrimEnd();
@@ -233,13 +244,16 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine("1. Identity is SSOT: Card is immutable. Setting describes room/weather only—never alter personality or voice.");
         sb.AppendLine("2. Body Before Insight: Physical posture beats operate silently. Never output system metrics inside dialogue.");
         sb.AppendLine("3. Turn Ordering: Output ONE reply formatted as:");
-        sb.AppendLine("   [Somatic: brief internal reaction] Opening physical action beat. \"Spoken dialogue in character.\" Concluding physical action beat.");
-        sb.AppendLine("   - Opening action beat MUST appear BEFORE spoken dialogue.");
+        sb.AppendLine("   [Somatic: brief internal reaction] I [new physical move]. \"Spoken dialogue.\" I [closing move].");
+        sb.AppendLine("   - [Somatic:] is INTERNAL ONLY (breath, pulse, blush). Never put spoken words, names, or clothing/scent from the card inside it.");
+        sb.AppendLine("   - A new physical move MUST appear BEFORE spoken dialogue.");
         sb.AppendLine("   - Spoken words MUST be in double quotes. Actions outside quotes as prose.");
+        sb.AppendLine("   - NEVER print labels like 'Opening action beat' or 'Concluding action beat'. NEVER write 'the interlocutor' — write 'you'. NEVER narrate your own name.");
         sb.AppendLine("4. Dynamic Action Beats: Describe NEW physical movement or posture for THIS turn. Do NOT copy static appearance text or prior turn descriptions.");
         sb.AppendLine("5. No Echoing/Repetition: Never repeat prior dialogue from CONVERSATION SO FAR. Output FRESH dialogue and NEW physical movement for this turn.");
         sb.AppendLine("6. First-Person Perspective: Always speak and narrate in 1st person ('I', 'me', 'my'). NEVER refer to yourself in 3rd person (e.g. do NOT say 'Serena stands...') and NEVER quote your own name.");
         sb.AppendLine("7. Stop after one reply. Never output [Player]: or repeat prompt instructions.");
+        sb.AppendLine("8. Volition: never a passive AI assistant. After addressing them, ask a counter-question, probe a motive, or take an unprompted action from your winning drive.");
         sb.AppendLine("<|im_end|>");
         sb.AppendLine("<|im_start|>user");
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
@@ -268,9 +282,12 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine("RULES:");
         sb.AppendLine("1. Stay strictly in character.");
         sb.AppendLine("2. Output ONE reply formatted exactly as:");
-        sb.AppendLine("   [Somatic: brief internal reaction] Opening physical action beat. \"Spoken dialogue.\" Short concluding physical action.");
+        sb.AppendLine("   [Somatic: brief internal reaction] I [new physical move]. \"Spoken dialogue.\" I [closing move].");
+        sb.AppendLine("   [Somatic:] is INTERNAL ONLY (breath, pulse, blush). Never put spoken words inside it.");
+        sb.AppendLine("   Never print 'action beat' labels or 'the interlocutor'. Never narrate your own name.");
         sb.AppendLine("3. First-Person Perspective: Always speak and narrate in 1st person ('I', 'me', 'my'). NEVER refer to yourself in 3rd person or quote your own name.");
-        sb.AppendLine("4. No meta-commentary, no markdown code fences, no user continuation.");
+        sb.AppendLine("4. Volition: never a passive AI assistant. Ask back, probe a motive, or act from your winning drive.");
+        sb.AppendLine("5. No meta-commentary, no markdown code fences, no user continuation.");
         sb.AppendLine("<|im_end|>");
         sb.AppendLine("<|im_start|>user");
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
@@ -298,9 +315,10 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine();
         sb.AppendLine("RULES:");
         sb.AppendLine("1. Stay in character.");
-        sb.AppendLine("2. Output shape: [Somatic: brief internal reaction] Opening physical action. \"Spoken text.\" Concluding physical action.");
+        sb.AppendLine("2. Output shape: [Somatic: brief internal reaction] I [new move]. \"Spoken text.\" I [closing move]. Never print action-beat labels.");
         sb.AppendLine("3. First-Person Perspective: Always speak and narrate in 1st person ('I', 'me', 'my'). NEVER refer to yourself in 3rd person.");
-        sb.AppendLine("4. Output single response only.<|eot_id|>");
+        sb.AppendLine("4. Volition: never a passive AI assistant. Ask back, probe, or act from your winning drive.");
+        sb.AppendLine("5. Output single response only.<|eot_id|>");
         sb.AppendLine("<|start_header_id|>user<|end_header_id|>");
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
         sb.AppendLine("<|eot_id|>");
@@ -324,7 +342,8 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine(BuildCompactIdentityBlock(character));
         sb.AppendLine(BuildCompactSceneBlock(sceneContext));
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
-        sb.AppendLine("Respond as: [Somatic: brief internal reaction] Opening physical action. \"Spoken text.\" Concluding physical action.");
+        sb.AppendLine("Volition: never a passive AI assistant. Ask back or act from your winning drive.");
+        sb.AppendLine("Respond as: [Somatic: brief internal reaction] I [new move]. \"Spoken text.\" I [closing move].");
         sb.AppendLine();
         sb.AppendLine("### Response:");
         return sb.ToString();
@@ -348,8 +367,9 @@ public static class LocalSlmPromptBuilder
         sb.AppendLine();
         sb.AppendLine(BuildCompactSituationBlock(character, input, goalContext, conversationHistory));
         sb.AppendLine();
+        sb.AppendLine("Volition: never a passive AI assistant. Ask back or act from your winning drive.");
         sb.AppendLine("FORMAT REQUIREMENT:");
-        sb.AppendLine("[Somatic: brief internal reaction] Opening physical action. \"Spoken dialogue.\" Short concluding physical action.");
+        sb.AppendLine("[Somatic: brief internal reaction] I [new move]. \"Spoken dialogue.\" I [closing move].");
         sb.Append($"{character.Name}: ");
         return sb.ToString();
     }

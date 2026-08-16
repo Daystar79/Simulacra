@@ -83,8 +83,8 @@ public class ProfileService : IDisposable
         var profiles = _profileRepo.GetAllProfiles();
         if (profiles.Count == 0)
         {
-            // Seed default player profile (adult by default)
-            SetActiveProfile(_profileRepo.CreateProfile("Player 1", 1995, 1, 1, pin: null, adultAttested: false));
+            // Leave empty — FirstSetupWizard creates the first real profile.
+            SetActiveProfile(null);
         }
         else
         {
@@ -99,6 +99,21 @@ public class ProfileService : IDisposable
         var profile = _profileRepo.CreateProfile(name, dobYear, dobMonth, dobDay, pin, adultAttested);
         SetActiveProfile(profile);
         return profile;
+    }
+
+    /// <summary>
+    /// First-run path: replace a silent placeholder profile, or create the first one.
+    /// </summary>
+    public UserProfile CreateOrReplacePlaceholder(
+        string name, int dobYear, int dobMonth, int dobDay, string? pin = null, bool adultAttested = false)
+    {
+        var current = ActiveProfile;
+        if (current != null && FirstSetup.IsPlaceholderProfile(current))
+        {
+            _profileRepo.DeleteProfile(current.Id);
+        }
+
+        return CreateProfile(name, dobYear, dobMonth, dobDay, pin, adultAttested);
     }
 
     public bool SwitchProfile(string profileId, string? pin = null)

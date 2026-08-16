@@ -4,42 +4,40 @@ using System.Text;
 
 namespace CharacterSimulator.Logic.Services;
 
+/// <summary>
+/// Compact host-side cognitive constraints. Never dumps the pipeline document
+/// (that would leak jargon and blow the SLM budget). Optional overlay file
+/// may append extra lines; it does not replace the core four.
+/// </summary>
 public static class CognitiveEngineRulesInjector
 {
-    /// <summary>
-    /// Optionally loads pipeline and system rules snippets from disk into system prompt context
-    /// without placing psychology math inside C# logic.
-    /// </summary>
     public static string LoadCognitiveRules(string? customRulesPath = null)
     {
         var sb = new StringBuilder();
+        sb.AppendLine("[HOST CONSTRAINTS]");
+        sb.AppendLine("- Volition: never a passive Q&A endpoint; ask back, probe motives, or act from the winning drive.");
+        sb.AppendLine("- Body before insight: physical beat before or folded into speech.");
+        sb.AppendLine("- Off-page matrix: never speak Realm, Bias, Gift, Prism, Bond scores, or engine labels.");
+        sb.AppendLine("- Card supremacy: identity is the card; scene is room and weather only.");
 
-        // 1. Check for standard runtime spec file
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string defaultPath = Path.Combine(baseDir, "Data", "cognitive_rules.md");
-        string targetPath = customRulesPath ?? defaultPath;
-
+        string targetPath = customRulesPath ?? Path.Combine(baseDir, "Data", "cognitive_rules.md");
         if (File.Exists(targetPath))
         {
             try
             {
-                string text = File.ReadAllText(targetPath);
-                sb.AppendLine("\n[COGNITIVE ENGINE PIPELINE MANDATE]");
-                sb.AppendLine(text.Trim());
+                string extra = File.ReadAllText(targetPath).Trim();
+                if (extra.Length > 0)
+                {
+                    sb.AppendLine(extra);
+                }
             }
             catch (Exception ex)
             {
                 AppLogger.Warning($"[CognitiveEngineRulesInjector] Could not read rules file {targetPath}: {ex.Message}");
             }
         }
-        else
-        {
-            // Fallback default host cognitive guidelines
-            sb.AppendLine("\n[COGNITIVE ENGINE HOST RULES]");
-            sb.AppendLine("1. Maintain persistent emotional trajectory and body state across turns.");
-            sb.AppendLine("2. Respect relationship bond deltas and character agency without breaking immersion.");
-        }
 
-        return sb.ToString();
+        return sb.ToString().TrimEnd();
     }
 }

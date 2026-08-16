@@ -27,10 +27,16 @@ public sealed class SimulationHost
     private string? _pendingInject;
     private volatile bool _waitingForLlm;
     private volatile bool _sessionStartInFlight;
+    private readonly Random _keepAliveRng = new();
+    private KeepAliveScheduler _keepAlive;
+    private int _idleBeats;
+    private bool _userPaused;
 
     public SimulationHost(TurnControlContext control)
     {
         _control = control ?? throw new ArgumentNullException(nameof(control));
+        _keepAlive = new KeepAliveScheduler(NextKeepAliveDelay, OnKeepAliveFired);
+        _control.OnSettingsChanged += OnSettingsChanged;
     }
 
     public TurnControlContext Control => _control;
@@ -39,6 +45,8 @@ public sealed class SimulationHost
     public bool IsSessionRunning => _runTask != null && !_runTask.IsCompleted;
     public bool IsWaitingForLlm => _waitingForLlm;
     public string StagedPrimaryFile => _stagedPrimaryFile;
+    public bool IsKeepAliveArmed => _keepAlive.IsArmed;
+    public int KeepAliveIdleBeats => _idleBeats;
 
     /// <summary>Structured dialogue / system lines for the center feed.</summary>
     public event Action<DialogueLine>? OnDialogueLine;
@@ -76,6 +84,7 @@ public sealed class SimulationHost
 
     public void Play()
     {
+        NoteUserTurn();
         lock (_gate)
         {
             if (IsSessionRunning)
@@ -103,6 +112,8 @@ public sealed class SimulationHost
 
     public void Pause()
     {
+        _userPaused = true;
+        _keepAlive.Cancel();
         _control.Pause();
         PostSystem("⏸ Paused.");
         OnStatus?.Invoke("Simulation paused.");
@@ -110,6 +121,7 @@ public sealed class SimulationHost
 
     public void Step()
     {
+        NoteUserTurn();
         if (!IsSessionRunning)
         {
             // One-shot: start session; Player-Guided will pause after the first turn.
@@ -123,6 +135,8 @@ public sealed class SimulationHost
 
     public void Stop()
     {
+        _userPaused = true;
+        _keepAlive.Cancel();
         if (!IsSessionRunning && _control.State != SimulationState.Running)
         {
             _control.Stop();
@@ -166,6 +180,8 @@ public sealed class SimulationHost
             HandleCommand(PlayerCommandService.Parse(line));
             return;
         }
+
+        NoteUserTurn();
 
         // Player dialogue bubble
         OnDialogueLine?.Invoke(new DialogueLine
@@ -255,6 +271,9 @@ public sealed class SimulationHost
             case PlayerCommandKind.Adult:
                 HandleAdult(cmd.Args);
                 break;
+            case PlayerCommandKind.KeepAlive:
+                HandleKeepAlive(cmd.Args);
+                break;
             case PlayerCommandKind.Save:
             case PlayerCommandKind.Load:
                 PostSystem($"/{cmd.RawName} is not wired in the host yet — use Settings → Saved Sessions.");
@@ -291,12 +310,49 @@ public sealed class SimulationHost
             PostSystem("Usage: /adult on|off");
     }
 
+    private void HandleKeepAlive(string[] args)
+    {
+        var s = _control.CurrentSettings ?? new AppSettings();
+        if (args.Length == 0)
+        {
+            PostSystem($"Keep-alive: {(s.KeepAliveIsOn ? "ON" : "OFF")} " +
+                       $"({s.KeepAliveMinSeconds}-{s.KeepAliveMaxSeconds}s, max {s.KeepAliveMaxIdleBeats} idle beats). " +
+                       "Use /keepalive on|off|now");
+            return;
+        }
+
+        string v = args[0].Trim().ToLowerInvariant();
+        if (v is "on" or "true" or "1" or "yes")
+        {
+            s.KeepAliveEnabled = true;
+            _control.UpdateSettings(s);
+            _userPaused = false;
+            PostSystem("Keep-alive ON — the character will act when you go quiet.");
+            ScheduleKeepAliveIfEligible();
+        }
+        else if (v is "off" or "false" or "0" or "no")
+        {
+            s.KeepAliveEnabled = false;
+            _control.UpdateSettings(s);
+            _keepAlive.Cancel();
+            PostSystem("Keep-alive OFF — the character waits for you.");
+        }
+        else if (v is "now" or "fire" or "tick")
+        {
+            if (!TryTriggerKeepAlive())
+                PostSystem("Keep-alive cannot fire right now (need an active parked session).");
+        }
+        else
+            PostSystem("Usage: /keepalive on|off|now");
+    }
+
     private string BuildStatusReport()
     {
         var s = _control.CurrentSettings ?? new AppSettings();
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"State: {_control.State} | Session: {(IsSessionRunning ? "active" : "idle")} | WaitingLLM: {_waitingForLlm}");
         sb.AppendLine($"Mode: {s.RoleplayMode} | Delay: {_control.DelayMs}ms | MaxTurns: {s.MaxTurns}");
+        sb.AppendLine($"Keep-alive: {(s.KeepAliveIsOn ? "ON" : "OFF")} ({s.KeepAliveMinSeconds}-{s.KeepAliveMaxSeconds}s, max {s.KeepAliveMaxIdleBeats} idle beats) | IdleBeats: {_idleBeats} | Armed: {IsKeepAliveArmed}");
         sb.AppendLine($"LLM: {s.RoleplayLlmProvider} ({s.RoleplayModelIdentifier})");
         sb.AppendLine($"Genre: {s.SelectedGenre} | Scene: {(!string.IsNullOrEmpty(_sceneOverride) ? _sceneOverride : s.ScenePrompt)}");
         sb.AppendLine($"Staged card: {(string.IsNullOrEmpty(_stagedPrimaryFile) ? "(none)" : _stagedPrimaryFile)}");
@@ -494,6 +550,7 @@ public sealed class SimulationHost
                     _sessionStartInFlight = false;
                 }
 
+                _keepAlive.Cancel();
                 OnStatus?.Invoke("Session idle.");
                 OnCharacterStateChanged?.Invoke();
             }
@@ -523,9 +580,7 @@ public sealed class SimulationHost
         bool isLeft = isSystem
             || (_charA != null && e.SpeakerName.Equals(_charA.Name, StringComparison.OrdinalIgnoreCase));
 
-        string somatic = e.SomaticZones is { Count: > 0 }
-            ? string.Join(", ", e.SomaticZones)
-            : "";
+        string somatic = DialogueSegmentParser.FormatSomaticForDisplay(e.SomaticZones);
 
         string bond = e.BondDelta != 0
             ? (e.BondDelta > 0 ? $"+{e.BondDelta}" : e.BondDelta.ToString()) + $" (now {e.CurrentBond})"
@@ -550,6 +605,8 @@ public sealed class SimulationHost
         // Park between turns so player prompt or Step continues.
         try { _control.Pause(); }
         catch { /* ignore */ }
+
+        ScheduleKeepAliveIfEligible();
     }
 
     private void PostSystem(string text)
@@ -585,6 +642,104 @@ public sealed class SimulationHost
         || fileName.Contains("No Character", StringComparison.OrdinalIgnoreCase)
         || fileName.Contains("Not Selected", StringComparison.OrdinalIgnoreCase)
         || fileName.StartsWith('(');
+
+    /// <summary>
+    /// Player is typing or otherwise present — postpone the idle beat, do not reset the idle budget.
+    /// </summary>
+    public void NoteUserPresence()
+    {
+        if (_userPaused || !IsSessionRunning || _waitingForLlm)
+        {
+            _keepAlive.Cancel();
+            return;
+        }
+
+        if (IsKeepAliveEnabled())
+            _keepAlive.Arm();
+        else
+            _keepAlive.Cancel();
+    }
+
+    /// <summary>Fire one idle beat now if a session is parked (honors Pause/Stop, ignores the on/off setting).</summary>
+    public bool TryTriggerKeepAlive()
+    {
+        if (!CanFireKeepAlive(ignoreEnabledAndBudget: true))
+            return false;
+        FireKeepAliveTurn();
+        return true;
+    }
+
+    private void OnSettingsChanged(AppSettings _)
+    {
+        if (!IsKeepAliveEnabled())
+            _keepAlive.Cancel();
+        else
+            ScheduleKeepAliveIfEligible();
+    }
+
+    private void NoteUserTurn()
+    {
+        _idleBeats = 0;
+        _userPaused = false;
+        _keepAlive.Cancel();
+    }
+
+    private void ScheduleKeepAliveIfEligible()
+    {
+        if (!CanFireKeepAlive())
+        {
+            _keepAlive.Cancel();
+            return;
+        }
+
+        _keepAlive.Arm();
+    }
+
+    private bool CanFireKeepAlive(bool ignoreEnabledAndBudget = false)
+    {
+        if (_userPaused) return false;
+        if (_waitingForLlm) return false;
+        if (!IsSessionRunning) return false;
+        if (_control.State != SimulationState.Paused && _control.State != SimulationState.Ready)
+            return false;
+        if (ignoreEnabledAndBudget) return true;
+        if (!IsKeepAliveEnabled()) return false;
+        var s = _control.CurrentSettings ?? new AppSettings();
+        return _idleBeats < s.KeepAliveMaxIdleBeats;
+    }
+
+    private bool IsKeepAliveEnabled()
+    {
+        var s = _control.CurrentSettings;
+        return s == null || s.KeepAliveIsOn;
+    }
+
+    private TimeSpan NextKeepAliveDelay()
+    {
+        var s = _control.CurrentSettings ?? new AppSettings();
+        return KeepAliveBeats.PickDelay(_keepAliveRng, s.KeepAliveMinSeconds, s.KeepAliveMaxSeconds);
+    }
+
+    private void OnKeepAliveFired()
+    {
+        if (!CanFireKeepAlive())
+            return;
+        FireKeepAliveTurn();
+    }
+
+    private void FireKeepAliveTurn()
+    {
+        _idleBeats++;
+        string cue = KeepAliveBeats.PickCue(_keepAliveRng);
+        lock (_gate)
+        {
+            _turnManager?.InjectAmbientBeat(cue);
+        }
+
+        OnStatus?.Invoke("Character stirs…");
+        try { _control.Step(); }
+        catch { /* ignore */ }
+    }
 
     private static string PreferProvider(string roleplayProvider, string selectedSlot)
     {

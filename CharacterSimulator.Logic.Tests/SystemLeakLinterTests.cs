@@ -21,4 +21,16 @@ public class SystemLeakLinterTests
         Assert.DoesNotContain("Realm VIII", result.SanitizedDialogue);
         Assert.DoesNotContain("Debt Ledger", result.SanitizedDialogue);
     }
+
+    [Fact]
+    public void SystemLeakLinter_StripsAssistantHelpdeskRegister()
+    {
+        string text = "How can I help you today? The terrace is still warm.";
+
+        var result = SystemLeakLinter.Audit(text);
+
+        Assert.Contains(result.Findings, f => f.Category == "Assistant Register");
+        Assert.DoesNotContain("How can I help you today", result.SanitizedDialogue);
+        Assert.Contains("The terrace is still warm.", result.SanitizedDialogue);
+    }
 }

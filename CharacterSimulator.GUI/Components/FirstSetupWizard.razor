@@ -1,0 +1,398 @@
+@inject ProfileService ProfileSvc
+@inject TurnControlContext ControlContext
+@inject IJSRuntime JS
+
+<div class="modal-overlay wizard-overlay">
+    <div class="modal-card wizard-card">
+        <div class="modal-header">
+            <div class="modal-title">Welcome to Simulacra</div>
+            <span class="wizard-step-meta">@_stepIndex / @_stepTotal</span>
+        </div>
+
+        <div class="wizard-progress" aria-hidden="true">
+            @for (int i = 1; i <= _stepTotal; i++)
+            {
+                <div class="wizard-progress-seg @(i <= _stepIndex ? "done" : "")"></div>
+            }
+        </div>
+
+        <div class="modal-body wizard-body">
+            @if (_step == WizardStep.Welcome)
+            {
+                <p class="wizard-lead">A desktop roleplay host. Not the mind engine — it loads character cards, talks to a local or cloud model, and keeps sessions on this machine.</p>
+                <ul class="wizard-bullets">
+                    <li>Your profile, PIN, and sessions stay in a local SQLite database.</li>
+                    <li>Adult paths need age 18+, an attestation, and an adult-tagged card.</li>
+                    <li>A small local model is enough to start. Bigger models can wait.</li>
+                </ul>
+            }
+            else if (_step == WizardStep.Profile)
+            {
+                <p class="wizard-lead">Who is playing on this computer?</p>
+
+                <div class="form-group">
+                    <label class="form-label" for="wizName">Display name</label>
+                    <input id="wizName" class="form-control" @bind="_name" placeholder="e.g. Alex" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="wizDob">Date of birth</label>
+                    <input id="wizDob" type="date" class="form-control" @bind="_dob" min="1920-01-01" max="@_todayIso" />
+                    <div class="form-hint">Age is calculated locally. Under-18 profiles permanently lock adult content.</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="wizPin">Optional PIN</label>
+                    <input id="wizPin" type="password" class="form-control" @bind="_pin" placeholder="Leave blank for none" autocomplete="new-password" />
+                    <div class="form-hint">Four or more characters. A recovery code is shown once if you set a PIN.</div>
+                </div>
+
+                @if (ComputedAge >= 18)
+                {
+                    <label class="wizard-check">
+                        <input type="checkbox" @bind="_adultAttest" />
+                        <span>I am 18 or older and want adult paths available (you can also type <code>/adult on</code> later).</span>
+                    </label>
+                }
+                else
+                {
+                    <p class="form-hint">This profile will be under 18 — adult mode stays locked.</p>
+                }
+            }
+            else if (_step == WizardStep.Recovery)
+            {
+                <p class="wizard-lead">Write this recovery code down. It is the only way to reset a forgotten PIN.</p>
+                <div class="wizard-recovery">@_recoveryCode</div>
+                <p class="form-hint">It will not be shown again. You can still change the PIN later from Profile → Security PIN.</p>
+            }
+            else if (_step == WizardStep.Voice)
+            {
+                <p class="wizard-lead">How should characters talk?</p>
+
+                @if (_hasLocalModel)
+                {
+                    <div class="wizard-callout ok">
+                        <strong>Local model ready.</strong>
+                        <span>@_installedSummary</span>
+                    </div>
+                    <p class="form-hint">Simulacra will use the built-in engine (LLamaSharp). You can switch providers later in Settings → Roleplaying.</p>
+                }
+                else if (_isDownloading)
+                {
+                    <div class="wizard-callout">
+                        <div class="wizard-dl-row">
+                            <span>@_downloadStatus</span>
+                            <span>@((_downloadPercent * 100).ToString("F0"))%</span>
+                        </div>
+                        <div class="wizard-dl-track">
+                            <div class="wizard-dl-bar" style="width: @((_downloadPercent * 100).ToString("F0"))%"></div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="wizard-callout">
+                        No GGUF model in <code>Models/</code> yet. Download the small default (~@_recommended.ApproxSizeMb.ToString("0") MB) or skip and use Mock until you add one.
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Model to download</label>
+                        <CustomSelect @bind-Value="_selectedModelId" Options="_modelOptions" />
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_voiceError))
+                {
+                    <div class="wizard-error">@_voiceError</div>
+                }
+            }
+            else
+            {
+                <p class="wizard-lead">You're set. @_readyName, this is yours now.</p>
+                <ol class="wizard-next">
+                    <li>Pick a character on the right rail.</li>
+                    <li>Type a line in the center and press Send.</li>
+                    <li>Settings still holds engines, imaging, and themes.</li>
+                </ol>
+                <p class="form-hint">Slash commands: <code>/help</code> <code>/play</code> <code>/scene</code> <code>/adult on</code></p>
+            }
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="wizard-error">@_error</div>
+            }
+        </div>
+
+        <div class="modal-footer">
+            @if (_step != WizardStep.Welcome && _step != WizardStep.Ready && !_isDownloading)
+            {
+                <button class="btn btn-secondary" @onclick="Back">Back</button>
+            }
+            else
+            {
+                <span></span>
+            }
+
+            @if (_step == WizardStep.Voice && !_hasLocalModel && !_isDownloading)
+            {
+                <button class="btn btn-secondary" @onclick="SkipModel">Skip for now</button>
+                <button class="btn btn-primary" @onclick="DownloadAndContinue">Download &amp; continue</button>
+            }
+            else if (_step == WizardStep.Ready)
+            {
+                <button class="btn btn-success" @onclick="Finish">Start using Simulacra</button>
+            }
+            else if (_isDownloading)
+            {
+                <button class="btn btn-primary" disabled>Downloading…</button>
+            }
+            else
+            {
+                <button class="btn btn-primary" @onclick="Next">@_nextLabel</button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnCompleted { get; set; }
+
+    private enum WizardStep { Welcome, Profile, Recovery, Voice, Ready }
+
+    private WizardStep _step = WizardStep.Welcome;
+    private string _name = "";
+    private DateTime _dob = new DateTime(2000, 1, 1);
+    private string _pin = "";
+    private bool _adultAttest;
+    private string _error = "";
+    private string _voiceError = "";
+    private string _recoveryCode = "";
+    private UserProfile? _created;
+    private bool _hasLocalModel;
+    private string _installedSummary = "";
+    private bool _isDownloading;
+    private double _downloadPercent;
+    private string _downloadStatus = "";
+    private string _selectedModelId = FirstSetup.RecommendedModel().Id;
+    private readonly SlmModelOption _recommended = FirstSetup.RecommendedModel();
+    private List<CustomSelect.DropdownOption> _modelOptions = new();
+    private readonly string _todayIso = DateTime.Today.ToString("yyyy-MM-dd");
+
+    private int ComputedAge
+    {
+        get
+        {
+            var probe = new UserProfile { DobYear = _dob.Year, DobMonth = _dob.Month, DobDay = _dob.Day };
+            return probe.CalculateAge();
+        }
+    }
+
+    private int _stepIndex => _step switch
+    {
+        WizardStep.Welcome => 1,
+        WizardStep.Profile => 2,
+        WizardStep.Recovery => 3,
+        WizardStep.Voice => _recoveryCode.Length > 0 ? 4 : 3,
+        _ => _stepTotal
+    };
+
+    private int _stepTotal => string.IsNullOrEmpty(_recoveryCode) ? 4 : 5;
+
+    private string _nextLabel => _step == WizardStep.Welcome ? "Get started" : "Continue";
+
+    private string _readyName => _created?.DisplayName ?? _name.Trim();
+
+    protected override void OnInitialized()
+    {
+        var existing = ProfileSvc.ActiveProfile;
+        if (existing != null && !FirstSetup.IsPlaceholderProfile(existing))
+        {
+            _name = existing.DisplayName;
+            try { _dob = new DateTime(existing.DobYear, existing.DobMonth, existing.DobDay); }
+            catch { _dob = new DateTime(2000, 1, 1); }
+            _adultAttest = existing.IsAdultAttested && existing.IsAdultEligible();
+        }
+
+        _modelOptions = SlmModelDownloaderService.AvailableModels
+            .Select(m => new CustomSelect.DropdownOption(
+                m.Id,
+                $"{m.DisplayName} ({m.ApproxSizeMb:F0} MB)"))
+            .ToList();
+
+        RefreshModelState();
+    }
+
+    private void RefreshModelState()
+    {
+        var installed = SlmModelDownloaderService.GetInstalledModelFiles();
+        _hasLocalModel = installed.Count > 0;
+        _installedSummary = _hasLocalModel
+            ? string.Join(", ", installed.Select(Path.GetFileName))
+            : "";
+    }
+
+    private void Back()
+    {
+        _error = "";
+        _step = _step switch
+        {
+            WizardStep.Profile => WizardStep.Welcome,
+            WizardStep.Recovery => WizardStep.Profile,
+            WizardStep.Voice => string.IsNullOrEmpty(_recoveryCode) ? WizardStep.Profile : WizardStep.Recovery,
+            WizardStep.Ready => WizardStep.Voice,
+            _ => WizardStep.Welcome
+        };
+    }
+
+    private void Next()
+    {
+        _error = "";
+        if (_step == WizardStep.Welcome)
+        {
+            _step = WizardStep.Profile;
+            return;
+        }
+
+        if (_step == WizardStep.Profile)
+        {
+            if (!TrySaveProfile())
+                return;
+            _step = string.IsNullOrEmpty(_recoveryCode) ? WizardStep.Voice : WizardStep.Recovery;
+            return;
+        }
+
+        if (_step == WizardStep.Recovery)
+        {
+            _step = WizardStep.Voice;
+            return;
+        }
+
+        if (_step == WizardStep.Voice)
+        {
+            ApplyVoiceSettings(downloaded: _hasLocalModel);
+            _step = WizardStep.Ready;
+        }
+    }
+
+    private bool TrySaveProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _error = "Please enter a display name.";
+            return false;
+        }
+
+        if (_dob.Year < 1920 || _dob > DateTime.Today)
+        {
+            _error = "Please enter a valid date of birth.";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_pin) && _pin.Trim().Length < 4)
+        {
+            _error = "PIN must be at least 4 characters, or leave it blank.";
+            return false;
+        }
+
+        int age = ComputedAge;
+        bool attest = _adultAttest && age >= 18;
+        if (_adultAttest && age < 18)
+        {
+            _error = "Adult attestation is not available for under-18 profiles.";
+            return false;
+        }
+
+        try
+        {
+            string? pin = string.IsNullOrWhiteSpace(_pin) ? null : _pin.Trim();
+            var existing = ProfileSvc.ActiveProfile;
+            if (existing != null && !FirstSetup.IsPlaceholderProfile(existing))
+            {
+                _created = existing;
+                _recoveryCode = "";
+                return true;
+            }
+
+            _created = ProfileSvc.CreateOrReplacePlaceholder(_name.Trim(), _dob.Year, _dob.Month, _dob.Day, pin, attest);
+            _recoveryCode = pin != null ? (_created.RecoveryCode ?? "") : "";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            return false;
+        }
+    }
+
+    private async Task DownloadAndContinue()
+    {
+        _voiceError = "";
+        var target = SlmModelDownloaderService.AvailableModels
+            .FirstOrDefault(m => m.Id == _selectedModelId)
+            ?? _recommended;
+
+        _isDownloading = true;
+        _downloadPercent = 0.01;
+        _downloadStatus = $"Connecting for {target.FileName}…";
+        StateHasChanged();
+
+        bool ok = await SlmModelDownloaderService.DownloadModelAsync(target, (pct, msg) =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                _downloadPercent = pct;
+                _downloadStatus = msg;
+                StateHasChanged();
+            });
+        });
+
+        _isDownloading = false;
+        RefreshModelState();
+
+        if (!ok)
+        {
+            _voiceError = string.IsNullOrWhiteSpace(_downloadStatus)
+                ? "Download failed. Check your connection, or skip and add a model later."
+                : _downloadStatus;
+            StateHasChanged();
+            return;
+        }
+
+        ApplyVoiceSettings(downloaded: true, modelFile: target.FileName);
+        _step = WizardStep.Ready;
+        StateHasChanged();
+    }
+
+    private void SkipModel()
+    {
+        ApplyVoiceSettings(downloaded: false);
+        _step = WizardStep.Ready;
+    }
+
+    private void ApplyVoiceSettings(bool downloaded, string? modelFile = null)
+    {
+        var settings = ControlContext.CurrentSettings ?? AppConfigService.LoadSettings() ?? new AppSettings();
+        if (downloaded || _hasLocalModel)
+        {
+            settings.RoleplayLlmProvider = "LlamaSharp";
+            settings.RoleplayModelIdentifier = modelFile
+                ?? SlmModelDownloaderService.GetInstalledModelFiles().Select(Path.GetFileName).FirstOrDefault()
+                ?? SlmModelDownloaderService.DefaultModelName;
+        }
+        else
+        {
+            settings.RoleplayLlmProvider = "MockEngine";
+            settings.RoleplayModelIdentifier = "mock";
+        }
+
+        ControlContext.UpdateSettings(settings);
+    }
+
+    private async Task Finish()
+    {
+        var settings = ControlContext.CurrentSettings ?? AppConfigService.LoadSettings() ?? new AppSettings();
+        settings.FirstSetupComplete = true;
+        ControlContext.UpdateSettings(settings);
+        await OnCompleted.InvokeAsync();
+    }
+}

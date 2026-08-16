@@ -129,6 +129,54 @@ public static class PromptBuilder
         return sb.ToString().TrimEnd();
     }
 
+    public const string VolitionMandate =
+        "MANDATE: Address what they just said or did. Then take one volitional beat of your own (a counter-question, a test of their motive, or an unprompted action from your winning drive). Do not ignore them. Do not parrot their words. Do not wait for them to lead the next line. Do not become a helpful assistant.";
+
+    public const string VolitionContinue =
+        "Advance the scene with NEW dialogue and NEW action. Take a volitional beat (ask back, probe a motive, or move from your winning drive). Do not wait to be led. Do not repeat prior dialogue.";
+
+    public const string VolitionOpen =
+        "Open the scene in character with a volitional first beat — a question, a probe, or an unprompted action. Do not wait to be addressed.";
+
+    public const string VolitionIdle =
+        "A beat of time has passed. The other person is still present but has not spoken. Live in the moment: one small physical beat, a glance, a breath, attending to the room, or a quiet remark that fits who you are. Do not ask if they are still there. Do not recap. Do not wait to be led. Do not repeat your last line. Spoken words are optional; a silent action is enough if that fits.";
+
+    /// <summary>
+    /// Host-only marker so keep-alive turns are not formatted as player speech.
+    /// Never shown in the dialogue feed.
+    /// </summary>
+    public const string AmbientStimulusPrefix = "\u0001CS_AMBIENT\u0001";
+
+    public static string FormatAmbientStimulus(string? cue)
+    {
+        string c = string.IsNullOrWhiteSpace(cue) ? "" : cue.Trim();
+        return AmbientStimulusPrefix + c;
+    }
+
+    public static bool TryReadAmbientStimulus(string? input, out string cue)
+    {
+        cue = "";
+        if (string.IsNullOrEmpty(input) || !input.StartsWith(AmbientStimulusPrefix, StringComparison.Ordinal))
+            return false;
+        cue = input.Substring(AmbientStimulusPrefix.Length).Trim();
+        return true;
+    }
+
+    /// <summary>
+    /// Formats the active card goal as a winning drive for Says/Does, not a label to recite.
+    /// </summary>
+    public static string FormatWinningDrive(Goal? goal)
+    {
+        if (goal == null || string.IsNullOrWhiteSpace(goal.Type))
+            return "";
+
+        string target = string.IsNullOrWhiteSpace(goal.Target) ? "the interlocutor" : goal.Target.Trim();
+        string strategies = goal.Strategies.Count > 0
+            ? $" via {string.Join(", ", goal.Strategies.Where(s => !string.IsNullOrWhiteSpace(s)))}"
+            : "";
+        return $"Winning drive this beat: {goal.Type.Trim()} toward {target}{strategies}. Advance it; do not wait to be asked.";
+    }
+
     /// <summary>
     /// Max transcript lines injected into each prompt (oldest dropped).
     /// </summary>
@@ -184,7 +232,9 @@ public static class PromptBuilder
             sb.AppendLine(realmGuidance);
 
         if (!string.IsNullOrWhiteSpace(goalContext))
-            sb.AppendLine(goalContext.Trim());
+            sb.AppendLine(goalContext.Trim().StartsWith("Winning drive", StringComparison.OrdinalIgnoreCase)
+                ? goalContext.Trim()
+                : $"Winning drive this beat: {goalContext.Trim()}. Advance it; do not wait to be asked.");
 
         bool hasHistory = !string.IsNullOrWhiteSpace(conversationHistory);
         if (hasHistory)
@@ -193,17 +243,18 @@ public static class PromptBuilder
             sb.AppendLine(conversationHistory!.Trim());
         }
 
-        if (string.IsNullOrWhiteSpace(input))
+        if (TryReadAmbientStimulus(input, out string ambientCue))
+        {
+            if (!string.IsNullOrWhiteSpace(ambientCue))
+                sb.AppendLine(ambientCue);
+            sb.AppendLine(VolitionIdle);
+        }
+        else if (string.IsNullOrWhiteSpace(input))
         {
             if (hasHistory)
-            {
-                sb.AppendLine("Continue the scene as yourself with the next natural beat.");
-                sb.AppendLine("Do not restart the scene. Do not repeat prior dialogue or the same gesture/pose.");
-            }
+                sb.AppendLine(VolitionContinue);
             else
-            {
-                sb.AppendLine("The scene has just opened; no one has spoken to you yet. Take a natural first beat in character.");
-            }
+                sb.AppendLine(VolitionOpen);
         }
         else
         {
@@ -213,12 +264,8 @@ public static class PromptBuilder
             else if (cleanInput.StartsWith("Player:", StringComparison.OrdinalIgnoreCase))
                 cleanInput = cleanInput.Substring(7).Trim().Trim('"');
 
-            sb.AppendLine("PLAYER QUESTION / STATEMENT: \"" + cleanInput + "\"");
-            if (hasHistory)
-                sb.AppendLine("MANDATE: Answer their question/statement directly in character. Advance the moment; do not restate your previous line.");
-            else
-                sb.AppendLine("MANDATE: Answer their question/statement directly in character.");
-            sb.AppendLine("Do NOT ignore what they asked. Do NOT repeat, quote, or parrot their words back to them.");
+            sb.AppendLine("THEY JUST SAID/DID: \"" + cleanInput + "\"");
+            sb.AppendLine(VolitionMandate);
         }
 
         return sb.ToString().TrimEnd();
@@ -248,10 +295,13 @@ public static class PromptBuilder
         sb.AppendLine("5. Somatic tells must fit YOUR character's autonomic vocabulary.");
         sb.AppendLine("6. First-Person Perspective: Always speak and describe physical action beats in 1st person ('I', 'me', 'my'). NEVER narrate about yourself in 3rd person (e.g. do not say 'Serena stands...') and NEVER quote your own name.");
         sb.AppendLine("7. Output ONE reply only. Stop after a single [Somatic] + opening physical action + spoken line + optional concluding action. Never continue as the user, never restate the rules, never invent a second reply.");
+        sb.AppendLine("8. Volition: never a passive AI assistant or Q&A endpoint. Ask back, probe motives, or take an unprompted action from your winning drive.");
+        sb.AppendLine();
+        sb.AppendLine(Services.CognitiveEngineRulesInjector.LoadCognitiveRules());
         sb.AppendLine();
         sb.AppendLine("Respond in this exact shape (invent fresh words and action for THIS moment — do not copy the sample wording):");
-        sb.AppendLine("[Somatic: brief internal tell] Opening physical action beat. \"Spoken words that fit the moment.\" Short concluding physical action.");
-        sb.AppendLine("Put spoken words inside double quotes. Write actions before/after quotes as prose. No placeholders, no character-name prefix, no markdown fences, no meta-commentary.");
+        sb.AppendLine("[Somatic: brief internal tell] I [new physical move]. \"Spoken words that fit the moment.\" I [closing move].");
+        sb.AppendLine("Put spoken words inside double quotes. Write actions before/after quotes as prose. Never print labels like 'Opening action beat'. Never write 'the interlocutor' — write 'you'. Never narrate your own name. No markdown fences, no meta-commentary.");
         return sb.ToString();
     }
 
@@ -274,8 +324,10 @@ public static class PromptBuilder
         sb.AppendLine("2. Autonomic Somatic tells: Start with [Somatic: ...] for internal/involuntary physiological reactions only.");
         sb.AppendLine("3. Dual-Aspect Psyche: Channel Cognitive Wound under pressure; Cognitive Gift under trust.");
         sb.AppendLine("4. Respond ONCE only. Stop after one reply. Do not repeat yourself, do not output system/user tags, do not invent further turns.");
-        sb.AppendLine("5. Shape: [Somatic: brief internal tell] Opening physical action. \"Spoken words.\" Concluding physical action.");
+        sb.AppendLine("5. Shape: [Somatic: brief internal tell] I [new move]. \"Spoken words.\" I [closing move]. Never print action-beat labels or 'the interlocutor'.");
         sb.AppendLine("6. Invent fresh wording for this moment. Never copy sample lines from the instructions. No placeholder tags, no markdown fences, no meta-commentary.");
+        sb.AppendLine("7. Volition: never a passive AI assistant. After addressing them, ask back, probe a motive, or act from your winning drive.");
+        sb.AppendLine(Services.CognitiveEngineRulesInjector.LoadCognitiveRules());
         sb.AppendLine("<|im_end|>");
         sb.AppendLine("<|im_start|>user");
         sb.AppendLine(BuildSituationBlock(character, input, goalContext, conversationHistory));

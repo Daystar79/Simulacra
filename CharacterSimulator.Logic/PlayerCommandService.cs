@@ -22,6 +22,7 @@ public enum PlayerCommandKind
     Scene,
     Genre,
     Adult,
+    KeepAlive,
 }
 
 public sealed class PlayerCommand
@@ -58,6 +59,9 @@ public static class PlayerCommandService
         ["genre"] = PlayerCommandKind.Genre,
         ["tone"] = PlayerCommandKind.Genre,
         ["adult"] = PlayerCommandKind.Adult,
+        ["keepalive"] = PlayerCommandKind.KeepAlive,
+        ["keep-alive"] = PlayerCommandKind.KeepAlive,
+        ["alive"] = PlayerCommandKind.KeepAlive,
     };
 
     /// <summary>
@@ -133,6 +137,8 @@ public static class PlayerCommandService
             "  /genre <name>      Set scene genre/environment tone only",
             "  /clear             Clear the dialogue feed",
             "  /adult on|off      Toggle user adult content attestation",
+            "  /keepalive on|off  Idle-life: character acts when you go quiet",
+            "  /keepalive now     Fire one idle beat immediately",
             "",
             "Anything that does not start with / is treated as player dialogue.",
         });

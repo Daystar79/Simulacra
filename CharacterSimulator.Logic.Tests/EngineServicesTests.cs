@@ -38,6 +38,38 @@ public class EngineServicesTests
         Assert.Contains("Victor: keep it simple", identity);
 
         Assert.Contains("Recruiting Victor six years ago", situation);
+        Assert.Contains("THEY JUST SAID/DID", situation);
+        Assert.Contains("volitional beat", situation);
+        Assert.DoesNotContain("Answer their question directly", situation);
+    }
+
+    [Fact]
+    public void PromptBuilder_FormatsWinningDriveFromGoal()
+    {
+        var goal = new Goal
+        {
+            Type = "Trust",
+            Target = "Player",
+            Strategies = { "slow invitation" }
+        };
+
+        string drive = PromptBuilder.FormatWinningDrive(goal);
+
+        Assert.Contains("Winning drive this beat: Trust toward Player", drive);
+        Assert.Contains("slow invitation", drive);
+        Assert.Contains("do not wait to be asked", drive);
+        Assert.Equal("", PromptBuilder.FormatWinningDrive(null));
+    }
+
+    [Fact]
+    public void CognitiveEngineRulesInjector_EmitsCompactVolitionConstraints()
+    {
+        string rules = CharacterSimulator.Logic.Services.CognitiveEngineRulesInjector.LoadCognitiveRules();
+
+        Assert.Contains("[HOST CONSTRAINTS]", rules);
+        Assert.Contains("Volition:", rules);
+        Assert.Contains("Off-page matrix", rules);
+        Assert.DoesNotContain("CognitivePipeline.md", rules);
     }
 
     [Fact]
@@ -54,6 +86,10 @@ public class EngineServicesTests
         var cmdAdult = PlayerCommandService.Parse("/adult on");
         Assert.Equal(PlayerCommandKind.Adult, cmdAdult.Kind);
         Assert.Equal("on", cmdAdult.Args[0]);
+
+        var cmdKeep = PlayerCommandService.Parse("/keepalive now");
+        Assert.Equal(PlayerCommandKind.KeepAlive, cmdKeep.Kind);
+        Assert.Equal("now", cmdKeep.Args[0]);
 
         Assert.True(PlayerCommandService.IsCommand("/help"));
         Assert.False(PlayerCommandService.IsCommand("Hello Serena!"));

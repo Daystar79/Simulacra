@@ -16,6 +16,8 @@ public class TurnManager
     private readonly Logger _logger;
     private string? _pendingUserInput;
     private string _pendingUserRole = "Player";
+    private bool _pendingAmbient;
+    private string _pendingAmbientCue = "";
     private readonly object _inputLock = new object();
 
     public event Action<TurnStepEventArgs>? OnTurnStep;
@@ -38,6 +40,22 @@ public class TurnManager
         {
             _pendingUserRole = userRole;
             _pendingUserInput = text;
+            _pendingAmbient = false;
+            _pendingAmbientCue = "";
+        }
+    }
+
+    /// <summary>
+    /// Queue a host-side idle beat. Not player speech. Ignored if a player line is already waiting.
+    /// </summary>
+    public void InjectAmbientBeat(string? cue = null)
+    {
+        lock (_inputLock)
+        {
+            if (!string.IsNullOrEmpty(_pendingUserInput))
+                return;
+            _pendingAmbient = true;
+            _pendingAmbientCue = cue?.Trim() ?? "";
         }
     }
 
@@ -74,30 +92,13 @@ public class TurnManager
                 // Determine input for Client A
                 string inputA = lastInputForA;
                 string? pendingStimulusLine = null;
-                string pendingUserRoleCopy;
-                string pendingUserInputCopy;
-                lock (_inputLock)
-                {
-                    pendingUserInputCopy = _pendingUserInput ?? "";
-                    pendingUserRoleCopy = _pendingUserRole;
-                    if (!string.IsNullOrEmpty(pendingUserInputCopy))
-                    {
-                        _pendingUserInput = null;
-                    }
-                }
-                if (!string.IsNullOrEmpty(pendingUserInputCopy))
-                {
-                    pendingStimulusLine = $"{pendingUserRoleCopy}: \"{pendingUserInputCopy}\"";
-                    inputA = $"[{pendingUserRoleCopy}]: \"{pendingUserInputCopy}\"";
-                }
+                ConsumePendingStimulus(ref inputA, ref pendingStimulusLine);
 
                 string historyForA = PromptBuilder.FormatTranscript(transcript);
 
                 // Client A Turn
                 Goal? activeGoalA = GetActiveGoal(charA, targetBName);
-                string goalContextA = activeGoalA != null ?
-                    $"Your current goal: {activeGoalA.Type} {activeGoalA.Target} (Intensity: {activeGoalA.Intensity}). Strategies: {string.Join(", ", activeGoalA.Strategies)}." :
-                    "";
+                string goalContextA = PromptBuilder.FormatWinningDrive(activeGoalA);
 
                 string providerA = (_clientA as CliLlmClient)?.Name ?? "LLM";
                 OnAgentTurnStarted?.Invoke(charA.Name, providerA);
@@ -163,10 +164,10 @@ public class TurnManager
 
                 if (somaticA.Count > 0) charA.SomaticZones = somaticA;
                 charA.Bond += bondDeltaA;
-                charA.UpdateEmotionFromSomatic(charA.SomaticZones, dialogueA);
+                charA.UpdateEmotionFromSomatic(somaticA.Count > 0 ? somaticA : charA.SomaticZones, dialogueA);
                 UpdateBiasState(charA, bondDeltaA, goalStatusA, scene);
 
-                _logger.LogTurn(charA.Name, dialogueA, charA.SomaticZones, charA.Bond, activeGoalA?.Type, goalStatusA);
+                _logger.LogTurn(charA.Name, dialogueA, somaticA.Count > 0 ? somaticA : charA.SomaticZones, charA.Bond, activeGoalA?.Type, goalStatusA);
 
                 // Append stimulus (if any) then A's line to host transcript
                 if (!string.IsNullOrWhiteSpace(pendingStimulusLine))
@@ -181,7 +182,7 @@ public class TurnManager
                     SpeakerName = charA.Name,
                     TargetName = targetBName,
                     Dialogue = dialogueA,
-                    SomaticZones = charA.SomaticZones,
+                    SomaticZones = somaticA,
                     BondDelta = bondDeltaA,
                     CurrentBond = charA.Bond,
                     SpeakerEmotion = charA.Emotion,
@@ -239,35 +240,18 @@ public class TurnManager
                 // Determine input for Client B
                 string inputB = lastInputForB;
                 string? pendingStimulusLineB = null;
-                string pendingUserRoleCopyB;
-                string pendingUserInputCopyB;
-                lock (_inputLock)
-                {
-                    pendingUserInputCopyB = _pendingUserInput ?? "";
-                    pendingUserRoleCopyB = _pendingUserRole;
-                    if (!string.IsNullOrEmpty(pendingUserInputCopyB))
-                    {
-                        _pendingUserInput = null;
-                    }
-                }
-                if (!string.IsNullOrEmpty(pendingUserInputCopyB))
-                {
-                    pendingStimulusLineB = $"{pendingUserRoleCopyB}: \"{pendingUserInputCopyB}\"";
-                    inputB = $"[{pendingUserRoleCopyB}]: \"{pendingUserInputCopyB}\"";
-                }
+                ConsumePendingStimulus(ref inputB, ref pendingStimulusLineB);
 
-                // B already sees A's line in transcript; pass empty stimulus when no player inject
+                // B already sees A's line in transcript; pass empty stimulus when no player/ambient inject
                 // so the model is not told the same line twice.
-                if (pendingStimulusLineB == null)
+                if (pendingStimulusLineB == null && !PromptBuilder.TryReadAmbientStimulus(inputB, out _))
                     inputB = "";
 
                 string historyForB = PromptBuilder.FormatTranscript(transcript);
 
                 // Client B Turn
                 Goal? activeGoalB = GetActiveGoal(charB, charA.Name);
-                string goalContextB = activeGoalB != null ?
-                    $"Your current goal: {activeGoalB.Type} {activeGoalB.Target} (Intensity: {activeGoalB.Intensity}). Strategies: {string.Join(", ", activeGoalB.Strategies)}." :
-                    "";
+                string goalContextB = PromptBuilder.FormatWinningDrive(activeGoalB);
 
                 string providerB = (_clientB as CliLlmClient)?.Name ?? "LLM";
                 OnAgentTurnStarted?.Invoke(charB.Name, providerB);
@@ -332,10 +316,10 @@ public class TurnManager
 
                 if (somaticB.Count > 0) charB.SomaticZones = somaticB;
                 charB.Bond += bondDeltaB;
-                charB.UpdateEmotionFromSomatic(charB.SomaticZones, dialogueB);
+                charB.UpdateEmotionFromSomatic(somaticB.Count > 0 ? somaticB : charB.SomaticZones, dialogueB);
                 UpdateBiasState(charB, bondDeltaB, goalStatusB, scene);
 
-                _logger.LogTurn(charB.Name, dialogueB, charB.SomaticZones, charB.Bond, activeGoalB?.Type, goalStatusB);
+                _logger.LogTurn(charB.Name, dialogueB, somaticB.Count > 0 ? somaticB : charB.SomaticZones, charB.Bond, activeGoalB?.Type, goalStatusB);
 
                 if (!string.IsNullOrWhiteSpace(pendingStimulusLineB))
                     AppendTranscript(transcript, pendingStimulusLineB);
@@ -347,7 +331,7 @@ public class TurnManager
                     SpeakerName = charB.Name,
                     TargetName = charA.Name,
                     Dialogue = dialogueB,
-                    SomaticZones = charB.SomaticZones,
+                    SomaticZones = somaticB,
                     BondDelta = bondDeltaB,
                     CurrentBond = charB.Bond,
                     SpeakerEmotion = charB.Emotion,
@@ -402,6 +386,43 @@ public class TurnManager
         {
             // Auto-commit session state on scene break or close
             Logs.CommitService.CommitSession(charA, charB, scene);
+        }
+    }
+
+    private void ConsumePendingStimulus(ref string input, ref string? pendingStimulusLine)
+    {
+        string pendingUserRoleCopy;
+        string pendingUserInputCopy;
+        bool pendingAmbient;
+        string pendingAmbientCue;
+        lock (_inputLock)
+        {
+            pendingUserInputCopy = _pendingUserInput ?? "";
+            pendingUserRoleCopy = _pendingUserRole;
+            pendingAmbient = _pendingAmbient;
+            pendingAmbientCue = _pendingAmbientCue;
+            if (!string.IsNullOrEmpty(pendingUserInputCopy))
+            {
+                _pendingUserInput = null;
+                _pendingAmbient = false;
+                _pendingAmbientCue = "";
+            }
+            else if (pendingAmbient)
+            {
+                _pendingAmbient = false;
+                _pendingAmbientCue = "";
+            }
+        }
+
+        if (!string.IsNullOrEmpty(pendingUserInputCopy))
+        {
+            pendingStimulusLine = $"{pendingUserRoleCopy}: \"{pendingUserInputCopy}\"";
+            input = $"[{pendingUserRoleCopy}]: \"{pendingUserInputCopy}\"";
+        }
+        else if (pendingAmbient)
+        {
+            pendingStimulusLine = null;
+            input = PromptBuilder.FormatAmbientStimulus(pendingAmbientCue);
         }
     }
 
@@ -505,13 +526,7 @@ public class TurnManager
         // 1. Strip ANSI escape sequences (terminal color codes from CLI output)
         response = Regex.Replace(response, @"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "");
 
-        // 2. Somatic extraction
-        var somaticMatch = Regex.Match(response, @"\[Somatic:?\s*(.*?)\]", RegexOptions.IgnoreCase);
-        var somaticZones = somaticMatch.Success ?
-            somaticMatch.Groups[1].Value.Split(',').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList() :
-            new List<string>();
-
-        // 3. Structured state snapshot extraction
+        // 2. Structured state snapshot extraction
         State.PsychosomaticStateSnapshot? liveState = null;
         string? extractedJson = State.PsychosomaticStateValidator.ExtractStateJson(response);
         if (!string.IsNullOrWhiteSpace(extractedJson))
@@ -555,59 +570,15 @@ public class TurnManager
             imagePrompt = imgMatch.Groups[1].Value.Trim();
         }
 
-        // 6. Dialogue Tag Cleanup — remove meta-tags, placeholder tags, and code fences
-        var dialogue = Regex.Replace(response, @"\[Somatic:?\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"^SOMATIC\s*.*?(?=\n|\r|$)", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"\[Goal:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"\[Image:\s*.*?\]", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"(?:\[State:\s*|<=?state>?\s*)([\s\S]*?)(?:\]|</state>)", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"\[?Bond:?\s*[\+\-]?\d+\]?", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"```[\s\S]*?```", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"<state>[\s\S]*?</state>", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"<spoken\s*dialogue>", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"<narrative\s*action.*?>", "", RegexOptions.IgnoreCase).Trim();
-        dialogue = Regex.Replace(dialogue, @"<autonomic\s*internal\s*tell>", "", RegexOptions.IgnoreCase).Trim();
+        // 6. Split somatic tell from spoken/narration; rebuild a quoted canonical line
+        var parsed = DialogueSegmentParser.Parse(response, character.Name, character.PhysicalDescription);
+        var somaticZones = DialogueSegmentParser.IsZoneVocabularyDump(parsed.SomaticTells)
+            ? new List<string>()
+            : parsed.SomaticTells.ToList();
 
-        // 7. Strip leading LLM meta-preamble lines (e.g. "Sure, here is the response:")
-        var lines = dialogue.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l)).ToList();
-        if (lines.Count > 1 && (
-            lines[0].StartsWith("Sure", StringComparison.OrdinalIgnoreCase) ||
-            lines[0].StartsWith("Here is", StringComparison.OrdinalIgnoreCase) ||
-            lines[0].StartsWith("As ", StringComparison.OrdinalIgnoreCase) ||
-            lines[0].EndsWith(":") && !lines[0].Contains('"')))
-        {
-            lines.RemoveAt(0);
-            dialogue = string.Join("\n", lines);
-        }
+        var dialogue = parsed.CanonicalDialogue;
 
-        // 8. Strip redundant speaker name prefix if the model outputted "CharacterName: ...", "[CharacterName] ...", etc.
-        if (!string.IsNullOrWhiteSpace(character.Name))
-        {
-            string escName = Regex.Escape(character.Name);
-            string namePattern = @"^(?:\[" + escName + @"\]|\*\*" + escName + @"\*\*|" + escName + @")\s*:?\s*(?:\[" + escName + @"\]\s*)?";
-            dialogue = Regex.Replace(dialogue, namePattern, "", RegexOptions.IgnoreCase).Trim();
-        }
-
-        // 9. Unwrap outer quotes and clean up dangling quotes
-        dialogue = dialogue.Replace('“', '"').Replace('”', '"').Replace('‘', '\'').Replace('’', '\'');
-        if (dialogue.StartsWith('"'))
-        {
-            if (dialogue.EndsWith('"') && dialogue.Length >= 2)
-            {
-                dialogue = dialogue[1..^1].Trim();
-            }
-            else
-            {
-                int nextQuote = dialogue.IndexOf('"', 1);
-                if (nextQuote < 0)
-                {
-                    // Unclosed opening quote at start
-                    dialogue = dialogue[1..].TrimStart();
-                }
-            }
-        }
-
-        // 10. Truncate prompt leak headers (e.g. "PLAYER QUESTION", "[They just said/did]:", "Serena's response", "[Player]:")
+        // 7. Truncate prompt leak headers the sanitizer may have left mid-body
         int leakIdx = dialogue.IndexOf("PLAYER QUESTION", StringComparison.OrdinalIgnoreCase);
         if (leakIdx >= 0) dialogue = dialogue[..leakIdx].Trim();
         leakIdx = dialogue.IndexOf("PLAYER STATEMENT", StringComparison.OrdinalIgnoreCase);
@@ -622,35 +593,12 @@ public class TurnManager
         if (leakIdx >= 0) dialogue = dialogue[..leakIdx].Trim();
         leakIdx = dialogue.IndexOf("\nUser:", StringComparison.OrdinalIgnoreCase);
         if (leakIdx >= 0) dialogue = dialogue[..leakIdx].Trim();
-        leakIdx = dialogue.IndexOf("'s response", StringComparison.OrdinalIgnoreCase);
-        if (leakIdx >= 0)
-        {
-            int lineStart = dialogue.LastIndexOf('\n', leakIdx);
-            if (lineStart >= 0)
-                dialogue = dialogue[..lineStart].Trim();
-        }
-
-        // 11. Strip static physical description paragraph if copied verbatim from character card
-        if (!string.IsNullOrWhiteSpace(character.PhysicalDescription) && character.PhysicalDescription.Length > 15)
-        {
-            string phys = character.PhysicalDescription.Trim();
-            dialogue = dialogue.Replace(phys, "", StringComparison.OrdinalIgnoreCase).Trim();
-            dialogue = dialogue.Replace($"[{phys}]", "", StringComparison.OrdinalIgnoreCase).Trim();
-        }
-
-        // 11. Deduplicate identical repeated sentences/paragraphs separated by ';' or newlines
-        if (dialogue.Contains(';'))
-        {
-            var parts = dialogue.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (parts.Length > 1 && parts.Distinct(StringComparer.OrdinalIgnoreCase).Count() < parts.Length)
-            {
-                dialogue = string.Join("; ", parts.Distinct(StringComparer.OrdinalIgnoreCase));
-            }
-        }
 
         if (string.IsNullOrWhiteSpace(dialogue) && !string.IsNullOrWhiteSpace(response))
         {
-            dialogue = response.Trim();
+            dialogue = parsed.CanonicalDialogue;
+            if (string.IsNullOrWhiteSpace(dialogue))
+                dialogue = response.Trim();
         }
 
         // Hard ban filtering (P3)

@@ -334,9 +334,16 @@ public static class CharacterCatalog
         lock (IndexLock) repo = _index;
         if (repo != null)
         {
-            var row = repo.GetByFileName(fileName) ?? repo.GetByCardId(GetCardId(fileName));
-            if (row != null && !string.IsNullOrWhiteSpace(row.DisplayName))
-                return row.DisplayName;
+            try
+            {
+                var row = repo.GetByFileName(fileName) ?? repo.GetByCardId(GetCardId(fileName));
+                if (row != null && !string.IsNullOrWhiteSpace(row.DisplayName))
+                    return row.DisplayName;
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Warning($"[CharacterCatalog] Index lookup failed for '{fileName}': {ex.Message}");
+            }
         }
 
         string charDir = ResolveCharactersDirectory(baseDir);

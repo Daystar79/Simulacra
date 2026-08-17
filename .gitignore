@@ -7,4 +7,7 @@ Models/*.gguf
 Models/*.download
 publish/
 releases/
+*.log
+_log.yaml
+.portrait_*.txt
 

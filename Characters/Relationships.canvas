@@ -3,7 +3,7 @@
     {
       "id": "node-reed",
       "type": "file",
-      "file": "CognitiveMiddleware/Characters/reed.md",
+      "file": "Simulacra/Characters/reed.md",
       "x": 1100,
       "y": 80,
       "width": 250,
@@ -12,7 +12,7 @@
     {
       "id": "node-helen",
       "type": "file",
-      "file": "CognitiveMiddleware/Characters/helen.md",
+      "file": "Simulacra/Characters/helen.md",
       "x": 500,
       "y": 80,
       "width": 250,
@@ -21,7 +21,7 @@
     {
       "id": "node-cass",
       "type": "file",
-      "file": "CognitiveMiddleware/Characters/cass.md",
+      "file": "Simulacra/Characters/cass.md",
       "x": 1400,
       "y": 600,
       "width": 250,
@@ -30,7 +30,7 @@
     {
       "id": "node-lior",
       "type": "file",
-      "file": "CognitiveMiddleware/Characters/lior.md",
+      "file": "Simulacra/Characters/lior.md",
       "x": 1100,
       "y": 1120,
       "width": 250,
@@ -39,7 +39,7 @@
     {
       "id": "node-nora",
       "type": "file",
-      "file": "CognitiveMiddleware/Characters/nora.md",
+      "file": "Simulacra/Characters/nora.md",
       "x": 200,
       "y": 600,
       "width": 250,
@@ -48,7 +48,7 @@
     {
       "id": "node-wren",
       "type": "file",
-      "file": "CognitiveMiddleware/Characters/wren.md",
+      "file": "Simulacra/Characters/wren.md",
       "x": 500,
       "y": 1120,
       "width": 250,

@@ -1,4 +1,4 @@
-# Windows launcher — deploy Cognitive Middleware to a sibling book folder.
+# Windows launcher — deploy Simulacra to a sibling book folder.
 # AI agents on Windows: run this (or: python scripts/run.py deploy …).
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/deploy.ps1 [target]
 

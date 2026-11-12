@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Comprehensive test suite for CognitiveMiddleware framework and tooling."""
+"""Comprehensive test suite for Simulacra framework and tooling."""
 
 from __future__ import annotations
 
@@ -167,9 +167,8 @@ class TestDeploymentDecoupling(unittest.TestCase):
         self.assertNotIn("Images", deploy_framework.FRAMEWORK_DIRS)
 
     def test_blocked_target_detects_framework(self):
-        self.assertTrue(deploy_framework.is_blocked_target("/some/path/CognitiveMiddleware"))
-        self.assertTrue(deploy_framework.is_blocked_target("/some/path/Authors_Framework"))
         self.assertTrue(deploy_framework.is_blocked_target("/some/path/Simulacra"))
+        self.assertTrue(deploy_framework.is_blocked_target("/some/path/Authors_Framework"))
 
     def test_framework_files_include_psyche_framework(self):
         self.assertIn("Framework/psyche_framework.md", deploy_framework.FRAMEWORK_FILES)

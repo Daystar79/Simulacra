@@ -1,5 +1,5 @@
 # Cognitive Pipeline Specification
-*Psychosomatic simulation & behavior prediction engine · CognitiveMiddleware · Version 2.1*
+*Psychosomatic simulation & behavior prediction engine · Simulacra · Version 2.1*
 
 ---
 
@@ -318,4 +318,4 @@ After commit: regenerate human-readable projections (`Character_Change_Log.md`) 
 
 ---
 
-*Core simulation engine for CognitiveMiddleware. State shape: `Framework/Schemas/psychosomatic_state.json`. Extensions: `Framework/Modules.md`.*
+*Core simulation engine for Simulacra. State shape: `Framework/Schemas/psychosomatic_state.json`. Extensions: `Framework/Modules.md`.*

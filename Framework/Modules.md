@@ -1,4 +1,4 @@
-# Modules Index — CognitiveMiddleware
+# Modules Index — Simulacra
 *Extension registry for the Cognitive Pipeline. Downstream applications register modules here to inject into the cognitive loop.*
 
 Load with the pipeline and the active app host ([Main.md](./Main.md) or downstream application renderer).

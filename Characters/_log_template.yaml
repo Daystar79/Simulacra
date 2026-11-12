@@ -1,5 +1,5 @@
 # Character durable runtime log — copy to Characters/[slug]_log.yaml
-# CognitiveMiddleware: one character runtime, two layers:
+# Simulacra: one character runtime, two layers:
 #   Durable = this file (across movements/sessions)
 #   Live    = psychosomatic snapshot (Schemas/psychosomatic_state.json) per tick
 #

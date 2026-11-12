@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CognitiveMiddleware Framework Deployment & Scaffolding Script
+Simulacra Framework Deployment & Scaffolding Script
 -------------------------------------------------------------
 Distributes the Cognitive Pipeline, book-writing layer, simulator, and craft
 mechanics to other book folders in the same parent directory as this repo.
@@ -29,7 +29,7 @@ from typing import List, Tuple
 # Active downstream products only (receive framework deploys).
 # Completed manuscripts stay OFF this list — do not bulk-update them:
 #   BeliefAndLove, A Wanderers Guide To the Gates, history_of_the_great_wheel
-# Simulacra is a separate .NET host (blocked), not a Framework tree.
+# The framework repo itself (Simulacra) is never a deploy target — see is_blocked_target.
 DEPLOY_ALLOWLIST = frozenset({
     "CharacterSimulator",
 })
@@ -115,9 +115,8 @@ def is_blocked_target(target_dir: str) -> bool:
     """Hard-block deploys into the framework itself and known non-book trees."""
     name = os.path.basename(os.path.abspath(target_dir).rstrip(os.sep))
     blocked = {
-        "CognitiveMiddleware",
+        "Simulacra",  # this framework repo itself — never deploy into itself
         "Authors_Framework",
-        "Simulacra",  # .NET UI — not a framework book tree
         "CharacterSimulator.UI",  # legacy folder name
         "Keys",
         "Legal",
@@ -314,7 +313,7 @@ def main():
     parent_dir = get_parent_dir()
     
     print("==================================================")
-    print("      CognitiveMiddleware Framework Deployer      ")
+    print("      Simulacra Framework Deployer      ")
     print("==================================================")
     
     # CLI: deploy [name-or-path] [--force]

@@ -1,13 +1,13 @@
-# Source Changes — CognitiveMiddleware
+# Source Changes — Simulacra
 *Changes made from original source material during this chat*
 
 ## 2026-07-31 — Pipeline runtime hardening + remove modules — **applied** (agent)
 
-- **Naming:** Product/path strings standardized to **CognitiveMiddleware**; portable relative links (no absolute `file:///mnt/...`).
+- **Naming:** Product/path strings standardized to **Simulacra**; portable relative links (no absolute `file:///mnt/...`).
 - **Module system as loop API:** `Modules.md` restored/clarified — downstream apps register injectors into the cognitive loop; core pipeline stays fixed.
 - **Unified state:** Durable `_log.yaml` vs live `psychosomatic_state` schema; commit map in `CognitivePipeline.md`.
 - **Pipeline wiring:** Required inputs (card, log, realm_data, schema); realm catalog lookup; salience sources.
-- **Deploy:** Ships `CognitivePipeline.md` + `Framework/Schemas/` + `Modules.md`; self-ignore `CognitiveMiddleware`.
+- **Deploy:** Ships `CognitivePipeline.md` + `Framework/Schemas/` + `Modules.md`; self-ignore `Simulacra`.
 - **Apps:** Restored session boot / turn / style-lock orchestration in Main + CharacterRuntime without re-merging psyche.
 - **realm_data.yaml:** Single YAML document for `safe_load`.
 

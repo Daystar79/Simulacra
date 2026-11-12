@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unix launcher — deploy Cognitive Middleware to a sibling book folder.
+# Unix launcher — deploy Simulacra to a sibling book folder.
 # AI agents on Linux/macOS/BSD: run this (or: python3 scripts/run.py deploy …).
 set -euo pipefail
 

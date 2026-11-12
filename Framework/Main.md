@@ -1,5 +1,5 @@
 # MAIN — Book Writing Layer (Manuscript Engine)
-*System: CognitiveMiddleware · Role: Novel drafting & prose rendering*
+*System: Simulacra · Role: Novel drafting & prose rendering*
 
 ---
 

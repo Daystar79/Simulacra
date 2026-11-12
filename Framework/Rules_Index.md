@@ -1,4 +1,4 @@
-# Rules Index — CognitiveMiddleware (Psyche Matrix)
+# Rules Index — Simulacra (Psyche Matrix)
 *Canonical "do not" rules and cleanup for drafting. Load with Main.md.*
 
 ---

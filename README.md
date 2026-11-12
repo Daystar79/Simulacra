@@ -1,4 +1,4 @@
-# CognitiveMiddleware
+# Simulacra
 **An invisible, file-native cognitive layer for AI-assisted long-form drafting and character runtime.**
 
 Body-first psychology, dual-aspect psyche (wound ↔ gift), realm-aware somatics — running **off-page** so manuscripts and RP stay clean of system jargon.
@@ -7,7 +7,7 @@ Body-first psychology, dual-aspect psyche (wound ↔ gift), realm-aware somatics
 
 ## What it is
 
-CognitiveMiddleware is the **root psychological and physical cognition layer for characters**:
+Simulacra is the **root psychological and physical cognition layer for characters**:
 
 | Layer | File | Job |
 |---|---|---|
@@ -46,7 +46,7 @@ It targets common AI fiction defects: therapy-speak, perfect recall, symmetric d
            ┌─────────────┴─────────────┐
            ▼                           ▼
     Book Writing Layer         Downstream Runtimes
-       (Main.md)             (CharacterSimulator, Simulacra)
+       (Main.md)             (CharacterSimulator)
     manuscript prose            interactive chat / host UI
 ```
 

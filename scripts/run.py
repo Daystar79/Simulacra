@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OS-aware tool launcher for Cognitive Middleware.
+OS-aware tool launcher for Simulacra.
 
 Detects Windows vs Unix-like hosts and runs the matching platform wrapper
 (or falls back to the shared Python cores). Prefer this entry point for agents.
@@ -127,7 +127,7 @@ def run_python_core(tool: str, args: list[str]) -> int:
         if tool == "deploy":
             print("Error: 'deploy_framework.py' was not found in this repository.", file=sys.stderr)
             print("Note: Framework deployment is an upstream operation. To deploy or update a book project,", file=sys.stderr)
-            print("please run the deploy command from the main 'CognitiveMiddleware' repository.", file=sys.stderr)
+            print("please run the deploy command from the main 'Simulacra' repository.", file=sys.stderr)
         else:
             print(f"Error: missing core script {core}", file=sys.stderr)
         return 2
@@ -141,7 +141,7 @@ def usage() -> None:
     """Print usage information."""
     family = detect_family()
     print(
-        f"""Cognitive Middleware — OS-aware launcher
+        f"""Simulacra — OS-aware launcher
 Detected OS family: {family}
 
 Usage:

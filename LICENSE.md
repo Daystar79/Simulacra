@@ -1,6 +1,6 @@
-# Licensing for Cognitive Middleware
+# Licensing for Simulacra
 
-Cognitive Middleware is a hybrid project containing both software utilities and creative, conceptual specifications. To accommodate both, the project is licensed under a dual hybrid structure, with an explicit carve-out for author-local testing materials.
+Simulacra is a hybrid project containing both software utilities and creative, conceptual specifications. To accommodate both, the project is licensed under a dual hybrid structure, with an explicit carve-out for author-local testing materials.
 
 1. **Software & Scripts:** All executable code, utility scripts, and program files (including `.py` files such as `Framework/linter.py`, `deploy_framework.py`, `migrate_optimized.py`, and `scripts/**`) are licensed under the **MIT License**.
 2. **Creative Content & Specifications:** All markdown manuals, guides, rules, the public character **template**, prompts, YAML configurations under `Framework/`, and the Roleplay **Simulator** runtime are licensed under the **Creative Commons Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0)**.

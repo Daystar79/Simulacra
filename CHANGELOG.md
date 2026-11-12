@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the **CognitiveMiddleware** project will be documented in this file.
+All notable changes to the **Simulacra** project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to standard Semantic Versioning / chronological release tracking.
 
@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Relational Momentum & Ambivalence:** Added `relational_momentum` (`building`, `deepening`, `stable`, `eroding`, `brittle`, `suspended`, `fractured`) and `relational_ambivalence`.
   - **Cognitive Dissonance & Friction:** Added `internal_friction` (0–100) to priority arbitration to model hesitation, ambivalence, and resistance between competing drives.
 - **`PROJECT_SCOPE.md`:** Authoritative product boundaries and downstream integration contract (v2).
-- **§8.3 Implementation Language Boundary:** CognitiveMiddleware stays file-native + Python ops; C# / Rust / Go (or other) runtimes are downstream consumers only (v2.0.1).
+- **§8.3 Implementation Language Boundary:** Simulacra stays file-native + Python ops; C# / Rust / Go (or other) runtimes are downstream consumers only (v2.0.1).
 - **Unified state model:** Durable `Characters/[slug]_log.yaml` vs live `Schemas/psychosomatic_state.json`, with commit mapping in `CognitivePipeline.md`.
 - **Pipeline wiring:** Card, log, `realm_data.yaml`, and schema as required inputs; intimate stimulus as ordinary pipeline interpretation (§7.1).
 - **State validator + example:** `scripts/validate_state.py` and `Framework/Schemas/examples/psychosomatic_state.example.json`.
@@ -27,8 +27,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Automated test suite:** Added `tests/test_framework.py` covering state schema validation, linter patterns, and deploy decoupling.
 
 ### Changed
-- **Root Cognition Layer Focus:** Decoupled `CharacterRuntime` and `Simulator/` from CognitiveMiddleware; interactive chat host runtimes are housed in downstream projects (`CharacterSimulator`, `Simulacra`). CognitiveMiddleware remains purely the root psychological and physical cognition layer.
-- **Product naming:** Paths and deploy self-ignore use **CognitiveMiddleware**.
+- **Product rename (2026-11-12):** CognitiveMiddleware → Simulacra. The repo was already named Simulacra; all in-repo product references now match it. The downstream .NET host previously called Simulacra in PROJECT_SCOPE §8.3 and the deploy comments is no longer named in those spots — it needs a distinct name if it still exists as a separate project.
+- **Root Cognition Layer Focus:** Decoupled `CharacterRuntime` and `Simulator/` from Simulacra; interactive chat host runtimes are housed in downstream projects (`CharacterSimulator`). Simulacra remains purely the root psychological and physical cognition layer.
+- **Product naming:** Paths and deploy self-ignore use **Simulacra**.
 - **Sex in core = interpretation only:** Desire/stance via body → prism → arbitration → vector; no staging craft in core.
 - **Switchless runtime:** Automated durable commit; `/adult` / HEAT behavioral modes removed from host docs; optional `/state` for debug only.
 - **Modules as loop API:** Empty core registry; downstream apps register injectors; core supremacy intact.
@@ -69,7 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **World Builder & Degradation Protocols**: Integrated world builder prompt utilities and system degradation handling into core framework (`001dfc2`).
 
 ### Changed
-- **Product Scope Refinement**: Positioned CognitiveMiddleware as a 100% off-page drafting middle layer for fiction, categorizing `Simulator/` as an optional side tool (`a4d89b7`).
+- **Product Scope Refinement**: Positioned Simulacra as a 100% off-page drafting middle layer for fiction, categorizing `Simulator/` as an optional side tool (`a4d89b7`).
 - **Module Renaming**: Renamed `Sexuality` module to `Erotica Protocol` (`erotica.md`) with act-agnostic scene craft scope (`725e431`, `872ac97`).
 - **Dual Licensing Model**: Introduced hybrid MIT license for the core framework engine and CC BY-SA 4.0 for documentation (`0cf1d39`).
 - **Local Character Separation**: Carved out named character cards (`Characters/`) from open distribution as author-local files (`9ac3ecb`).
@@ -97,7 +98,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Somatic-Cognitive Engine**: Enforced "body-first, mind-second" sequence where somatic reactions precede cognitive labeling and dialogue (`humanity.md`).
 
 ### Changed
-- **Project Rebranding**: Renamed project from *PsycheFramework* / *Psyche Framework* to **CognitiveMiddleware** (`35d2f4f`, `9b8b139`).
+- **Project Rebranding**: Renamed project from *PsycheFramework* / *Psyche Framework* to **CognitiveMiddleware** (`35d2f4f`, `9b8b139`) — renamed again to **Simulacra** on 2026-11-12 (see [Unreleased]).
 - **Off-Page Matrix Guarantee**: Hard-banned system jargon, realm numbers, bias names, and bracketed debug output from draft manuscript prose (`8a8cc6a`, `d8004e6`).
 - **Modular Directory Restructure**: Moved chat playground tools to `Simulator/playground.md` and decoupled drafting runtime from live chat (`e8c5cc5`, `69f111d`).
 

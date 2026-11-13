@@ -183,7 +183,7 @@ Mandatory Session Boot Stack (~2,760 - 3,500 words):
 | Somatic catalogs and state schemas | GUI / TUI / service shells |
 | Cross-platform Python ops scripts | Provider SDKs or app-specific logic |
 
-**If a C#, Rust, Go, or other native implementation is needed, it is built downstream** — as a separate product that **consumes** this contract (intent vector, psychosomatic snapshot schema, module hooks, age invariants). Examples of that pattern already exist outside this tree (e.g. .NET hosts). Those hosts may reimplement execution mechanics; they must not become the source of truth for psych/physical rules. Spec changes still land here first, then deploy or sync to consumers.
+**If a C#, Rust, Go, or other native implementation is needed, it is built downstream** — as a separate product that **consumes** this contract (intent vector, psychosomatic snapshot schema, module hooks, age invariants). Examples of that pattern already exist outside this tree. Those hosts may reimplement execution mechanics; they must not become the source of truth for psych/physical rules. Spec changes still land here first, then deploy or sync to consumers.
 
 **Deploy reminder:** Framework deploys target allowlisted *framework trees* only (e.g. Midlayer, CharacterSimulator). Compiled host projects are not Framework trees and must not receive bulk markdown spray as if they were.
 

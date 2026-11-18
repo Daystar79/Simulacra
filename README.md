@@ -51,7 +51,7 @@ It targets common AI fiction defects: therapy-speak, perfect recall, symmetric d
 ```
 
 **State:**
-- **Card** (`Characters/[slug].md`) — build identity (immutable defaults)
+- **Card** (`Characters/[slug].yaml`) — full character profile, including motivations, goals, and incentives
 - **Log** (`Characters/[slug]_log.yaml`) — durable runtime evolution
 - **Live snapshot** — matches `Framework/Schemas/psychosomatic_state.json` each tick
 

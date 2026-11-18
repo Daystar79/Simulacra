@@ -1,6 +1,6 @@
 # Scripts — Windows & Unix
 
-Cross-platform launchers for deploy, lint, and validate. Shared logic lives in Python; OS-specific wrappers only choose the right shell and Python binary.
+Cross-platform launchers for deploy, lint, validate, and Golem. Shared logic lives in Python; OS-specific wrappers only choose the right shell and Python binary.
 
 ## AI / agent rule (pick by OS)
 
@@ -25,6 +25,7 @@ CM_FORCE_OS=unix    python3 scripts/run.py lint Drafts/
 | `deploy` | Push framework scaffolds to a sibling book folder | `… deploy MyNovel` |
 | `lint` | Scan drafts for system leaks / banned fillers | `… lint Drafts/` |
 | `validate` | Check a psychosomatic JSON snapshot against the schema | `… validate [state.json]` |
+| `golem` | Run a deterministic Golem tick | `… golem --card card.yaml --stimulus '{}'` |
 
 ## Layout
 
@@ -32,6 +33,7 @@ CM_FORCE_OS=unix    python3 scripts/run.py lint Drafts/
 scripts/
   run.py                 # OS-aware dispatcher (preferred)
   validate_state.py      # State schema and range validator
+  golem.py               # Golem runtime
   README.md              # this file
   unix/
     deploy.sh
@@ -48,6 +50,7 @@ Core implementations (cross-platform Python):
 - `deploy_framework.py`
 - `Framework/linter.py`
 - `scripts/validate_state.py`
+- `scripts/golem.py`
 
 ## Humans
 

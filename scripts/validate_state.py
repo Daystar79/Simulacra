@@ -56,7 +56,11 @@ def validate(state: dict, schema: dict) -> list[str]:
     # autonomic
     auto = state.get("autonomic_state")
     if isinstance(auto, dict):
-        require_keys(auto, props["autonomic_state"].get("required", []), "autonomic_state", errors)
+        auto_schema = props["autonomic_state"]
+        require_keys(auto, auto_schema.get("required", []), "autonomic_state", errors)
+        pain_options = auto_schema.get("anyOf", [])
+        if pain_options and not any(all(key in auto for key in option["required"]) for option in pain_options):
+            errors.append("autonomic_state: expected physical pain, emotional distress, and both tolerances, or legacy pain")
         if "polyvagal_mode" in auto:
             allowed_pv = set(props["autonomic_state"]["properties"]["polyvagal_mode"].get("enum", []))
             if allowed_pv and auto["polyvagal_mode"] not in allowed_pv:
@@ -65,9 +69,13 @@ def validate(state: dict, schema: dict) -> list[str]:
             allowed_cr = set(props["autonomic_state"]["properties"]["cognitive_regime"].get("enum", []))
             if allowed_cr and auto["cognitive_regime"] not in allowed_cr:
                 errors.append(f"autonomic_state.cognitive_regime: invalid value {auto['cognitive_regime']!r}")
-        for key in ("arousal", "stress", "fatigue", "pain"):
-            if key in auto:
+        for key, field_schema in auto_schema["properties"].items():
+            if field_schema.get("type") == "integer" and key in auto:
                 check_scale(auto[key], f"autonomic_state.{key}", errors)
+        for key in ("involuntary_response", "activity"):
+            options = auto_schema["properties"].get(key, {}).get("enum", [])
+            if key in auto and options and auto[key] not in options:
+                errors.append(f"autonomic_state.{key}: invalid value")
         if "primary_somatic_zones" in auto:
             zones = auto["primary_somatic_zones"]
             allowed_zones = set(props["autonomic_state"]["properties"]["primary_somatic_zones"]["items"].get("enum", []))
@@ -184,6 +192,7 @@ def validate(state: dict, schema: dict) -> list[str]:
     # output vector (optional but if present check channels)
     out = state.get("output_vector")
     if isinstance(out, dict):
+        require_keys(out, props.get("output_vector", {}).get("required", []), "output_vector", errors)
         for ch in ("feels", "thinks", "says", "does"):
             if ch in out and not isinstance(out[ch], str):
                 errors.append(f"output_vector.{ch}: expected string")

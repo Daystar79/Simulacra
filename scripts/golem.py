@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Simulacra Deterministic Brain-Stem Engine (Layer 1-2 Runtime)
+Simulacra Golem Engine (Layer 1-2 Runtime)
 -------------------------------------------------------------
 Computes autonomic state, polyvagal mode, dual-circuit regime, social mask strain,
 non-repeating somatic cues from realm_data.yaml, drive priority arbitration, and
 §8 durable commit gating—outputting a schema-validated psychosomatic_state.json
-plus explicit triggered_rules and style_constraints for downstream LLM rendering.
+plus triggered rules and somatic cues for downstream LLM rendering.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -36,18 +37,30 @@ ZONE_MAP = {
     "Z6": "Z6_Peripheral_Grounding",
 }
 
-DEFAULT_BROADCAST_OPENERS = [
-    "[direct_observation]",
-    "[deadpan_statement]",
-    "[abrupt_reframe]",
-    "[quiet_agreement]",
-]
-
-ENDEARMENT_PLACEMENTS = ["omit", "mid_sentence", "closing", "opener"]
+PHYSICAL_PAIN_HALF_LIFE_MINUTES = 2
+EMOTIONAL_DISTRESS_HALF_LIFE_MINUTES = 20
+HUNGER_POINTS_PER_HOUR = 12
+# Half-lives are in seconds. Sensory loads can rise immediately.
+EXPOSURE_RESPONSES = {
+    "cold": ("Cold discomfort", 300, 0.25, False),
+    "heat": ("Heat discomfort", 300, 0.25, False),
+    "noise": ("Noise discomfort", 2, 0.20, True),
+    "bright_light": ("Bright light discomfort", 5, 0.15, True),
+}
+APPRAISAL_SIGNALS = ("interest", "attraction", "disgust", "unease", "uncertainty")
+APPRAISAL_HALF_LIFE_SECONDS = 10
 
 
 def clamp(val: int, lo: int = 0, hi: int = 100) -> int:
     return max(lo, min(hi, int(round(val))))
+
+
+def recover_distress(
+    previous: float, baseline: int, current_stimulus: int, elapsed_minutes: float, half_life_minutes: float
+) -> float:
+    remaining = 2 ** (-elapsed_minutes / half_life_minutes)
+    residual = baseline + (previous - baseline) * remaining
+    return max(baseline, residual, current_stimulus)
 
 
 def parse_realm_num(focus_str: str) -> str:
@@ -68,8 +81,13 @@ def load_character(card_path: Path, slug: str | None) -> dict[str, Any]:
 def overlay_log(card: dict[str, Any], log_path: Path | None) -> tuple[dict[str, Any], dict[str, Any] | None]:
     state = {
         "character_id": card.get("character_id") or (card.get("call_name") or card.get("name", "unknown")).lower(),
-        "canon_adult": bool(card.get("canon_adult", False)),
+        "canon_adult": card.get("canon_adult") is True,
         "age": int(card.get("age", 18)),
+        "sexual_drive_baseline": clamp(card.get("sexual_drive_baseline", 50)),
+        "physical_pain_tolerance": clamp(card.get("physical_pain_tolerance", 50)),
+        "emotional_distress_tolerance": clamp(card.get("emotional_distress_tolerance", 50)),
+        "physical_pain_baseline": clamp(card.get("physical_pain_baseline", 0)),
+        "emotional_distress_baseline": clamp(card.get("emotional_distress_baseline", 0)),
         "active_focus": card.get("active_focus", "Realm X — The Return"),
         "latent_weights": dict(card.get("transformation_weights", {}).get("latent_anchors", {})),
         "bias_strength": int(card.get("transformation_weights", {}).get("bias_strength", 60)),
@@ -110,8 +128,58 @@ def overlay_log(card: dict[str, Any], log_path: Path | None) -> tuple[dict[str, 
     return state, log_data
 
 
-NON_PHYSICAL_CUES = {
+# The shared realm catalog includes staging and dialogue cues for the renderer.
+RENDERING_CUES = {
+    "adjust collar",
+    "adjust cuffs/sleeves",
+    "align geometrically",
+    "avoid organic shapes",
+    "check exits",
+    "check fingernails",
+    "code-switch no transition",
+    "compulsive rearranging",
+    "controlled blink",
+    "echo other's speech",
+    "echolalia/repetition",
+    "flat managed voice",
+    "fold objects repeatedly",
+    "lean forward shield",
+    "measured speech",
+    "micro-adjust vocal register",
+    "monosyllabic speech",
+    "parse speech for threats",
+    "performance of composure",
+    "performed open hands",
+    "performed stillness",
+    "push gifts away",
+    "rapid nodding soothe",
+    "refuse raw textures",
+    "repeat words under breath",
+    "rotate objects",
+    "singsong voice",
+    "slow speaking rhythm",
     "speech offers no commit",
+    "speech fragmented",
+    "speech hammer beats",
+    "smooth clothing",
+    "spine deliberate",
+    "spine display posture",
+    "straighten items",
+    "talk fast prevent silence",
+    "talk over pauses",
+    "trace edges",
+    "vocal chords tighten/monotone",
+    "voice abrupt switches",
+    "voice clipped/technical",
+    "voice core tone",
+    "voice drone",
+    "voice growl/monotone",
+    "voice projects artificially",
+    "voice singsong",
+    "voice tones switch mid-sentence",
+    "voice trembles false",
+    "wait fear to pass",
+    "wipe surfaces obsessively",
 }
 
 
@@ -122,22 +190,24 @@ def select_somatic_cues(
     recent_cues: list[str],
     seed_str: str,
     exclude_extra: set[str] | None = None,
-) -> tuple[list[str], str]:
+) -> list[str]:
     realms = realm_data.get("realms", {})
     r = realms.get(realm_key) or realms.get("X") or next(iter(realms.values()))
-    raw_pool = list(r.get(tier, [])) or list(r.get("micro", []))
-    excluded = NON_PHYSICAL_CUES | (exclude_extra or set())
-    pool = [c for c in raw_pool if c not in excluded] or raw_pool
+    excluded = RENDERING_CUES | (exclude_extra or set())
+    pool = [c for c in r.get(tier, []) if c not in excluded]
+    if not pool:
+        pool = [c for c in r.get("micro", []) if c not in excluded]
+    if not pool:
+        return []
     fresh = [c for c in pool if c not in recent_cues] or pool
     idx = int(hashlib.sha256(seed_str.encode("utf-8")).hexdigest(), 16) % len(fresh)
     chosen = [fresh[idx]]
     if len(fresh) > 1:
         chosen.append(fresh[(idx + 1) % len(fresh)])
-    vocal = r.get("vocal_behavior", {}).get(tier, "")
-    return chosen, vocal
+    return chosen
 
 
-def run_brainstem(
+def run_golem(
     state: dict[str, Any],
     stimulus: dict[str, Any],
     realm_data: dict[str, Any],
@@ -146,22 +216,112 @@ def run_brainstem(
     rules: list[str] = []
     threat = clamp(stimulus.get("threat_level", 10))
     social_p = clamp(stimulus.get("social_pressure", 20))
+    physical_pain_tolerance = state.get("physical_pain_tolerance", 50)
+    emotional_distress_tolerance = state.get("emotional_distress_tolerance", 50)
     realm_hits = stimulus.get("realm_hits", {}) or {}
     context = stimulus.get("context", "broadcast")
     target = stimulus.get("caller_or_target", "caller")
     event_label = stimulus.get("event_label", "tick_01")
     intimacy_cue = bool(stimulus.get("intimacy_cue", False))
+    if "elapsed_ms" in stimulus:
+        elapsed_ms = float(stimulus["elapsed_ms"])
+    else:
+        elapsed_ms = float(stimulus.get("elapsed_minutes", 1)) * 60_000
+    if not math.isfinite(elapsed_ms):
+        raise ValueError("Elapsed scene time must be finite")
+    elapsed_ms = max(0.0, elapsed_ms)
+    elapsed_minutes = elapsed_ms / 60_000
+    appraisal = stimulus.get("appraisal", {})
+    if not isinstance(appraisal, dict) or any(
+        key not in APPRAISAL_SIGNALS or type(value) is not int or not 0 <= value <= 100
+        for key, value in appraisal.items()
+    ):
+        raise ValueError("Appraisal must map known signals to integer scores from 0 to 100")
+    prior_appraisal_effects = history.get("appraisal_effects", {})
+    remaining_appraisal = 2 ** (-elapsed_ms / (1_000 * APPRAISAL_HALF_LIFE_SECONDS))
+    appraisal_effects = {
+        signal: max(appraisal.get(signal, 0), prior_appraisal_effects.get(signal, 0) * remaining_appraisal)
+        for signal in APPRAISAL_SIGNALS
+    }
+    interest = appraisal_effects["interest"]
+    attraction = appraisal_effects["attraction"]
+    disgust = appraisal_effects["disgust"]
+    unease = appraisal_effects["unease"]
+    uncertainty = appraisal_effects["uncertainty"]
+    visceral_revulsion = clamp(disgust)
+    pain_baseline = state.get("physical_pain_baseline", 0)
+    distress_baseline = state.get("emotional_distress_baseline", 0)
+    physical_pain_level = recover_distress(
+        history.get("physical_pain", pain_baseline),
+        pain_baseline,
+        clamp(stimulus.get("physical_pain", stimulus.get("pain", 0))),
+        elapsed_minutes,
+        PHYSICAL_PAIN_HALF_LIFE_MINUTES,
+    )
+    emotional_distress_level = recover_distress(
+        history.get("emotional_distress", distress_baseline),
+        distress_baseline,
+        clamp(stimulus.get("emotional_distress", 0)),
+        elapsed_minutes,
+        EMOTIONAL_DISTRESS_HALF_LIFE_MINUTES,
+    )
+    physical_pain = clamp(physical_pain_level)
+    emotional_distress = clamp(emotional_distress_level)
+
+    accumulated_hunger = min(100.0, history.get("hunger", 0) + HUNGER_POINTS_PER_HOUR * elapsed_minutes / 60)
+    food_intake = clamp(stimulus.get("food_intake", 0))
+    hunger_level = max(0.0, accumulated_hunger - food_intake)
+    hunger = clamp(hunger_level)
+
+    exposure_history = {}
+    exposure_state = {}
+    exposure_feels = []
+    exposure_load = 0.0
+    for factor, (label, half_life_seconds, stress_weight, immediate_onset) in EXPOSURE_RESPONSES.items():
+        exposure_key = f"{factor}_exposure"
+        discomfort_key = f"{factor}_discomfort"
+        exposure = clamp(stimulus.get(exposure_key, history.get(exposure_key, 0)))
+        previous = history.get(discomfort_key, 0)
+        remaining = 2 ** (-elapsed_ms / (1_000 * half_life_seconds))
+        level = exposure + (previous - exposure) * remaining
+        if immediate_onset:
+            level = max(exposure, level)
+        discomfort = clamp(level)
+        exposure_history.update({exposure_key: exposure, discomfort_key: level})
+        exposure_state.update({exposure_key: exposure, discomfort_key: discomfort})
+        exposure_load += stress_weight * level
+        if discomfort:
+            exposure_feels.append(f"{label}: {discomfort}/100.")
+
     response_time_ms = int(stimulus.get("response_time_ms", 2000))
     time_pressure = stimulus.get(
         "time_pressure",
         "split_second" if response_time_ms <= 800 else ("deliberate" if response_time_ms >= 2500 else "normal"),
     )
 
-    prev_fatigue = int(history.get("last_fatigue", 15))
+    activity = stimulus.get("activity", history.get("activity", "awake"))
+    if activity not in ("awake", "resting", "sleeping"):
+        raise ValueError("Activity must be awake, resting, or sleeping")
+
+    exertion = 0
+    if activity == "sleeping":
+        fatigue_rate, sleep_debt_rate = -12, -12
+    elif activity == "resting":
+        fatigue_rate, sleep_debt_rate = -8, 5
+    else:
+        exertion = clamp(stimulus.get("exertion", history.get("exertion", 0)))
+        fatigue_rate, sleep_debt_rate = 3 + 0.27 * exertion, 5
+
+    elapsed_hours = elapsed_minutes / 60
+    previous_fatigue = history.get("last_fatigue", 15)
+    previous_sleep_debt = history.get("sleep_debt", 0)
+    fatigue_level = min(100.0, max(0.0, previous_fatigue + fatigue_rate * elapsed_hours))
+    sleep_debt_level = min(100.0, max(0.0, previous_sleep_debt + sleep_debt_rate * elapsed_hours))
+    fatigue = clamp(fatigue_level)
+    sleep_debt = clamp(sleep_debt_level)
+    fatigue_load = max(fatigue_level, sleep_debt_level)
+    exhaustion = clamp((fatigue_load - 60) * 2.5)
     recent_cues: list[str] = list(history.get("recent_cues", []))
-    recent_openers: list[str] = list(history.get("recent_openers", []))
-    recent_patterns: list[str] = list(history.get("recent_patterns", []))
-    pattern_weights: dict[str, int] = dict(history.get("pattern_weights", {}))
 
     # 1. Autonomic & Polyvagal calculation (CognitivePipeline §4.1)
     latent_hit_bonus = 0
@@ -171,15 +331,33 @@ def run_brainstem(
             latent_hit_bonus += int(realm_hits[clean_rk] * (weight / 100.0))
             rules.append(f"LATENT_REALM_HIT:{clean_rk}")
 
-    arousal = clamp(25 + int(0.4 * threat) + int(0.3 * social_p) + int(0.25 * latent_hit_bonus))
-    stress = clamp(10 + int(0.55 * threat) + int(0.2 * social_p) + int(0.35 * latent_hit_bonus) - int(0.15 * state["flexibility"]))
-    fatigue = clamp(prev_fatigue + (3 if context == "broadcast" else 5))
-    pain = clamp(stimulus.get("pain", 0))
+    physical_load = physical_pain_level * (150 - physical_pain_tolerance) / 100
+    emotional_load = emotional_distress_level * (150 - emotional_distress_tolerance) / 100
+    distress_load = physical_load + emotional_load
+    appraisal_activation = 0.25 * interest + 0.25 * disgust + 0.20 * unease
+    arousal = clamp(
+        25 + int(0.4 * threat) + int(0.3 * social_p) + int(0.25 * latent_hit_bonus)
+        + 0.5 * distress_load + appraisal_activation
+    )
+    baseline_stress = (
+        10 + int(0.55 * threat) + int(0.2 * social_p) + int(0.35 * latent_hit_bonus)
+        - int(0.15 * state["flexibility"])
+    )
+    exhaustion_load = max(0, fatigue_load - 40) * 0.2
+    appraisal_stress = 0.40 * disgust + 0.35 * unease + 0.15 * uncertainty
+    stress = clamp(
+        baseline_stress + distress_load + 0.15 * hunger_level + exposure_load + exhaustion_load + appraisal_stress
+    )
+    if physical_pain == 100:
+        arousal = stress = 100
+        rules.append("ACUTE_PHYSICAL_PAIN_OVERLOAD")
     autonomic_surge = stress >= 75 or threat >= 80
 
+    involuntary_response = "none"
     if stress >= 70 or autonomic_surge or (time_pressure == "split_second" and stress >= 55):
         cognitive_regime = "reactive"
-        polyvagal_mode = "dorsal_freeze" if fatigue >= 75 else "sympathetic_mobilized"
+        polyvagal_mode = "dorsal_freeze" if fatigue_load >= 75 else "sympathetic_mobilized"
+        involuntary_response = "freeze" if polyvagal_mode == "dorsal_freeze" else "brace"
         rules.append("DUAL_CIRCUIT_REACTIVE_BYPASS")
         if time_pressure == "split_second" and stress < 70 and not autonomic_surge:
             rules.append("SPLIT_SECOND_REACTIVE_TIP")
@@ -196,7 +374,7 @@ def run_brainstem(
     extra_excl = set(state.get("excluded_cues", set()))
     if state.get("conversational_stance") == "dominant":
         extra_excl.add("scan eyes for approval")
-    somatic_cues, vocal_cue = select_somatic_cues(realm_data, hit_realm_key, tier, recent_cues, seed, exclude_extra=extra_excl)
+    somatic_cues = select_somatic_cues(realm_data, hit_realm_key, tier, recent_cues, seed, exclude_extra=extra_excl)
     rules.append(f"SOMATIC_CATALOG:{hit_realm_key}:{tier}")
 
     zones = ["Z2_Vocal_Cervical", "Z6_Peripheral_Grounding"]
@@ -209,7 +387,7 @@ def run_brainstem(
     emotional_intensity = clamp(25 + int(0.5 * stress) + int(0.3 * arousal))
     if cognitive_regime == "reactive":
         primary_emotion, secondary_emotion = "guarded_alert", "tension"
-        impulse = "brace_and_cut_off"
+        impulse = involuntary_response
     elif threat >= 35 or latent_hit_bonus >= 15:
         primary_emotion, secondary_emotion = "cool_amusement", "guarded_recognition"
         impulse = "reframe_and_deflect"
@@ -220,7 +398,7 @@ def run_brainstem(
     # 3. Subconscious Bias & Defense Posture
     if threat >= 30 or latent_hit_bonus >= 12:
         bias_state = "DEFENSIVE_ACTIVE"
-        defense_posture = "deflect_banter" if context == "broadcast" else state["defense_posture"]
+        defense_posture = state["defense_posture"]
         rules.append("BIAS_DEFENSIVE_ACTIVE")
     else:
         bias_state = "GENERATIVE_ACTIVE"
@@ -264,51 +442,54 @@ def run_brainstem(
     arbitration_status = "bypassed_reactive" if cognitive_regime == "reactive" else "arbitrated"
     rules.append(f"ARBITRATION:{arbitration_status}:{winning_drive}")
 
-    # 6. Adult eligibility gate (Main.md / CognitivePipeline §2)
-    adult_eligible = bool(state["canon_adult"] and state["age"] >= 18)
+    # 6. Adult eligibility and background state (CognitivePipeline §2)
+    adult_eligible = state["canon_adult"] is True and state["age"] >= 18
+    drive_level = 0.0
+    direct_arousal = 0
+    sexual_arousal = 0
+    if adult_eligible:
+        baseline_drive = state.get("sexual_drive_baseline", 50)
+        previous_drive = history.get("sexual_drive", baseline_drive)
+        bodily_load = max(physical_pain_level, emotional_distress_level, fatigue_load)
+        target_drive = baseline_drive * (1 - bodily_load / 200)
+        # Keep the fractional state in history so short ticks can accumulate.
+        remaining = 2 ** (-elapsed_minutes / 30)
+        drive_level = target_drive + (previous_drive - target_drive) * remaining
+        direct_arousal = clamp(stimulus.get("sexual_arousal", history.get("sexual_arousal", 0)))
+        appraisal_arousal = attraction * (0.5 + 0.5 * drive_level / 100)
+        sexual_arousal = clamp(max(direct_arousal, appraisal_arousal) * (1 - disgust / 100))
+    else:
+        appraisal_effects["attraction"] = 0
     phys_attr = 15 if (adult_eligible and intimacy_cue) else (5 if adult_eligible else 0)
     emot_attr = 20 if context == "broadcast" else 15
     rules.append(f"ADULT_GATE:{'ELIGIBLE' if adult_eligible else 'RESTRICTED'}")
 
-    # 7. Anti-repetition & Speech-Pattern Emergence
-    bp = state.get("broadcast_persona") or {}
-    opener_pool = list(bp.get("openers") or DEFAULT_BROADCAST_OPENERS)
-    hard_banned_openers = list(bp.get("banned_openers") or ["Of course."])
-    banned_openers = list(dict.fromkeys(hard_banned_openers + (recent_openers[-3:] if recent_openers else [])))
-    available_openers = [o for o in opener_pool if o not in banned_openers] or opener_pool
-    opener_idx = int(hashlib.sha256((seed + ":open").encode("utf-8")).hexdigest(), 16) % len(available_openers)
-    suggested_opener = available_openers[opener_idx]
-    endearment_idx = int(hashlib.sha256((seed + ":endear").encode("utf-8")).hexdigest(), 16) % len(ENDEARMENT_PLACEMENTS)
-    endearment_placement = ENDEARMENT_PLACEMENTS[endearment_idx]
-
-    card_patterns = bp.get("speech_patterns") or {
-        "imperative_plus_sting": {"weight": 25, "cadence": "Short command followed by cold consequence."},
-        "dry_literal_flip": {"weight": 25, "cadence": "Literalize phrasing, then invert who has the problem."},
-        "split_second_snap": {"weight": 15, "cadence": "Clipped, immediate 1-2 short clauses; zero preamble."},
-    }
-    for pname, pcfg in card_patterns.items():
-        pattern_weights.setdefault(pname, int(pcfg.get("weight", 20)))
-    if stimulus.get("reinforce_pattern") in pattern_weights:
-        rp = stimulus["reinforce_pattern"]
-        pattern_weights[rp] = clamp(pattern_weights[rp] + 8, 5, 80)
-        rules.append(f"SPEECH_PATTERN_REINFORCED:{rp}")
-
-    if (time_pressure == "split_second" or cognitive_regime == "reactive") and "split_second_snap" in card_patterns:
-        selected_pattern = "split_second_snap"
-        rules.append("SPEECH_PATTERN:SPLIT_SECOND_SNAP")
-    else:
-        candidates = [p for p in card_patterns if p != "split_second_snap"] or list(card_patterns)
-        non_recent = [p for p in candidates if p not in recent_patterns[-2:]] or candidates
-        non_recent.sort(key=lambda p: (pattern_weights.get(p, 20), hashlib.sha256((seed + p).encode()).hexdigest()), reverse=True)
-        selected_pattern = non_recent[0]
-        rules.append(f"SPEECH_PATTERN:{selected_pattern}")
-    selected_cadence = card_patterns[selected_pattern].get("cadence", "")
-
-    # 8. Durable commit eligibility (CognitivePipeline §8)
+    # 7. Durable commit eligibility (CognitivePipeline §8)
     pressure_tier = "High" if stress >= 70 else ("Medium" if stress >= 45 else "Low")
     commit_eligible = pressure_tier in ("Medium", "High")
     rules.append(f"COMMIT_GATE:{'ELIGIBLE' if commit_eligible else 'EPHEMERAL_ONLY'}")
 
+    cue_text = "; ".join(somatic_cues)
+    zone_text = ", ".join(zones)
+    feels = f"{cue_text} ({zone_text})." if cue_text else f"Active zones: {zone_text}."
+    if hunger:
+        feels += f" Hunger: {hunger}/100."
+    if fatigue:
+        feels += f" Physical fatigue: {fatigue}/100."
+    if sleep_debt:
+        feels += f" Sleep debt: {sleep_debt}/100."
+    if exhaustion:
+        feels += f" Exhaustion: {exhaustion}/100."
+    if exposure_feels:
+        feels += " " + " ".join(exposure_feels)
+    if visceral_revulsion >= 50:
+        feels += " The stomach turns."
+    if sexual_arousal:
+        feels += f" Sexual arousal: {sexual_arousal}/100."
+    if involuntary_response == "freeze":
+        feels = f"The body freezes involuntarily. {feels}"
+    elif involuntary_response == "brace":
+        feels = f"The body braces involuntarily. {feels}"
     snapshot = {
         "character_id": state["character_id"],
         "timestamp_or_movement": event_label,
@@ -316,11 +497,24 @@ def run_brainstem(
             "polyvagal_mode": polyvagal_mode,
             "cognitive_regime": cognitive_regime,
             "arousal": arousal,
+            "sexual_drive": clamp(drive_level),
+            "sexual_arousal": sexual_arousal,
+            "visceral_revulsion": visceral_revulsion,
             "stress": stress,
             "fatigue": fatigue,
-            "pain": pain,
+            "sleep_debt": sleep_debt,
+            "exhaustion": exhaustion,
+            "activity": activity,
+            "exertion": exertion,
+            "hunger": hunger,
+            **exposure_state,
+            "physical_pain": physical_pain,
+            "emotional_distress": emotional_distress,
+            "physical_pain_tolerance": physical_pain_tolerance,
+            "emotional_distress_tolerance": emotional_distress_tolerance,
             "primary_somatic_zones": zones,
             "autonomic_surge": autonomic_surge,
+            "involuntary_response": involuntary_response,
         },
         "affective_state": {
             "primary_emotion": primary_emotion,
@@ -342,7 +536,7 @@ def run_brainstem(
             "facade_type": state["social_facade"],
             "mask_strain": mask_strain,
             "mask_fracture": mask_fracture,
-            "fracture_tell": "; ".join(somatic_cues) if mask_strain >= 30 else "none",
+            "fracture_tell": cue_text if mask_strain >= 30 and cue_text else "none",
         },
         "relational_vectors": {
             target: {
@@ -362,50 +556,44 @@ def run_brainstem(
             "internal_friction": internal_friction,
             "competing_drives": drives,
         },
-        "output_vector": {
-            "feels": f"{'; '.join(somatic_cues)} ({', '.join(zones)}).",
-            "thinks": f"[{cognitive_regime}] Drive={winning_drive}; {bias_state} framing active.",
-            "says": f"Pattern: {selected_pattern} ({selected_cadence}) | Vocal: {vocal_cue} | Avoid {banned_openers}.",
-            "does": f"Execute physical cues: {'; '.join(somatic_cues)}.",
-        },
+        "output_vector": {"feels": feels},
     }
 
     schema = validate_state.load_json(SCHEMA_PATH)
     schema_errors = validate_state.validate(snapshot, schema)
     if schema_errors:
-        raise RuntimeError(f"Brain-stem produced invalid snapshot: {schema_errors}")
+        raise RuntimeError(f"Golem produced invalid snapshot: {schema_errors}")
 
     return {
         "psychosomatic_snapshot": snapshot,
-        "brainstem_meta": {
+        "golem_meta": {
             "triggered_rules": rules,
             "emitted_cues": somatic_cues,
-            "vocal_behavior_cue": vocal_cue,
             "pressure_tier": pressure_tier,
             "time_pressure": time_pressure,
             "response_time_ms": response_time_ms,
+            "elapsed_ms": elapsed_ms,
             "commit_eligible": commit_eligible,
-            "style_constraints": {
-                "speech_pattern": selected_pattern,
-                "speech_cadence": selected_cadence,
-                "banned_recent_openers": banned_openers,
-                "suggested_opener": suggested_opener,
-                "endearment_placement": endearment_placement,
-                "target_word_range": [18, 35] if context == "broadcast" else None,
-            },
         },
         "next_history": {
-            "last_fatigue": fatigue,
+            "last_fatigue": fatigue_level,
+            "sleep_debt": sleep_debt_level,
+            "activity": activity,
+            "exertion": exertion,
+            "hunger": hunger_level,
+            **exposure_history,
+            "physical_pain": physical_pain_level,
+            "emotional_distress": emotional_distress_level,
             "recent_cues": (recent_cues + somatic_cues)[-10:],
-            "recent_openers": (recent_openers + [suggested_opener])[-5:],
-            "recent_patterns": (recent_patterns + [selected_pattern])[-5:],
-            "pattern_weights": pattern_weights,
+            "sexual_drive": drive_level,
+            "sexual_arousal": direct_arousal,
+            "appraisal_effects": appraisal_effects,
         },
     }
 
 
 def apply_commit(log_path: Path, output: dict[str, Any], force: bool = False) -> bool:
-    meta = output["brainstem_meta"]
+    meta = output["golem_meta"]
     if not meta["commit_eligible"] and not force:
         return False
     log_data = yaml.safe_load(log_path.read_text(encoding="utf-8"))
@@ -415,7 +603,7 @@ def apply_commit(log_path: Path, output: dict[str, Any], force: bool = False) ->
         snap["bias_strength"] = clamp(int(snap.get("bias_strength", 80)) - 2)
     log_data.setdefault("history", []).append({
         "movement": output["psychosomatic_snapshot"]["timestamp_or_movement"],
-        "pressure": f"BrainStem/{meta['pressure_tier']}",
+        "pressure": f"Golem/{meta['pressure_tier']}",
         "delta": "bias_strength -2" if auto["stress"] >= 65 else "none",
         "permanence": "temporary" if meta["pressure_tier"] == "Medium" else "permanent",
         "notes": f"Rules: {', '.join(meta['triggered_rules'][:4])}",
@@ -425,12 +613,12 @@ def apply_commit(log_path: Path, output: dict[str, Any], force: bool = False) ->
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Simulacra Deterministic Brain-Stem Engine")
-    parser.add_argument("--card", required=True, help="Path to character YAML/.md card")
+    parser = argparse.ArgumentParser(description="Simulacra Golem Engine")
+    parser.add_argument("--card", required=True, help="Path to a YAML character card")
     parser.add_argument("--slug", default=None, help="Character slug for multi-character cards")
     parser.add_argument("--log", default=None, help="Path to durable *_log.yaml")
     parser.add_argument("--stimulus", required=True, help="JSON string or path to stimulus JSON")
-    parser.add_argument("--history-file", default=None, help="Optional ephemeral history JSON for cue/opener rotation")
+    parser.add_argument("--history-file", default=None, help="Optional JSON history for state carried between ticks")
     parser.add_argument("--out", default=None, help="Path to write full output JSON (and *_snapshot.json)")
     parser.add_argument("--commit", action="store_true", help="Commit to --log if pressure >= Medium")
     parser.add_argument("--force-commit", action="store_true", help="Force commit to --log")
@@ -447,7 +635,7 @@ def main() -> int:
     history = json.loads(hist_path.read_text(encoding="utf-8")) if (hist_path and hist_path.is_file()) else {}
 
     realm_data = yaml.safe_load(REALM_DATA_PATH.read_text(encoding="utf-8"))
-    result = run_brainstem(state, stimulus, realm_data, history)
+    result = run_golem(state, stimulus, realm_data, history)
 
     if hist_path:
         hist_path.write_text(json.dumps(result["next_history"], indent=2), encoding="utf-8")
@@ -456,7 +644,7 @@ def main() -> int:
         if not log_path:
             raise ValueError("--commit requires --log")
         committed = apply_commit(log_path, result, force=args.force_commit)
-        result["brainstem_meta"]["committed_to_log"] = committed
+        result["golem_meta"]["committed_to_log"] = committed
 
     if args.out:
         out_p = Path(args.out)

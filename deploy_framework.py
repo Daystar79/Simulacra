@@ -37,7 +37,7 @@ DEPLOY_ALLOWLIST = frozenset({
 # Core: Cognitive Pipeline + Main + Rules + realm_data + state schema + templates.
 #
 # NOT deployed (author-local only; see LICENSE.md §3):
-#   - Named character cards (Characters/*.md except _template + README)
+#   - Named character cards under Characters/
 #   - Characters/Relations.md / filled logs
 # Simulator/ is public — drop-in CharacterRuntime.
 FRAMEWORK_FILES = [
@@ -58,7 +58,7 @@ FRAMEWORK_FILES = [
     "Framework/source_changes.md",
     "Framework/degradation_protocol.md",
     "Framework/psyche_framework.md",
-    "Characters/_template.md",
+    "Characters/_template.yaml",
     "Characters/_log_template.yaml",
     "Characters/README.md",
     "PROJECT_SCOPE.md",

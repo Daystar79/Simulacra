@@ -32,6 +32,23 @@ class TestPsychosomaticStateValidation(unittest.TestCase):
         errors = validate(self.valid_state, self.schema)
         self.assertEqual(errors, [], f"Example state should have 0 errors, got: {errors}")
 
+    def test_distress_fields_and_legacy_pain(self):
+        auto = self.valid_state["autonomic_state"]
+        auto["emotional_distress_tolerance"] = 101
+        errors = validate(self.valid_state, self.schema)
+        self.assertTrue(any("emotional_distress_tolerance" in error for error in errors))
+
+        for key in (
+            "physical_pain",
+            "emotional_distress",
+            "physical_pain_tolerance",
+            "emotional_distress_tolerance",
+        ):
+            del auto[key]
+        self.assertTrue(validate(self.valid_state, self.schema))
+        auto["pain"] = 20
+        self.assertEqual(validate(self.valid_state, self.schema), [])
+
     def test_missing_required_top_level_key(self):
         state = dict(self.valid_state)
         del state["autonomic_state"]

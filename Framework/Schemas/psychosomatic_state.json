@@ -28,8 +28,11 @@
         "arousal",
         "stress",
         "fatigue",
-        "pain",
         "primary_somatic_zones"
+      ],
+      "anyOf": [
+        { "required": ["physical_pain", "emotional_distress", "physical_pain_tolerance", "emotional_distress_tolerance"] },
+        { "required": ["pain"] }
       ],
       "properties": {
         "polyvagal_mode": {
@@ -50,10 +53,30 @@
           ],
           "description": "Operational cognitive circuit: 'deliberative' (cortical/regulated loop with arbitration, masking, and reasoned speech) vs 'reactive' (limbic short-circuit where acute emotional pressure or adrenaline bypasses arbitration into direct visceral reaction)"
         },
-        "arousal": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "arousal": { "type": "integer", "minimum": 0, "maximum": 100, "description": "General autonomic activation." },
+        "sexual_drive": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Background sexual drive for an eligible adult character." },
+        "sexual_arousal": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current physiological sexual arousal for an eligible adult character." },
+        "visceral_revulsion": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current bodily revulsion following an appraisal of disgust." },
         "stress": { "type": "integer", "minimum": 0, "maximum": 100 },
-        "fatigue": { "type": "integer", "minimum": 0, "maximum": 100 },
-        "pain": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "fatigue": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Accumulated physical fatigue." },
+        "sleep_debt": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Accumulated need for sleep." },
+        "exhaustion": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Severity derived from high physical fatigue or sleep debt." },
+        "activity": { "type": "string", "enum": ["awake", "resting", "sleeping"], "description": "Current activity state supplied by the scene." },
+        "exertion": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current physical effort while awake." },
+        "hunger": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Accumulated hunger relieved by food intake." },
+        "cold_discomfort": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current felt cold, which adjusts over time toward the exposure level." },
+        "cold_exposure": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current environmental cold exposure, with zero representing no exposure." },
+        "heat_discomfort": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current felt heat, which adjusts over time toward the exposure level." },
+        "heat_exposure": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current environmental heat exposure." },
+        "noise_discomfort": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current sensory discomfort from noise and any lingering effects." },
+        "noise_exposure": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current environmental noise exposure." },
+        "bright_light_discomfort": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current sensory discomfort from bright light and any lingering effects." },
+        "bright_light_exposure": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current environmental bright light exposure." },
+        "pain": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Legacy snapshot field for pain." },
+        "physical_pain": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Physical pain intensity. A value of 100 represents acute overload." },
+        "emotional_distress": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Emotional distress intensity." },
+        "physical_pain_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for physical pain. Higher scores reduce its contribution to stress." },
+        "emotional_distress_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for emotional distress. Higher scores reduce its contribution to stress." },
         "primary_somatic_zones": {
           "type": "array",
           "items": {
@@ -72,7 +95,12 @@
           "type": "string",
           "description": "Obsessive fixation on a trivial sensory anchor during high stress or freeze (e.g. 'frayed hem of coat', 'ticking clock')"
         },
-        "autonomic_surge": { "type": "boolean" }
+        "autonomic_surge": { "type": "boolean" },
+        "involuntary_response": {
+          "type": "string",
+          "enum": ["none", "brace", "freeze"],
+          "description": "Automatic bodily response already occurring in this snapshot."
+        }
       }
     },
     "affective_state": {
@@ -252,11 +280,11 @@
     },
     "output_vector": {
       "type": "object",
-      "required": ["feels", "thinks", "says", "does"],
+      "required": ["feels"],
       "properties": {
         "feels": {
           "type": "string",
-          "description": "Somatic & visceral manifestations across 2+ body zones"
+          "description": "Somatic and visceral manifestations across 2+ body zones, including any involuntary response already occurring"
         },
         "thinks": {
           "type": "string",
@@ -264,11 +292,11 @@
         },
         "says": {
           "type": "string",
-          "description": "Spoken dialogue intent: shaped by social facade and defense posture in deliberative mode; raw vocal reflex (snap, blunt denial, sharp interruption, stammer, silence) in reactive mode"
+          "description": "Optional dialogue intent supplied by the cognitive pipeline"
         },
         "does": {
           "type": "string",
-          "description": "Physical action: deliberate staging and tells in deliberative mode; involuntary motor reflex (slam, step in, recoil, freeze, bolt) in reactive mode"
+          "description": "Optional action supplied by the cognitive pipeline"
         }
       }
     }

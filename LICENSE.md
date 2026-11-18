@@ -40,7 +40,7 @@ This license applies to open specifications and scaffolding, including:
 
 * `Framework/` manuals, rules, prompts, mechanics, YAML schemas, and empty ledger scaffolds (`Continuity_Ledger.md`, `Character_Change_Log.md`)
 * `Simulator/` Roleplay / CharacterRuntime engine (interactive pre-draft character testing)
-* `Characters/_template.md`, `Characters/_log_template.yaml`, and `Characters/README.md` (format documentation / scaffolds only)
+* `Characters/_template.yaml`, `Characters/_log_template.yaml`, and `Characters/README.md` (format documentation / scaffolds only)
 * Project `README.md` and other top-level documentation not listed in §3
 
 It does **not** apply to materials listed in §3.
@@ -66,14 +66,14 @@ The following paths (and any substantially similar copies or renames) are includ
 
 ### Excluded paths
 
-* **Named character cards** under `Characters/` other than `_template.md`, `_log_template.yaml`, and `README.md` (for example: `cass.md`, `helen.md`, `lior.md`, `nora.md`, `reed.md`, `wren.md`, and any future cast cards)
+* **Named character cards** under `Characters/` other than `_template.yaml`, `_log_template.yaml`, and `README.md` (for example: cards for Cass, Helen, Lior, Nora, Reed, and Wren, and any future cast cards)
 * **Named character logs** matching those cast members (`Characters/[slug]_log.yaml` when filled for author-local cast)
 * **`Characters/Relations.md`** (cast relationship map)
 * Historical backups or renames of the above under `backups_*` (named cards and relations only; framework/engine backups that are not cast content follow their open counterparts)
 
 ### Intent
 
-* Downstream book projects and redistributions should use **`Characters/_template.md`** to build their own cast, then optionally drop in **`Simulator/CharacterRuntime.md`** (Character Pack load/save) to rehearse behaviour before drafting.
+* Downstream book projects and redistributions should use **`Characters/_template.yaml`** to build their own cast, then optionally drop in **`Simulator/CharacterRuntime.md`** (Character Pack load/save) to rehearse behaviour before drafting.
 * `deploy_framework.py` does **not** distribute named cards or `Relations.md`; it **does** distribute `Simulator/`.
 * User-created **Character Packs** (private card + memory files in cloud or local storage) are not part of this repository’s open-source grant unless the user publishes them.
 * Presence of reserved files in the repo does **not** constitute an open-source license grant for those files.

@@ -18,12 +18,27 @@ It is **application-agnostic**: the root pipeline serves manuscript drafting (`M
 | Live psychosomatic snapshot (schema below) | Optional craft guides under `Mechanics/` |
 | Somatic catalog lookup from `realm_data.yaml` | |
 
-### Deterministic Brain-Stem Interface (`scripts/brainstem.py`)
-In this workspace, Layer 1–2 autonomic math, `realm_data.yaml` cue rotation, mask strain, drive arbitration, and §8 commit gating are executed deterministically via:
+### Optional Golem interface (`scripts/golem.py`)
+
+Simulacra runs the full cognitive pipeline from the scene, character cards, and continuity state. In standalone mode, work through the somatic and cognitive steps in this document and produce all four channels. When Golem is enabled, it supplies the body state through:
 ```bash
-python3 scripts/run.py brainstem --card <card.yaml> [--slug <slug>] --log <log.yaml> --stimulus '<json>' [--history-file <hist.json>] --out <out.json> [--commit]
+python3 scripts/run.py golem --card <card.yaml> [--slug <slug>] --log <log.yaml> --stimulus '<json>' [--history-file <hist.json>] --out <out.json> [--commit]
 ```
-The script emits a `PsychosomaticStateSnapshot` (validated against `Framework/Schemas/psychosomatic_state.json`) plus `brainstem_meta` (`triggered_rules`, `emitted_cues`, `style_constraints`, `commit_eligible`). The LLM renders `Thinks` / `Says` / `Does` strictly within those emitted constraints.
+The script emits a `PsychosomaticStateSnapshot` (validated against `Framework/Schemas/psychosomatic_state.json`) plus `golem_meta`, which includes triggered rules, somatic cues, and commit eligibility. Golem supplies `Feels`. When the reactive circuit takes over, `autonomic_state.involuntary_response` records bracing or freezing already underway, and `Feels` describes it. Simulacra supplies `Thinks`, `Says`, and `Does` using the scene, the character card, and what the body is already doing.
+
+Golem accepts separate `physical_pain` and `emotional_distress` stimulus scores from 0 to 100. YAML cards can set `physical_pain_tolerance` and `emotional_distress_tolerance` on the same scale. Both tolerances default to 50. Higher tolerance reduces the matching state's contribution to stress and arousal while preserving its intensity in the snapshot. Physical pain at 100 always produces acute overload, with stress and arousal at 100 and a reactive regime. Older stimuli can use `pain` as a fallback for `physical_pain`, and the validator accepts older snapshots with `pain`.
+
+Pain and distress persist in turn history. Without further input, their excess above baseline halves every two minutes of scene time for physical pain and every twenty minutes for emotional distress. Both baselines default to zero. YAML cards can set `physical_pain_baseline` and `emotional_distress_baseline` when needed. A continuing stimulus holds its score while supplied, and a stronger stimulus raises the score immediately. Omitting the field or sending zero lets any residual pain or distress ease over time.
+
+Hunger grows at 12 points per hour up to 100. Pass `food_intake` once when the character has eaten, as the number of points of hunger the meal relieves. Hunger contributes to stress and appears in `Feels`.
+
+Environmental inputs are `cold_exposure`, `heat_exposure`, `noise_exposure`, and `bright_light_exposure` on 0–100 scales. With turn history, each exposure carries forward when omitted. Set a new level when the scene changes, including zero when an exposure ends. Felt cold and heat approach the new level with a five-minute half-life. Noise and bright light can increase discomfort immediately, even at zero elapsed time. When their exposure drops, the excess discomfort halves in two seconds for noise and five seconds for bright light. These are simulation settings. The snapshot reports exposures and discomfort separately, and discomfort contributes to stress and appears in `Feels`.
+
+Physical fatigue and sleep debt accumulate while the character is awake. Set `activity` to `awake`, `resting`, or `sleeping` when that condition actually changes. While awake, optional `exertion` on a 0–100 scale changes how quickly physical fatigue builds. Activity and exertion carry forward with history. Rest reduces physical fatigue, while sleep reduces both fatigue and sleep debt. Golem derives `exhaustion` from the higher of the two scores once it exceeds 60. Recovery takes scene time in the relevant state.
+
+The snapshot's `arousal` field measures general autonomic activation. For eligible adults, Golem also reports `sexual_drive` (background pressure) and `sexual_arousal` (current bodily response) on separate 0–100 scales. Drive starts at the card's optional `sexual_drive_baseline` (default 50). Pain, distress, and fatigue lower its target, and it moves toward that target with a 30-minute half-life. As bodily load eases, drive moves back toward baseline. Attraction appraisals can raise sexual arousal. The legacy `sexual_arousal` input can still supply a level, which starts at zero and carries forward when omitted. Golem reports zero for both sexual state fields when the character is ineligible.
+
+Each Golem call advances the state by the supplied scene time. Use `elapsed_ms` for timed updates, such as 100 ms ticks, and pass `0` to evaluate an immediate stimulus without advancing recovery, fatigue, or drive. Older stimuli can use `elapsed_minutes`; the default is one minute when both fields are omitted. Use `--history-file` to retain fractional state between calls. The caller controls when to advance the scene clock. The separate `response_time_ms` field describes response pressure for the current event.
 
 ---
 
@@ -33,7 +48,7 @@ The script emits a `PsychosomaticStateSnapshot` (validated against `Framework/Sc
 |---|---|---|
 | **This spec** | `Framework/CognitivePipeline.md` | Execution sequence & commit rules |
 | **Realm somatics** | `Framework/Psychology/realm_data.yaml` | Brace / release body catalogs per realm |
-| **Character card** | `Characters/[slug].md` | Identity, voice, build defaults, wound/gift, weights |
+| **Character card** | `Characters/[slug].yaml` | Full identity, voice, knowledge, psyche, relationships, and authored motivations, goals, and incentives |
 | **Durable log** | `Characters/[slug]_log.yaml` | Runtime evolution over card defaults |
 | **Event trigger** | Movement brief / player turn / scene pressure | Sensory + social stimulus |
 | **Schema** | `Framework/Schemas/psychosomatic_state.json` | Shape of the live snapshot |
@@ -46,18 +61,24 @@ The script emits a `PsychosomaticStateSnapshot` (validated against `Framework/Sc
 - Modules are subordinate: they must not override Rules_Index, this pipeline’s invariants, card/log supremacy, or age gates.
 - Full contract: [Modules.md](Modules.md).
 
-### Card fields the pipeline reads
+### Load the full YAML card
+
+Load the complete YAML mapping for each on-scene character before running a tick. Keep the card available throughout the scene so decisions can draw on identity, culture, physical profile, knowledge, voice, relationships, and history alongside the psyche fields. For a YAML file with a `characters` mapping, select the full entry by slug. The movement brief supplies the immediate situation and what the character can perceive.
+
 - `active_focus`, `latent_anchors` → realm keys into `realm_data.yaml`
 - `transformation_weights` (or log overlay) → baseline drive weights & bias_strength
 - `cognitive_bias` / `cognitive_gift` → prism rewrite rules (Wound / Gift)
 - `default_somatic_alignment` → ambient body baseline
 - `voice.*` → shapes `Says` (idiolect, defense, generative stance)
 - `history_anchors` + log `memories.*` → epistemic gating
-- `skills.active` / `skills.latent` (from log when present) → competence in `Does`
+- `skills` on the card and `skills.active` / `skills.latent` from the log → competence in `Does`
+- `motivations`, `goals`, `incentives` → what matters, what the character is trying to accomplish, and what the current situation makes worth doing
 - `canon_adult` / `age` → hard eligibility for intimate affect (apps enforce presentation)
 
 ### Log overlay rule
 When `Characters/[slug]_log.yaml` exists, **snapshot fields override card build defaults** for focus, latent weights, bias_strength, default somatic, flexibility, skills, and memories.
+
+Apply `goal_updates` by goal ID to get current progress and status. Goals without an update start active. Older cards and logs may omit the new mappings. In that case, draw on authored continuity and the scene when a motive or immediate objective is evident.
 
 ---
 
@@ -67,7 +88,7 @@ There is **one character runtime**, two layers of persistence:
 
 | Layer | File | Lifetime | Owns |
 |---|---|---|---|
-| **Durable** | `Characters/[slug]_log.yaml` | Across movements / sessions | Focus, latent weights, bias_strength, skills, memories, history, relational baselines |
+| **Durable** | `Characters/[slug]_log.yaml` | Across movements / sessions | Focus, latent weights, bias_strength, skills, memories, history, relational baselines, goal progress |
 | **Live** | Conforms to `Schemas/psychosomatic_state.json` | One pipeline tick / turn | Autonomic scales, affect, active wound/gift state, relational vectors this beat, priority arbitration, 4-channel vector |
 
 **Canonical rule:** Durable log wins for long-horizon continuity. Live snapshot is rewritten every tick. On **commit**, only durable-mapped fields merge into the log (see §8).
@@ -166,7 +187,15 @@ Human cognition does not run a single flat loop. Real nervous systems operate ac
 
 1. **Somatic → Cognitive:** Fatigue, pain, gut drop, arousal, intercostal tension alter patience, risk tolerance, memory access, word choice.
 2. **Cognitive → Somatic:** Wound/gift evaluations shift autonomic physiology immediately.
-3. **Continuous loop:** Sensation, self-deception, and social masking update each other within the tick.
+3. **Continuous loop:** Sensation, interpretation, and the consequences of action update each other. In standalone drafting, apply both directions within the cognitive pipeline using the scene and continuity state.
+
+### Feedback when Golem is enabled
+
+1. Apply scene stimuli and elapsed time to Golem, using a separate turn history for each character. Read `output_vector.feels` and the snapshot, including any involuntary reaction already underway.
+2. Appraise the scene through the character's perspective. Send any new appraisal to Golem at `elapsed_ms: 0` if the body reacts in the same moment. For example, a character who reads a remark as welcome flirtation might supply `{"elapsed_ms":0,"appraisal":{"interest":70,"attraction":60}}`. Supported signals are `interest`, `attraction`, `disgust`, `unease`, and `uncertainty`, each an integer from 0 to 100. Retain the scene inputs that still apply, such as current threat and social pressure. Supply one-time events like eating only when they occur.
+3. Use the updated state to decide `Thinks`, `Says`, and `Does`. Feed the consequences back when they occur. For example, pass `food_intake` once the character eats, or update `exertion` once they start running. Advance elapsed time only once for the scene interval.
+
+Appraisals register immediately and their effects halve over ten seconds of scene time unless refreshed by a new appraisal. Interest raises general activation. Unease, uncertainty, and disgust add strain, and strong disgust can make the stomach turn. Attraction can raise sexual arousal in an eligible adult, and disgust can dampen it. Keep appraisal data and state snapshots off-page.
 
 ### Autonomic Polyvagal Modes
 The nervous system operates across 4 distinct states:
@@ -191,7 +220,7 @@ Every state shift engages **at least 2 interconnected zones**:
 1. Resolve `active_focus` → realm key (`I`…`X`) from card/log.
 2. Load that realm block from `realm_data.yaml` (`micro` / `moderate` / `macro` / `release` + `vocal_behavior`).
 3. Select intensity from live autonomic pressure (stress/arousal/pain thresholds).
-4. Fold **2+** zone tells into `Feels` / `Does`; fold vocal_behavior into `Says`.
+4. Fold **2+** zone tells into `Feels`. Simulacra accounts for any involuntary response when rendering `Does` and can use `vocal_behavior` as reference when rendering `Says`.
 5. Latent anchors may leak secondary micro-tells under residual pressure — never name realm labels on-page.
 
 ---
@@ -218,6 +247,11 @@ Under threat/pressure (`DEFENSIVE_ACTIVE`), the character adopts a specific huma
 - `brace_stonewall`: Rigid posture, unyielding physical barrier, refusing compromise.
 
 ### Arbitration Rules & The Reactive Bypass
+
+Before selecting a response, use the character's full card to identify the goals relevant to this scene, the motivations behind them, and the incentives the character currently perceives. A motivation explains why the outcome matters. A goal gives the character an outcome to pursue. An incentive changes the expected benefit, cost, or risk of a particular choice when its trigger applies. The character can pursue a goal, postpone it, or do something that works against it under pressure. Keep the goal active until the story establishes a durable change.
+
+Use the body state to constrain the choices the character can realistically make. When Golem is enabled, Simulacra uses the full card and the returned `Feels` to evaluate the competing pressures and choose the response.
+
 1. **Deliberative Regime (`arbitration_status: "arbitrated"`):**
    - **Winning drive** = highest computed salience → primary driver for `Says` & `Does`.
    - **Secondary drives** produce monologue friction (`internal_friction`), hesitation, stammering, or opposing micro-tells.
@@ -304,6 +338,7 @@ Apps render these channels into prose (drafting) or downstream interactive hosts
 | Skill discovery / demotion | `skills.active` / `skills.latent` |
 | Memory promotion (triggered → detailed) | `memories.detailed` / `footnote` |
 | Relational baseline shift (Medium+) | `relational_baselines.[target]` |
+| Confirmed goal progress or status change | `goal_updates.[goal_id]` |
 | Tick narrative (Medium+ only) | append `history[]` |
 
 Do **not** dump full live autonomic noise into history every beat. History records durable pressure events only.

@@ -1,8 +1,9 @@
 ---
+# Copy to Characters/<slug>.yaml and replace the sample defaults.
 name: "[Full Name]"
-call_name: "[preferred call-name or null]"
-age: [Integer years]
-canon_adult: true
+call_name: null
+age: 18
+canon_adult: false
 physical: "[Coloration, features, bone structure, movement — show, never category-label]"
 voice_archetype: "[A-F or hybrid]"
 cultural_bias: "[Belief/Heritage/Era — temporal tracking defaults (e.g. covenant, linear progress, cyclic liturgy)]"
@@ -10,8 +11,8 @@ active_focus: "Realm [N] — [Name]"
 latent_anchors: ["Realm [a] — [Name]", "Realm [b] — [Name]", "Realm [c] — [Name]"]
 cognitive_bias: "[Bias Name] — [one-line rewrite rule]"
 cognitive_gift: "[Gift Name] — [one-line resonance rule]"
-defense_posture_default: "[intellectualize | fawn_placate | deflect_banter | cold_withdrawal | preemptive_strike | brace_stonewall]"
-social_facade_default: "[cool_politeness | cheerful_competence | aloof_neutrality | professional_detachment]"
+defense_posture_default: none
+social_facade_default: cool_politeness
 default_somatic_alignment: "[throat, breath, jaw, posture, hands…]"
 
 # Build defaults only. Runtime evolution → Characters/[slug]_log.yaml (not this file).
@@ -44,15 +45,35 @@ history_anchors:
   - "[Anchor 2]"
   - "[Anchor 3]"
 
-# Optional — also record bonds in Characters/Relations.md
-# relationships:
-#   - other: "[Name]"
-#     dynamic: "[bond type]"
-#     notes: "[how Focus/Bias warps them]"
+skills: []
+relationships: []
+# - other: "[Name]"
+#   dynamic: "[bond type]"
+#   notes: "[how Focus/Bias warps them]"
+
+# Use stable keys for the entries below.
+motivations: {}
+# protect_family:
+#   reason: "[Why protecting family matters]"
+#   awareness: "[conscious, partial, or unconscious]"
+goals: {}
+# bring_sister_home:
+#   objective: "[What they want to make happen]"
+#   horizon: "[scene, ongoing, or long_term]"
+#   motivation: protect_family
+incentives: {}
+# quiet_route:
+#   trigger: "[What makes this reward, cost, or risk relevant]"
+#   stake: "[What the character expects to gain or lose]"
+#   goal: bring_sister_home
+
+# Optional Golem settings for projects using the separate body engine.
+# physical_pain_baseline: 0
+# emotional_distress_baseline: 0
+# physical_pain_tolerance: 50
+# emotional_distress_tolerance: 50
+# sexual_drive_baseline: 50
 
 scene_seeds:
   - "[Place + pressure + object]"
   - "[Alternate seed]"
----
-
-*Load: Fast-load YAML into Cognitive Pipeline silent state. Overlay Characters/[slug]_log.yaml when present. Query Framework/CognitivePipeline.md per beat. Age invariant: minors are never sexual subjects. Brace/release from realm_data.yaml. Never name system terms in speech.*

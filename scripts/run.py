@@ -8,6 +8,7 @@ Detects Windows vs Unix-like hosts and runs the matching platform wrapper
 Usage:
   python scripts/run.py deploy [target]
   python scripts/run.py lint <path> [--ext .md,.txt]
+  python scripts/run.py golem --card <card.yaml> --stimulus <json_or_path>
   python scripts/run.py migrate
 
 Environment:
@@ -26,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 
-TOOLS: tuple[str, ...] = ("deploy", "lint", "validate", "validate_state", "validate-state", "migrate", "brainstem")
+TOOLS: tuple[str, ...] = ("deploy", "lint", "validate", "validate_state", "validate-state", "migrate", "golem")
 
 
 def detect_family() -> str:
@@ -85,8 +86,8 @@ def python_core(tool: str) -> Path:
         return ROOT / "scripts" / "validate_state.py"
     if tool == "migrate":
         return ROOT / "migrate_optimized.py"
-    if tool == "brainstem":
-        return ROOT / "scripts" / "brainstem.py"
+    if tool == "golem":
+        return ROOT / "scripts" / "golem.py"
     raise KeyError(tool)
 
 
@@ -150,6 +151,7 @@ Usage:
   python scripts/run.py deploy [book_name_or_path]
   python scripts/run.py lint <path> [linter args...]
   python scripts/run.py validate [state_file_or_dir]
+  python scripts/run.py golem --card <card.yaml> --stimulus <json_or_path>
 
 Platform wrappers (AI: pick by OS if not using this launcher):
   Unix:    scripts/unix/deploy.sh | lint.sh | validate.sh

@@ -73,7 +73,7 @@ Relational vectors track directional velocity (`relational_momentum`: `building`
 
 ### 3.6 Unified 2-Tier State Model
 State is managed across two persistence tiers:
-1. **Immutable Build Identity (`Characters/[slug].md`):** Fixed defaults, voice definitions, baseline drive weights, wound/gift descriptions, default defense postures.
+1. **Immutable Build Identity (`Characters/[slug].yaml`):** Full character profile, including voice, baseline weights, wound/gift, defense postures, motivations, goals, and incentives.
 2. **Durable Runtime Log (`Characters/[slug]_log.yaml`):** Persistent evolution across movements/sessions (focus, weights, skills, detailed memories, relational baselines with momentum). Overrides card defaults.
 3. **Live Ephemeral Snapshot (`Framework/Schemas/psychosomatic_state.json`):** Per-tick mind-body state (polyvagal mode, cognitive regime, autonomic scales 0–100, inner split, social mask strain/fracture, relational vectors, salience score, internal friction, 4-channel vector). Rewritten every tick.
 
@@ -159,7 +159,7 @@ Mandatory Session Boot Stack (~2,760 - 3,500 words):
 3. Framework/Modules.md (Check ENABLED registry status)
 4. Framework/Rules_Index.md
 5. Framework/Psychology/realm_data.yaml
-6. Characters/[slug].md (Card)
+6. Characters/[slug].yaml (Card)
 7. Characters/[slug]_log.yaml (Log overlay)
 8. Framework/Continuity_Ledger.md
 ```

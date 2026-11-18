@@ -7,6 +7,8 @@
 
 The **Book Writing Layer** consumes the Cognitive Pipeline’s 4-channel vector (`Feels`, `Thinks`, `Says`, `Does`) and renders clean manuscript prose. Psychology and body runtime live in the pipeline — not here.
 
+Standalone drafting uses the full Cognitive Pipeline to infer body state and response from the scene, character cards, and continuity. Golem is optional. When a project enables it, use the feedback procedure in [CognitivePipeline.md](CognitivePipeline.md#feedback-when-golem-is-enabled) to get body state and apply the consequences of the character's actions.
+
 ```
  🧠 COGNITIVE PIPELINE  (Framework/CognitivePipeline.md)
          │  Feels / Thinks / Says / Does + live psychosomatic snapshot
@@ -30,7 +32,7 @@ Run once at session start, before a movement brief:
    - `Framework/Rules_Index.md`
    - `Framework/Psychology/realm_data.yaml`
    - `Framework/Modules.md` (registry — may be empty of ENABLED rows)
-   - On-scene cards: `Characters/[slug].md`
+   - Full on-scene cards: `Characters/[slug].yaml` (including motivations, goals, and incentives)
    - Durable logs: `Characters/[slug]_log.yaml` (overlay card defaults)
    - `Framework/Continuity_Ledger.md`
 2. **Modules into the cognitive loop:** verify ENABLED rows in [Modules.md](Modules.md); inject only at declared hooks during each pipeline tick. Downstream books add their own modules by registering paths here.
@@ -47,8 +49,8 @@ Run once at session start, before a movement brief:
 
 | Layer | File | Role |
 |---|---|---|
-| Build identity | `Characters/[slug].md` | Immutable defaults (voice, wound/gift, build weights) |
-| **Durable runtime** | `Characters/[slug]_log.yaml` | Focus, weights, skills, memories, history, relational baselines |
+| Build identity | `Characters/[slug].yaml` | Immutable defaults, voice, wound/gift, motivations, goals, incentives |
+| **Durable runtime** | `Characters/[slug]_log.yaml` | Focus, weights, skills, memories, history, relational baselines, goal progress |
 | **Live tick** | Snapshot matching `Schemas/psychosomatic_state.json` | Autonomic/affect/arbitration/4-channel for this beat |
 | Projection | `Framework/Character_Change_Log.md` | Regenerated human summary |
 

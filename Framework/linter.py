@@ -221,6 +221,7 @@ def main():
     parser.add_argument("target", help="File or directory path to audit")
     parser.add_argument("--ext", help="File extensions to scan (comma-separated, default: .md,.txt)", default=".md,.txt")
     parser.add_argument("--only-critical", action="store_true", help="Report only critical system leaks")
+    parser.add_argument("--broadcast", action="store_true", help="Also check broadcast skit constraints (banned openers, clinical drill leaks)")
     parser.add_argument("--json", action="store_true", help="Output results in JSON format")
 
     args = parser.parse_args()
@@ -245,6 +246,21 @@ def main():
         findings = audit_file(target_path)
         results = {target_path: findings} if findings else {}
 
+    if args.broadcast:
+        bc_patterns = [
+            (re.compile(r'(^|["“])\s*Of course\.', re.IGNORECASE), "Broadcast Style", "Banned 'Of course.' opener"),
+            (re.compile(r'\b(exact deficit|mechanics under repetition|repeat the baseline|center-rail|execute one|inventory|curriculum)\b', re.IGNORECASE), "Broadcast Register Leak", "Clinical/corporate/trainer diction in broadcast skit"),
+            (re.compile(r'\bunhurried\b', re.IGNORECASE), "Broadcast Filler", "Overused card-parroted adjective 'unhurried'"),
+        ]
+        targets = list(results.keys()) if os.path.isdir(target_path) else [target_path]
+        for fp in targets:
+            with open(fp, "r", encoding="utf-8") as f_bc:
+                for idx_bc, line_bc in enumerate(f_bc, 1):
+                    for pat, cat, msg in bc_patterns:
+                        m_bc = pat.search(line_bc)
+                        if m_bc:
+                            results.setdefault(fp, []).append({"line": idx_bc, "type": "Broadcast Constraint", "category": cat, "match": m_bc.group(0), "message": msg})
+
     filtered_results: Dict[str, List[Dict[str, Any]]] = {}
     for filepath, findings in results.items():
         if args.only_critical:
@@ -254,7 +270,7 @@ def main():
         if f_list:
             filtered_results[filepath] = f_list
             total_findings += len(f_list)
-            if any(f.get("type") == "System Leak" for f in f_list):
+            if any(f.get("type") in ("System Leak", "Broadcast Constraint") for f in f_list):
                 has_critical = True
 
     files_with_findings = len(filtered_results)

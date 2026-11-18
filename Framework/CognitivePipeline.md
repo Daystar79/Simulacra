@@ -18,6 +18,13 @@ It is **application-agnostic**: the root pipeline serves manuscript drafting (`M
 | Live psychosomatic snapshot (schema below) | Optional craft guides under `Mechanics/` |
 | Somatic catalog lookup from `realm_data.yaml` | |
 
+### Deterministic Brain-Stem Interface (`scripts/brainstem.py`)
+In this workspace, Layer 1–2 autonomic math, `realm_data.yaml` cue rotation, mask strain, drive arbitration, and §8 commit gating are executed deterministically via:
+```bash
+python3 scripts/run.py brainstem --card <card.yaml> [--slug <slug>] --log <log.yaml> --stimulus '<json>' [--history-file <hist.json>] --out <out.json> [--commit]
+```
+The script emits a `PsychosomaticStateSnapshot` (validated against `Framework/Schemas/psychosomatic_state.json`) plus `brainstem_meta` (`triggered_rules`, `emitted_cues`, `style_constraints`, `commit_eligible`). The LLM renders `Thinks` / `Says` / `Does` strictly within those emitted constraints.
+
 ---
 
 ## 2. Required inputs (must load before a tick)

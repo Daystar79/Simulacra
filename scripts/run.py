@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 
-TOOLS: tuple[str, ...] = ("deploy", "lint", "validate", "validate_state", "validate-state", "migrate")
+TOOLS: tuple[str, ...] = ("deploy", "lint", "validate", "validate_state", "validate-state", "migrate", "brainstem")
 
 
 def detect_family() -> str:
@@ -85,6 +85,8 @@ def python_core(tool: str) -> Path:
         return ROOT / "scripts" / "validate_state.py"
     if tool == "migrate":
         return ROOT / "migrate_optimized.py"
+    if tool == "brainstem":
+        return ROOT / "scripts" / "brainstem.py"
     raise KeyError(tool)
 
 

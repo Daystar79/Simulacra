@@ -1,92 +1,62 @@
 # Simulacra
-**An invisible, file-native cognitive layer for AI-assisted long-form drafting and character runtime.**
 
-Body-first psychology, dual-aspect psyche (wound ↔ gift), realm-aware somatics — running **off-page** so manuscripts and RP stay clean of system jargon.
+Simulacra is a framework for writing and running fictional characters who carry experience from one scene into the next. Authors use it to draft long-form fiction. An LLM host can also use it to run a persistent character between conversations.
 
----
+Golem, the Python body engine, advances scene time and calculates what the character feels. Simulacra uses the character's memories, motives, relationships, and immediate circumstances to shape what they think, say, and do. The host renders the scene in the character's voice. [Cognitive pipeline](Framework/CognitivePipeline.md)
 
-## What it is
+## Draft a scene
 
-Simulacra is the **root psychological and physical cognition layer for characters**:
+1. Start with the book-writing guide and load the cards and durable logs for the characters present. [Drafting guide](Framework/Main.md) · [Character templates](Characters/README.md)
+2. Check continuity against the movement brief. Work through the bodily response first, then the character's interpretation, social mask, and competing motives. Acute pressure can interrupt deliberation. [Drafting workflow](Framework/Drafting_Workflow.md) · [Continuity ledger](Framework/Continuity_Ledger.md)
+3. Render dialogue and action in the manuscript. Keep the underlying framework vocabulary in the working notes. On approval, commit durable changes to the character log. [Rules index](Framework/Rules_Index.md)
 
-| Layer | File | Job |
-|---|---|---|
-| **Cognitive Pipeline** | `Framework/CognitivePipeline.md` | Mind-body simulation → `Feels` / `Thinks` / `Says` / `Does` |
-| **Book Writing Layer** | `Framework/Main.md` | Manuscript prose, style locks, ledgers |
-| **Rules & somatics** | `Rules_Index.md`, `Psychology/realm_data.yaml` | Hard bans + body catalogs |
-| **State** | `Characters/[slug]_log.yaml` + live snapshot schema | Durable vs per-tick state |
+To copy the framework into a book folder, run `python3 scripts/run.py deploy` from the checkout and select the intended target. [Deployment and lint tools](scripts/README.md)
 
-It targets common AI fiction defects: therapy-speak, perfect recall, symmetric dialogue, filler, and framework jargon leakage.
+## Run a persistent character
 
----
+On a Linux VM, the host imports Golem and supplies a decision callback. Initialize one SQLite database per character. Call `wake_character` when a message arrives or when a scheduled heartbeat gives the character time to act. A quiet wake gives the host a chance to pursue an existing plan, reconsider an experience, or let the time pass.
 
-## Core pillars
+```python
+from scripts.golem_loop import initialize_character, wake_character
 
-| Pillar | Why it matters |
-|---|---|
-| **Body before insight** | Polyvagal mode (ventral/sympathetic/dorsal/dissociated) & somatic tells precede labeled thought |
-| **Dual-Circuit Execution** | Cortical deliberation under calm vs. limbic reactive short-circuit under acute adrenaline/threat |
-| **The Inner Split** | Subconscious visceral truth vs. conscious ego rationalization & defense postures |
-| **Social masking** | Tracks facade strain and physical fracture points under social pressure |
-| **Dual-aspect psyche** | Wound *and* gift modes — not trauma-only engines |
-| **4-channel output** | Structured intent vector (`Feels` / `Thinks` / `Says` / `Does`) for downstream renderers and runtimes |
-| **Durable + live state** | Logs for continuity; psychosomatic snapshot per tick |
-| **100% off-page matrix** | Rules + linter keep system terms out of prose |
+# Once, while provisioning the character
+initialize_character(db_path, card_path, log=log_path)
 
----
+# In the host's scheduled handler
+wake_character(db_path, decide)
 
-## System architecture
-
-```
-                     Cognitive Pipeline
-             (Framework/CognitivePipeline.md)
-              Feels · Thinks · Says · Does
-             + psychosomatic_state schema
-                         │
-           ┌─────────────┴─────────────┐
-           ▼                           ▼
-    Book Writing Layer         Downstream Runtimes
-       (Main.md)             (CharacterSimulator)
-    manuscript prose            interactive chat / host UI
+# In the host's incoming-message handler
+wake_character(db_path, decide, event={
+    "id": message_id, "kind": "incoming", "context": message_text,
+})
 ```
 
-**State:**
-- **Card** (`Characters/[slug].yaml`) — full character profile, including motivations, goals, and incentives
-- **Log** (`Characters/[slug]_log.yaml`) — durable runtime evolution
-- **Live snapshot** — matches `Framework/Schemas/psychosomatic_state.json` each tick
+The host provides the paths, message data, and `decide(request)` function. The callback returns a decision with the pending event's ID. It can include a reply, private action, observed outcome, or future plan. A pending decision survives a restart. The integration guide covers hourly scheduling, contextual boundaries, and delivery retries. [Host integration](scripts/README.md#always-on-golem-loop)
 
-**Module system:** Downstream applications register injectors in [`Framework/Modules.md`](Framework/Modules.md) to enter the cognitive loop at defined hooks (`pre_somatic`, `affect_filter`, `pre_arbitration`, `post_vector`, `app_render`, `on_commit`). Core pipeline always runs; modules are subordinate and cannot override Rules_Index, prism law, or age invariants. Core ships with an empty active module registry.
+## What carries forward
 
----
+| Record | What it holds |
+| --- | --- |
+| Character card (YAML) | Authored identity, voice, motivations, and initial goals |
+| Character log (YAML) | Approved durable changes, including cue-linked memories and amendments to goals |
+| Golem snapshot (JSON) | Bodily and psychological state for one tick, validated against the [snapshot schema](Framework/Schemas/psychosomatic_state.json) |
+| Character database (SQLite) | Event clock, pending decisions, plans, learning, and the evidence behind changing expectations and goals |
 
-## Quick start (drafting)
+A character can turn down a rehearsal because they have to work, or turn it down on a free afternoon to teach someone else. Golem can record the first as a prevented opportunity and the second as a choice to pass. If that pattern matters to the character, the host can record teaching as a new ambition while preserving the love of music behind both goals. [Goal evolution](scripts/README.md#evolving-goals)
 
-1. Load `Framework/Main.md` + `CognitivePipeline.md` + `Rules_Index.md` + `Psychology/realm_data.yaml`
-2. Load on-scene character cards and their `_log.yaml` overlays
-3. Run ledger integrity pass; execute movement brief through the pipeline
-4. Render clean prose; on approval, commit durable fields to the log
+## Development
 
-## Downstream integration
-
-External interactive runtimes (e.g. `CharacterSimulator`) and host applications consume this root layer's intent vector and psychosomatic state schema. See [`PROJECT_SCOPE.md`](PROJECT_SCOPE.md) §8 for contract details.
-
-## Deploy to book folders
-
-From this repository:
+From the repository root, set up Python and run the checks used in this project. These commands were tested with Python 3.12 on Linux.
 
 ```bash
-python scripts/run.py deploy              # interactive
-python scripts/run.py deploy MyBookName   # named target under parent dir
+python3 -m venv .venv
+.venv/bin/python -m pip install PyYAML==6.0.3
+.venv/bin/python -m unittest discover -s tests
+.venv/bin/python scripts/run.py validate
 ```
 
-Deploy ships the pipeline, schema, Main, Rules, realm data, scripts, and mechanics craft files.
+Downstream applications can extend the pipeline through documented module hooks. The project scope describes the contract between Simulacra and its hosts. [Module registry](Framework/Modules.md) · [Project scope](PROJECT_SCOPE.md) · [Changelog](CHANGELOG.md)
 
----
+## License
 
-## License & disclaimer
-
-- Software utilities (`.py`): **MIT**
-- Framework specs / markdown: **CC BY-SA 4.0** — see [LICENSE.md](LICENSE.md)
-- Compliance and 18+ terms: [DISCLAIMER.md](DISCLAIMER.md)
-
-Author-local cast files stay private (see LICENSE §3 and `.gitignore`).
+Executable code is licensed under MIT. Framework specifications and public creative materials use CC BY-SA 4.0. Named author-local character cards and relationship maps have separate terms. [License](LICENSE.md) · [Disclaimer and age requirements](DISCLAIMER.md)

@@ -10,7 +10,7 @@ Simulacra is a hybrid project containing both software utilities and creative, c
 
 ## 1. MIT License (Software & Scripts)
 
-Copyright (c) 2026 Cian Didymos
+Copyright (c) 2026 Robert Weast
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -34,7 +34,7 @@ SOFTWARE.
 
 ## 2. Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
 
-Copyright (c) 2026 Cian Didymos
+Copyright (c) 2026 Robert Weast
 
 This license applies to open specifications and scaffolding, including:
 
@@ -60,7 +60,7 @@ For the full legal code of the CC BY-SA 4.0, please visit [creativecommons.org](
 
 ## 3. Author-Local Materials (All Rights Reserved)
 
-Copyright (c) 2026 Cian Didymos. All rights reserved.
+Copyright (c) 2026 Robert Weast. All rights reserved.
 
 The following paths (and any substantially similar copies or renames) are included in this repository **for the author’s local testing and private use only**. They are **not** licensed under MIT or CC BY-SA 4.0. No permission is granted to use, copy, modify, merge, publish, distribute, sublicense, or create derivative works from these materials, except as required for personal inspection of this repository or as expressly authorized in writing by the copyright holder.
 

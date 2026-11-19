@@ -1,7 +1,7 @@
 # Project Disclaimer & GitHub Terms of Service Compliance
 
 **Project:** Simulacra  
-**Maintainer:** Cian Didymos  
+**Maintainer:** Robert Weast  
 **Last Updated:** July 31, 2026  
 
 ---

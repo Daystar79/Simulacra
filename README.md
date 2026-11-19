@@ -59,6 +59,6 @@ Downstream applications can extend the pipeline through documented module hooks.
 
 ## License
 
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0)
+[![License: PolyForm Shield 1.0.0](https://img.shields.io/badge/License-PolyForm%20Shield%201.0.0-blue.svg)](https://polyformproject.org/licenses/shield/1.0.0)
 
-Simulacra is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) (`SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0`). It is free for personal, hobby, research and other noncommercial use. Commercial use requires permission: contact [cian.didymos@gmail.com](mailto:cian.didymos@gmail.com). [License](LICENSE) · [Disclaimer and age requirements](DISCLAIMER.md)
+Simulacra is licensed under the [PolyForm Shield License 1.0.0](https://polyformproject.org/licenses/shield/1.0.0) (`SPDX-License-Identifier: PolyForm-Shield-1.0.0`). It is free to use, including commercially, in your own projects. You just can't use it to build a product that competes with Simulacra. Questions or other uses: contact [cian.didymos@gmail.com](mailto:cian.didymos@gmail.com). [License](LICENSE) · [Disclaimer and age requirements](DISCLAIMER.md)

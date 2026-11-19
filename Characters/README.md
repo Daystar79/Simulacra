@@ -49,11 +49,11 @@ Record approved changes in `goal_updates` in the durable log, keyed by goal ID. 
 
 ## Files
 
-- [`_template.yaml`](./_template.yaml) — **public** card scaffold (PolyForm Noncommercial 1.0.0)
-- [`_log_template.yaml`](./_log_template.yaml) — **public** log schema (PolyForm Noncommercial 1.0.0)
+- [`_template.yaml`](./_template.yaml) — **public** card scaffold (PolyForm Shield 1.0.0)
+- [`_log_template.yaml`](./_log_template.yaml) — **public** log schema (PolyForm Shield 1.0.0)
 - [`README.md`](./README.md) — this file (public format docs)
 
-See [LICENSE](../LICENSE) for the PolyForm Noncommercial 1.0.0 terms. Downstream projects can start from the public card and log templates.
+See [LICENSE](../LICENSE) for the PolyForm Shield 1.0.0 terms. Downstream projects can start from the public card and log templates.
 
 ## Downstream runtime testing
 

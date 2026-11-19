@@ -4,7 +4,7 @@
 
 ### License · November 19, 2026
 
-- Relicensed the project under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) (`SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0`). It is free for personal, hobby, research and other noncommercial use. Commercial use requires permission: contact cian.didymos@gmail.com.
+- Relicensed the project under the [PolyForm Shield License 1.0.0](https://polyformproject.org/licenses/shield/1.0.0) (`SPDX-License-Identifier: PolyForm-Shield-1.0.0`). It is free to use, including commercially, in your own projects. You just can't use it to build a product that competes with Simulacra. Questions or other uses: contact cian.didymos@gmail.com. This replaces the PolyForm Noncommercial 1.0.0 terms published earlier the same day.
 
 ### Persistent characters · November 19, 2026
 

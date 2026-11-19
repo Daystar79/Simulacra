@@ -52,6 +52,142 @@ Core implementations (cross-platform Python):
 - `scripts/validate_state.py`
 - `scripts/golem.py`
 
+## Golem memory and conversation
+
+For each tick, pass the existing `--log` for durable memory and reuse `--history-file` for carried state. Put both files in persistent project storage. The optional stimulus fields can be used together:
+
+```json
+{
+  "elapsed_ms": 0,
+  "caller_or_target": "guest",
+  "appraisal": {"interest": 85},
+  "memory_cues": ["music"],
+  "conversation": {"open_topic": "how the guest found their favorite music"}
+}
+```
+
+Use `conversation.conflict` with `boundary`, `goal`, or `claim` for character-grounded pushback. Golem returns matching memories and any response suggestion as top-level `recalled_memories` and `conversation_intent` fields for the renderer.
+
+To save a selected memory after approval without advancing the scene clock, run `python3 scripts/run.py golem --log character_log.yaml --remember approved-memory.json`. The memory file contains one object:
+
+```json
+{
+  "id": "guest-music",
+  "kind": "footnote",
+  "summary": "The guest mentioned a taste for unusual rhythms.",
+  "reason": "It gave her a way to connect with the guest.",
+  "cues": ["music", "rhythm"]
+}
+```
+
+Cue matching ignores case and surrounding whitespace. Repeating the same approved record is safe and reports `memory_saved: false`. Reusing an ID with different contents is an error. Memory is available on subsequent ticks. See [the cognitive pipeline](../Framework/CognitivePipeline.md#memory-pushback-and-curiosity) for renderer guidance.
+
+For an always-on host, serialize ticks per character and pass a timezone-aware `event_at` on each event with the same persistent `--history-file`. For example, use `"event_at": "2026-11-19T05:49:00Z"` in place of `elapsed_ms`. Golem computes elapsed time from the last successful tick, even across process restarts. The first timestamp establishes a baseline at zero elapsed. Earlier timestamps are rejected, and events with equal timestamps advance the sequence with zero elapsed. Once a history file is timestamped, subsequent ticks using it require `event_at`.
+
+The host owns event scheduling, ordering events that share a timestamp, and deduplication. It can wait for an incoming turn or schedule an idle tick when a state change should be rendered before the next turn. Elapsed time is applied at the next event.
+
+An always-on host can also schedule a private reflection for an unresolved turn. Keep the pending context in persistent host state and pass the reflection's current appraisal into a timestamped tick. For example, a character realizing that a young person's upbringing may leave them little room to choose can revisit their own responsibility and surface `unease` if that is how they appraise it. Use the full character pipeline to decide whether to let it go, carry it forward, or propose a memory. The host can render an internal beat with no outgoing message. See [delayed reflection](../Framework/CognitivePipeline.md#memory-pushback-and-curiosity).
+
+### Always-on Golem loop
+
+Simulacra or the VM's LLM host calls Golem in-process. Initialize one persistent database per character during provisioning. The host supplies its own decision function, which takes the pending request mapping and returns a decision mapping with the same event ID.
+
+```python
+from scripts.golem_loop import initialize_character, wake_character
+
+# During provisioning, once per character
+initialize_character(db_path, card_path, log=log_path, idle_seconds=3600)
+
+# In the host's scheduled handler
+wake_character(db_path, decide)
+
+# In the host's incoming-message handler
+wake_character(db_path, decide, event={
+    "id": message_id, "kind": "incoming", "context": message_text,
+})
+```
+
+On a Linux VM, schedule the **host's** heartbeat handler hourly. For example, a crontab entry for a host installed under `/srv/host` could be `0 * * * * /srv/host/.venv/bin/python /srv/host/heartbeat.py`. The handler imports the host's configured decision function and calls `wake_character` for its character databases. Use absolute paths and make the Simulacra checkout importable by the host interpreter. Incoming messages call the same function immediately. Each wake takes a per-database process lock, resumes a pending request, and drains due events up to `max_events` (default 64). A callback failure leaves the request pending for the next wake. Deduplicate host side effects by character and event ID and configure a timeout on the host's model call. Future plans run on the first wake after their due time.
+
+The existing developer tools also support manual inspection and running the loop from the repository root:
+
+```bash
+python3 scripts/run.py golem loop --db character.sqlite3 init --card character.yaml --log character_log.yaml
+python3 scripts/run.py golem loop --db character.sqlite3 run
+```
+
+`--log` is optional. Use `--import-history old-history.json` to seed the database from a previous CLI session. For an untimestamped import, `--history-at` can supply the known last event time. Otherwise the clock starts at initialization. Keep the database in persistent VM storage. `--idle-seconds` sets the quiet interval at initialization and defaults to 900. `run --once` provides the same processing for a host with its own scheduler.
+
+- **Queue an event.** Run `golem loop --db character.sqlite3 enqueue event.json`. An event contains a stable `id`, a `kind` of `incoming`, `world`, or `plan`, optional textual `context`, and optional Golem `stimulus`. For instance, `{"id":"chat-27","kind":"incoming","context":"The guest comes back from work."}`. Use a timezone-aware `at` for scheduled or explicitly timed events. Plans require it. Due events run in timestamp order, with insertion order breaking ties.
+- **Wake the host.** The runner emits an event ID when a new decision is pending. On startup or reconnect the host can also read `golem loop --db character.sqlite3 pending`. The request contains the event, the current Golem tick, goals and motivations, and recent resolved episodes. An idle event supplies no topic or appraisal. The host reads the full character card and applies the cognitive pipeline before choosing an action, a response, or no action. An idle decision can stay private.
+- **Return the decision.** Run `golem loop --db character.sqlite3 resolve decision.json`. Use the pending event's `id` and optionally give `action`, `outcome`, and `plans`. For example, `{"id":"chat-27","action":"Practiced a difficult piano passage earlier.","outcome":"Decides to try a slower tempo next time."}`. Each plan includes its own stable `id`, timezone-aware `at`, and optional `context` and `stimulus`. The loop persists the decision and new plans together. A pending decision survives restarts and later events wait for it. Resolve with just the ID for no action. Repeating an identical enqueue or resolution is safe. The host should use that same event ID to deduplicate any tool use or outgoing message.
+- **Inspect the experiment.** `status` shows carried state and the pending turn. `timeline --limit 100` shows completed and failed events, including actions initiated during quiet time. The host's recent context includes up to twelve such events. Use the approved-memory command to retain a selected observation beyond that context window.
+
+If the character chooses to learn about a topic, the host can schedule a research plan and use its available tools when it comes due. Resolve with a `learning` object such as `{"topic":"piano technique","observation":"Practicing hands separately made this passage easier.","sources":[]}`. Include source references when available and record uncertainty in the observation. Future events can supply the same `topic` to recall matching observations outside the recent-event window. The host can also query them with `learned "piano technique"`.
+
+When deciding whether to pursue a topic again, consider what the character gained, what it cost them, and how their body responds when they revisit it. Interest and unease can coexist. The host can appraise both through the existing Golem stimulus and use the resulting body state in the next decision. The loop records the evidence and decisions. The host interprets their significance, and lasting changes to the character log use the existing approval workflow.
+
+### Character replies and willingness to help
+
+The host can pass `{"conversation":{"willing_to_help":false}}` in a request's stimulus when the character would decline. Golem returns a `decline` intent even at low pressure. Supply this appraisal only for a request the character has considered. Willingness can arise from affection, obligation, generosity, or the mood of the moment.
+
+Return the host-rendered dialogue in the decision's optional `reply` field. Omit it for silence. Before delivery, `wake_character` checks the reply against the active character's descriptive card fields. Eight consecutive matching words, ignoring case and punctuation, flag the source field and leave the event pending for a revised draft. Hosts can call `copied_card_field(card, reply)` during drafting to get the field name and revise just the spoken line. Publish the accepted `reply` from the resolved event. Keep internal actions, memories, and decision notes in their existing fields. For profile-like paraphrases, use the scene-level rendering check in the cognitive pipeline.
+
+### Host boundary handling
+
+Pass a trusted `actor_id` and `screen_abuse` callback for incoming turns. The host supplies the actor and message IDs from its transport. The callback receives the incoming event plus the runtime status and the most recent boundary communicated to that actor. It can also consult the host's conversation history. Use the character's stated limits and the context of the exchange. A quoted insult, a disagreement, or an ordinary refusal can all occur in a healthy interaction.
+
+```python
+result = wake_character(db_path, decide, event=incoming,
+                        actor_id=authenticated_user_id, screen_abuse=assess_contact)
+```
+
+The host callback returns one of three decisions.
+
+- `None` continues normal processing in an active simulation.
+- `{"action":"set_boundary","reply":"Leave that subject alone."}` returns a boundary reply for the host to deliver and leaves the simulation active. Use the message ID to deduplicate delivery.
+- `{"action":"end_session"}` records a confirmed incident and closes the character runtime. Queued and pending work is cancelled. The closure survives restarts. Later incoming messages can still be screened by the host. Use the same screening path for all incoming turns.
+
+To enable deletion for a privately owned character, pass `owned_files=[card_path, log_path]` when calling `initialize_character`. Include its imported history and any individually owned transcript files that should be removed. Each registered file must be a direct sibling of the database in the character's private directory. Provision shared templates and multi-character packs separately. On a second distinct confirmed end-session incident from the same actor, the runtime removes the registered files and clears stored turns, plans, observations, and character state. It keeps a small deleted-status record so a later heartbeat respects the closure. A retry after interrupted file removal completes the pending deletion. Shared or unregistered files and external backups have their own retention policy.
+
+### Evolving goals
+
+Read `request["current_goals"]` before choosing an action. It merges authored goals, the YAML log's `goal_updates`, and the persistent runtime's latest amendments. Each goal defaults to active. The original card goals and log fields remain available individually. `goal_evidence` includes cumulative counts of pursued, passed, and prevented opportunities per goal and its latest observation. Event IDs link to the timeline for the decision and any bodily assessment.
+
+A host decision can include `goal_events` keyed by stable goal ID. Each entry gives observable `evidence` plus a choice or changed fields. For example:
+
+```json
+{
+  "id": "afternoon-17",
+  "goal_events": {
+    "play_concerts": {"choice": "passed", "evidence": "Turned down an available rehearsal slot."},
+    "teach_music": {
+      "objective": "Give a first lesson", "motivation": "share_music",
+      "commitment": "tentative", "choice": "pursued",
+      "evidence": "Invited a neighbor over and penciled in a lesson."
+    }
+  }
+}
+```
+
+A new ID requires an `objective`. For existing goals send only the changed fields. Supported amendments are `objective`, `motivation`, `horizon`, `commitment` (short text), `progress`, and `status` (active, blocked, dormant, completed, or abandoned). Reuse the same ID to deepen, resume, or revise the same ambition. A distinct ambition can reference the same underlying motivation. A choice alone records behavior and leaves the goal's status intact.
+
+Resolved changes take effect on the next wake and survive restarts in SQLite. When the pending batch is approved for the configured YAML log, call `scripts.golem_loop.commit_goal_updates(db_path)`. This merges changed fields into `goal_updates`. The timeline retains the supporting episodes. A runtime provisioned without a YAML log uses SQLite for persistence.
+
+### Experiential risk and reward
+
+An event or scheduled plan can include a `topic` and a forecast such as `"expectation": {"benefit": 65, "cost": 30}`. In its decision the host can record an outcome and an `experience`:
+
+```json
+{"id":"practice-4","outcome":"Solved the passage but felt exposed playing it aloud.",
+ "experience":{"topic":"playing for an audience","benefit":80,"cost":60,
+               "appraisal":{"interest":75,"unease":65}}}
+```
+
+Use the same topic across encounters. Benefit and cost are independent integer ratings from 0 to 100. An idle turn can name a newly chosen topic in its decision. The request supplies the character's learned expectations for future choices. The host may combine an experience with a learning observation or a new plan in the same decision.
+
+Golem applies the appraisal at the event's scene time. It records baseline and subsequent general arousal, interest, and stress in the event assessment. Benefit evidence is the reported benefit plus one quarter of the change in interest. Cost evidence is the reported cost plus one quarter of the change in stress. Each is bounded to 0–100. Each prior estimate moves one quarter of the way toward its own evidence. The first observation starts from the event forecast if supplied, otherwise directly from the evidence. These weights are simulation defaults. The timeline preserves the forecast, reported outcome scores, body measurements and resulting expectations for inspection.
+
 ## Humans
 
 **Unix:**

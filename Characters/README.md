@@ -36,7 +36,7 @@ incentives:
     goal: bring_sister_home
 ```
 
-Record approved changes in `goal_updates` in the durable log, keyed by goal ID. Each update can supply a `status` (`active`, `blocked`, `completed`, or `abandoned`) and a `progress` note.
+Record approved changes in `goal_updates` in the durable log, keyed by goal ID. An update may revise the objective, motivation, horizon, commitment, progress, or status. Supported statuses are active, blocked, dormant, completed, and abandoned. A new goal ID with an objective records an ambition formed during play. A new goal may share an existing motivation.
 
 ## Drafting flow
 

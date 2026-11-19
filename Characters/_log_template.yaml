@@ -32,10 +32,10 @@ memories:
   footnote: []
 # Durable bond baselines (0–100 scales + momentum). Live vectors start from these each session.
 relational_baselines: {}
-# Optional goal updates keyed by card goal ID. Commit durable changes after approval.
+# Goal amendments keyed by stable ID, including goals formed during play. Commit durable changes after approval.
 goal_updates: {}
 # bring_sister_home:
-#   status: "[active, blocked, completed, or abandoned]"
+#   status: "[active, blocked, dormant, completed, or abandoned]"
 #   progress: "[what changed and why]"
 # optional: last live snapshot (or path). Ephemeral; not a second source of truth.
 # live: null

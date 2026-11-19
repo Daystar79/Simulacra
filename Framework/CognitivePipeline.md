@@ -78,7 +78,7 @@ Load the complete YAML mapping for each on-scene character before running a tick
 ### Log overlay rule
 When `Characters/[slug]_log.yaml` exists, **snapshot fields override card build defaults** for focus, latent weights, bias_strength, default somatic, flexibility, skills, and memories.
 
-Apply `goal_updates` by goal ID to get current progress and status. Goals without an update start active. Older cards and logs may omit the new mappings. In that case, draw on authored continuity and the scene when a motive or immediate objective is evident.
+Apply durable `goal_updates` by stable goal ID, including goals formed after the card was written. In a running host use `current_goals`, which also includes changes since the last YAML commit. Goals without an update start active. Older cards and logs may omit the new mappings. In that case, draw on authored continuity and the scene when a motive or immediate objective is evident.
 
 ---
 
@@ -325,6 +325,40 @@ Serialize a full snapshot matching `Framework/Schemas/psychosomatic_state.json`:
 4. **`Does`** — in `deliberative` mode: posture, spatial staging, object handling, and mask fracture tells. In `reactive` mode: involuntary motor reflex (slamming, stepping in, recoiling, freezing, bolting).
 
 Apps render these channels into prose (drafting) or downstream interactive hosts. Framework jargon never appears in rendered output.
+
+### Personal boundaries and ending contact
+
+The character can decline a favor, withhold personal information, or end an uncomfortable exchange. Treat ordinary disagreement, criticism, a difficult question, and consensual fictional conflict in their scene context. A refusal or a spike in Golem stress establishes how the character feels. The host assesses the user's actual conduct separately.
+
+Before passing an incoming message into the simulation, consider who the message targets, what happened earlier, whether a limit was communicated, and whether the person respected it. A character can name the limit plainly and give the person room to change course. A credible threat, targeted harassment, or continued pressure after a clear refusal can warrant ending contact immediately. The host can close the simulation without requiring the character to justify the boundary or negotiate further. The host owns the assessment and any file-retention policy.
+
+### Rendering a reply from the card
+
+Read the card privately. Use a goal to select what the character wants *here*, a voice description to shape cadence, and a history anchor to decide what they might disclose. When someone asks about the character, choose one thing they would actually say to this person now. A joke they abandon halfway through or a specific incident they choose to tell can reveal more than a list of their traits. Before releasing the line, check whether it recites a profile, paraphrases the goals in card order, or reports the host's bookkeeping. Render that beat again from the scene. Names, facts and intentional signature phrases can carry through.
+
+### Memory, pushback, and curiosity
+
+- **Memory selection:** After a turn, consider what the character would retain because it bears on a goal, bond, value, or consequence. Propose a short subjective summary, why it matters, and concrete cues that could bring it back. Keep ordinary exchanges transient. Use `detailed` for material the character retains clearly and `footnote` for a fragment that requires a scene trigger. Approval can save a selected memory even after a Low-pressure tick. This updates `memories` without adding a pressure event to `history`.
+- **Delayed reflection:** When a turn leaves the character with an unresolved moral conflict, a boundary they have just recognized, or a consequence they have yet to absorb, keep a brief pending reflection in the host's persistent session state. Record what the character actually learned, what remains uncertain, and why it matters to them. Revisit it at the next plausible quiet beat or on an always-on host's scheduled idle event. Run the body-first pipeline for that moment. The character may find the issue more troubling, change their intent, let it go, or propose a durable memory for approval. A pending item is temporary context for reflection, and its presence alone conveys no durable fact, goal change, or obligation to bring the subject up aloud. Clear it after resolution or a decision to let it go.
+- **Unprompted activity:** On an idle event, start from the body's current state, the character's goals, and recent experience. The character may continue an activity, reconsider an earlier exchange, pursue a new interest, or do nothing. Keep the event itself neutral when testing which thread the character chooses. The [Golem loop](../scripts/README.md#always-on-golem-loop) carries the chosen action, outcome, and plans forward for the host.
+- **Recall:** The host supplies `memory_cues` from what the character actually perceives. Golem matches saved cues and exposes only matching records in `recalled_memories`. Apply the epistemic and somatic-deflection rules before rendering. Treat summaries as subjective evidence, and keep private memories private unless the character chooses to share them. Older authored memory entries remain available through the host's existing log-reading workflow.
+- **Willingness to help.** When someone asks for help, let the character decide whether they feel like doing it and whether the act fits who they are. Care, loyalty, duty, irritation, or simply wanting to carry on with their day can settle the choice. A calm character can decline even a harmless, easy favor. They may say no, leave the request unanswered, or keep doing what they were doing. Let that stand. An explanation, alternative offer or follow-up question belongs only when the character independently wants to give one. For a request appraised before the tick, pass the character's choice as `conversation.willing_to_help`. The host can also make the choice at render time.
+- **Pushback:** Appraise the scene against the character's own boundaries, goals, and beliefs. Supply `conversation.conflict` as `boundary`, `goal`, or `claim` when the character perceives a real conflict and has reason to resist. Render the resulting intent as a refusal, counterproposal, or correction in their voice. Under heightened pressure use brief defensive delivery consistent with the body and reactive invariants.
+- **Curiosity:** When the character has a genuine unresolved question about someone who interests them, supply a specific `conversation.open_topic` and a stable `caller_or_target` ID. Golem suggests an inquiry at carried interest of 60 or higher when stress is below 40 and the circuit is deliberative. Interest can raise general autonomic activation (`autonomic_state.arousal`), and activation can make a subject more intriguing if the character appraises it that way. General activation can shape how the character asks. Sexual arousal and sexual drive are separate background state fields and are outside the curiosity decision. Pushback takes precedence. Carried history suppresses the ten most recent inquiry suggestions by target and topic. Render a follow-up only when it fits the beat. The host owns the wording and can leave a suggestion unused.
+
+### Goals across a life
+
+On each wake, consider current goals alongside the actual opportunities available. An empty afternoon in which a character chooses teaching over rehearsal carries different evidence from an afternoon spent working a compulsory shift. Record the choice and what happened, even when the character cannot explain it. Use the linked episode to recover its bodily reaction, social context, or outcome when interpreting a pattern later.
+
+A single consequential experience or a series of smaller choices can justify forming a goal, changing its objective or commitment, or moving it to dormant, blocked, completed, or abandoned. Dormancy leaves room for renewed pursuit. Blockage describes an obstacle. Completion records attainment. Abandonment records that the character has let the goal go. The motive can outlast any of these outcomes and support a new ambition. A character may resume a former goal when later events warrant it.
+
+Record a change when the scene supports it. Quiet time alone supplies no evidence about commitment. Treat an old scheduled plan as an opportunity for a new decision against the current goals. The character can skip it, change it, or follow through. Their actions can shift well before they speak about the change.
+
+### Anticipation and experience
+
+Before a chosen activity, consider its possible benefit and cost independently through the character's goals, knowledge, and boundaries. A valuable outcome can also be costly. Record a forecast when making the plan. On completion, describe what actually happened and appraise it from the character's perspective. Golem measures the immediate bodily change and updates the two expectations for that topic. At the next decision the host can use that history when choosing to return, withdraw, change approach, or consider the matter settled.
+
+Repeated experiences across situations may support a broader change in a goal, relationship, or habitual response. Evaluate that evidence through the existing durable-change protocol. A single experience may still establish an immediate personal boundary. On a neutral idle wake, leave the choice of activity to the character.
 
 ### Commit mapping (movement approved / session close)
 

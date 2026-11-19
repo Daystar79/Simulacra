@@ -14,8 +14,12 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import sys
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +31,7 @@ SCHEMA_PATH = ROOT / "Framework" / "Schemas" / "psychosomatic_state.json"
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import validate_state  # noqa: E402
+from goal_evolution import current_goals  # noqa: E402
 
 ZONE_MAP = {
     "Z1": "Z1_Cranial_Ocular",
@@ -78,7 +83,9 @@ def load_character(card_path: Path, slug: str | None) -> dict[str, Any]:
     return dict(data)
 
 
-def overlay_log(card: dict[str, Any], log_path: Path | None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def overlay_log(
+    card: dict[str, Any], log_path: Path | None, *, goal_changes: dict | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     state = {
         "character_id": card.get("character_id") or (card.get("call_name") or card.get("name", "unknown")).lower(),
         "canon_adult": card.get("canon_adult") is True,
@@ -103,6 +110,7 @@ def overlay_log(card: dict[str, Any], log_path: Path | None) -> tuple[dict[str, 
         "skills": list(card.get("skills", [])),
     }
     if not log_path or not log_path.is_file():
+        state["current_goals"] = current_goals(card.get("goals"), None, goal_changes)
         return state, None
 
     log_data = yaml.safe_load(log_path.read_text(encoding="utf-8"))
@@ -125,7 +133,107 @@ def overlay_log(card: dict[str, Any], log_path: Path | None) -> tuple[dict[str, 
         state["character_id"] = log_data["character_id"]
     if log_data.get("skills", {}).get("active"):
         state["skills"] = list(log_data["skills"]["active"])
+    state["memories"] = log_data.get("memories", {})
+    state["current_goals"] = current_goals(card.get("goals"), log_data.get("goal_updates"), goal_changes)
     return state, log_data
+
+
+def cue_keys(cues: Any) -> set[str]:
+    if not isinstance(cues, list) or any(not isinstance(cue, str) or not cue.strip() for cue in cues):
+        raise ValueError("Memory cues must be a list of nonempty strings")
+    return {cue.strip().casefold() for cue in cues}
+
+
+def recall_memories(memories: dict[str, Any], cues: Any) -> list[dict[str, Any]]:
+    keys = cue_keys(cues)
+    return [
+        {"id": entry["id"], "summary": entry["summary"], "kind": kind}
+        for kind in ("detailed", "footnote")
+        for entry in memories.get(kind, [])
+        if isinstance(entry, dict) and {"id", "summary"} <= entry.keys()
+        and keys.intersection(cue_keys(entry.get("cues", [])))
+    ]
+
+
+def add_memory(log_data: dict[str, Any], memory: dict[str, Any]) -> bool:
+    fields = ("id", "kind", "summary", "reason")
+    if not isinstance(memory, dict) or any(
+        not isinstance(memory.get(key), str) or not memory[key].strip() for key in fields
+    ):
+        raise ValueError("An approved memory requires nonempty id, kind, summary, and reason strings")
+    kind = memory["kind"].strip()
+    if kind not in ("detailed", "footnote"):
+        raise ValueError("Memory kind must be detailed or footnote")
+    cues = sorted(cue_keys(memory.get("cues")))
+    if not cues:
+        raise ValueError("An approved memory requires at least one recall cue")
+    entry = {key: memory[key].strip() for key in ("id", "summary", "reason")}
+    entry["cues"] = cues
+    memories = log_data.setdefault("memories", {})
+    for bucket in ("detailed", "footnote"):
+        for existing in memories.get(bucket, []):
+            if isinstance(existing, dict) and existing.get("id") == entry["id"]:
+                if bucket == kind and existing == entry:
+                    return False
+                raise ValueError(f"Memory ID already exists: {entry['id']}")
+    memories.setdefault(kind, []).append(entry)
+    log_data["revision"] = log_data.get("revision", 0) + 1
+    log_data["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    log_data["last_commit_id"] = entry["id"]
+    return True
+
+
+def conversation_intent(
+    conversation: dict[str, Any], interest: float, guarded: bool, activated: bool,
+    target: str, recent_inquiries: list[list[str]],
+) -> dict[str, str] | None:
+    if not isinstance(conversation, dict):
+        raise ValueError("Conversation must be a JSON object")
+    conflict = conversation.get("conflict")
+    topic = conversation.get("open_topic", "")
+    if conflict not in (None, "boundary", "goal", "claim") or not isinstance(topic, str):
+        raise ValueError("Conversation accepts a boundary, goal, or claim conflict and a text open_topic")
+    if "willing_to_help" in conversation:
+        willing = conversation["willing_to_help"]
+        if not isinstance(willing, bool):
+            raise ValueError("willing_to_help must be a boolean")
+        if not willing:
+            return {"intent": "decline", "delivery": "brief" if activated else "deliberate"}
+    if conflict:
+        return {"intent": "push_back", "conflict": conflict, "delivery": "brief" if activated else "deliberate"}
+    topic = topic.strip()
+    if topic and interest >= 60 and not guarded and [target, topic.casefold()] not in recent_inquiries:
+        return {"intent": "ask", "topic": topic}
+    return None
+
+
+def parse_event_time(value: Any) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("event_at must be an ISO 8601 timestamp with a timezone")
+    timestamp = datetime.fromisoformat(value)
+    if timestamp.utcoffset() is None:
+        raise ValueError("event_at must include a timezone")
+    return timestamp.astimezone(timezone.utc)
+
+
+def event_clock(stimulus: dict[str, Any], history: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+    previous = history.get("last_event_at")
+    if "event_at" in stimulus:
+        if {"elapsed_ms", "elapsed_minutes"} & stimulus.keys():
+            raise ValueError("event_at cannot be combined with explicit elapsed time")
+        current = parse_event_time(stimulus["event_at"])
+        elapsed_ms = (current - parse_event_time(previous)).total_seconds() * 1_000 if previous else 0.0
+        if elapsed_ms < 0:
+            raise ValueError("event_at is earlier than the last processed event")
+        return elapsed_ms, {
+            "last_event_at": current.isoformat(),
+            "event_sequence": history.get("event_sequence", 0) + 1,
+        }
+    if previous:
+        raise ValueError("event_at is required when continuing timestamped history")
+    if "elapsed_ms" in stimulus:
+        return float(stimulus["elapsed_ms"]), {}
+    return float(stimulus.get("elapsed_minutes", 1)) * 60_000, {}
 
 
 # The shared realm catalog includes staging and dialogue cues for the renderer.
@@ -223,10 +331,7 @@ def run_golem(
     target = stimulus.get("caller_or_target", "caller")
     event_label = stimulus.get("event_label", "tick_01")
     intimacy_cue = bool(stimulus.get("intimacy_cue", False))
-    if "elapsed_ms" in stimulus:
-        elapsed_ms = float(stimulus["elapsed_ms"])
-    else:
-        elapsed_ms = float(stimulus.get("elapsed_minutes", 1)) * 60_000
+    elapsed_ms, clock_state = event_clock(stimulus, history)
     if not math.isfinite(elapsed_ms):
         raise ValueError("Elapsed scene time must be finite")
     elapsed_ms = max(0.0, elapsed_ms)
@@ -564,6 +669,16 @@ def run_golem(
     if schema_errors:
         raise RuntimeError(f"Golem produced invalid snapshot: {schema_errors}")
 
+    recalled = recall_memories(state.get("memories", {}), stimulus.get("memory_cues", []))
+    recent_inquiries = history.get("recent_inquiries", [])
+    guarded = cognitive_regime == "reactive" or stress >= 40
+    intent = conversation_intent(
+        stimulus.get("conversation", {}), interest, guarded, guarded or arousal >= 40,
+        target, recent_inquiries,
+    )
+    if intent and intent["intent"] == "ask":
+        recent_inquiries = (recent_inquiries + [[target, intent["topic"].casefold()]])[-10:]
+
     return {
         "psychosomatic_snapshot": snapshot,
         "golem_meta": {
@@ -576,6 +691,7 @@ def run_golem(
             "commit_eligible": commit_eligible,
         },
         "next_history": {
+            **clock_state,
             "last_fatigue": fatigue_level,
             "sleep_debt": sleep_debt_level,
             "activity": activity,
@@ -588,15 +704,16 @@ def run_golem(
             "sexual_drive": drive_level,
             "sexual_arousal": direct_arousal,
             "appraisal_effects": appraisal_effects,
+            **({"recent_inquiries": recent_inquiries} if recent_inquiries else {}),
         },
+        **({"current_goals": state["current_goals"]} if state.get("current_goals") else {}),
+        **({"recalled_memories": recalled} if recalled else {}),
+        **({"conversation_intent": intent} if intent else {}),
     }
 
 
-def apply_commit(log_path: Path, output: dict[str, Any], force: bool = False) -> bool:
+def record_pressure_commit(log_data: dict[str, Any], output: dict[str, Any]) -> None:
     meta = output["golem_meta"]
-    if not meta["commit_eligible"] and not force:
-        return False
-    log_data = yaml.safe_load(log_path.read_text(encoding="utf-8"))
     snap = log_data.setdefault("snapshot", {})
     auto = output["psychosomatic_snapshot"]["autonomic_state"]
     if auto["stress"] >= 65:
@@ -608,49 +725,127 @@ def apply_commit(log_path: Path, output: dict[str, Any], force: bool = False) ->
         "permanence": "temporary" if meta["pressure_tier"] == "Medium" else "permanent",
         "notes": f"Rules: {', '.join(meta['triggered_rules'][:4])}",
     })
-    log_path.write_text(yaml.safe_dump(log_data, sort_keys=False), encoding="utf-8")
-    return True
+
+
+def replace_text(path: Path, text: str) -> None:
+    path = path.resolve()
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, delete=False,
+        ) as stream:
+            pending = Path(stream.name)
+            stream.write(text)
+        if path.exists():
+            pending.chmod(path.stat().st_mode & 0o777)
+        os.replace(pending, path)
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
+
+
+@contextmanager
+def locked_log(log_path: Path):
+    log_path = log_path.resolve()
+    lock = log_path.with_name(log_path.name + ".lock")
+    try:
+        lock.mkdir()
+    except FileExistsError as exc:
+        raise ValueError(f"Log is locked: {lock}") from exc
+    try:
+        yield yaml.safe_load(log_path.read_text(encoding="utf-8"))
+    finally:
+        lock.rmdir()
+
+
+def update_log(
+    log_path: Path, output: dict[str, Any] | None = None, *,
+    commit: bool = False, force: bool = False, memory: dict[str, Any] | None = None,
+) -> tuple[bool, bool]:
+    commit_pressure = output is not None and (force or (commit and output["golem_meta"]["commit_eligible"]))
+    if not commit_pressure and memory is None:
+        return False, False
+
+    with locked_log(log_path) as log_data:
+        saved_memory = memory is not None and add_memory(log_data, memory)
+        if commit_pressure:
+            record_pressure_commit(log_data, output)
+        if saved_memory or commit_pressure:
+            replace_text(log_path, yaml.safe_dump(log_data, sort_keys=False))
+        return commit_pressure, saved_memory
+
+
+def apply_commit(log_path: Path, output: dict[str, Any], force: bool = False) -> bool:
+    committed, _ = update_log(log_path, output, commit=True, force=force)
+    return committed
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["loop"]:
+        import golem_loop
+
+        return golem_loop.main(sys.argv[2:])
     parser = argparse.ArgumentParser(description="Simulacra Golem Engine")
-    parser.add_argument("--card", required=True, help="Path to a YAML character card")
+    parser.add_argument("--card", help="Path to a YAML character card (required for a tick)")
     parser.add_argument("--slug", default=None, help="Character slug for multi-character cards")
     parser.add_argument("--log", default=None, help="Path to durable *_log.yaml")
-    parser.add_argument("--stimulus", required=True, help="JSON string or path to stimulus JSON")
+    parser.add_argument("--stimulus", help="JSON string or path to stimulus JSON (required for a tick)")
     parser.add_argument("--history-file", default=None, help="Optional JSON history for state carried between ticks")
     parser.add_argument("--out", default=None, help="Path to write full output JSON (and *_snapshot.json)")
     parser.add_argument("--commit", action="store_true", help="Commit to --log if pressure >= Medium")
     parser.add_argument("--force-commit", action="store_true", help="Force commit to --log")
+    parser.add_argument("--remember", type=Path, help="Save an approved memory from a JSON file to --log")
     args = parser.parse_args()
 
-    card = load_character(Path(args.card), args.slug)
     log_path = Path(args.log) if args.log else None
+    if (args.commit or args.force_commit or args.remember) and not log_path:
+        parser.error("--commit, --force-commit, and --remember require --log")
+    memory = None
+    if args.remember:
+        if not log_path.is_file():
+            parser.error("--remember requires an existing character log")
+        memory = json.loads(args.remember.read_text(encoding="utf-8"))
+        if not isinstance(memory, dict):
+            parser.error("--remember requires a JSON object")
+        if not any((args.card, args.stimulus, args.slug, args.history_file, args.out, args.commit, args.force_commit)):
+            _, saved_memory = update_log(log_path, memory=memory)
+            print(json.dumps({"memory_saved": saved_memory}))
+            return 0
+
+    if not args.card or args.stimulus is None:
+        parser.error("A tick requires both --card and --stimulus")
+    card = load_character(Path(args.card), args.slug)
     state, _ = overlay_log(card, log_path)
 
     stim_path = Path(args.stimulus)
     stimulus = json.loads(stim_path.read_text(encoding="utf-8")) if stim_path.is_file() else json.loads(args.stimulus)
 
     hist_path = Path(args.history_file) if args.history_file else None
+    out_path = Path(args.out) if args.out else None
+    snapshot_path = out_path.with_name(out_path.stem + "_snapshot.json") if out_path else None
+    paths = [path.resolve() for path in (Path(args.card), log_path, hist_path, out_path, snapshot_path) if path]
+    if len(paths) != len(set(paths)):
+        parser.error("Card, log, history, output, and snapshot paths must be distinct")
     history = json.loads(hist_path.read_text(encoding="utf-8")) if (hist_path and hist_path.is_file()) else {}
 
     realm_data = yaml.safe_load(REALM_DATA_PATH.read_text(encoding="utf-8"))
     result = run_golem(state, stimulus, realm_data, history)
 
+    if log_path:
+        committed, saved_memory = update_log(
+            log_path, result, commit=args.commit, force=args.force_commit, memory=memory,
+        )
+        if args.commit or args.force_commit:
+            result["golem_meta"]["committed_to_log"] = committed
+        if args.remember:
+            result["golem_meta"]["memory_saved"] = saved_memory
+
     if hist_path:
-        hist_path.write_text(json.dumps(result["next_history"], indent=2), encoding="utf-8")
+        replace_text(hist_path, json.dumps(result["next_history"], indent=2))
 
-    if args.commit or args.force_commit:
-        if not log_path:
-            raise ValueError("--commit requires --log")
-        committed = apply_commit(log_path, result, force=args.force_commit)
-        result["golem_meta"]["committed_to_log"] = committed
-
-    if args.out:
-        out_p = Path(args.out)
-        out_p.write_text(json.dumps(result, indent=2), encoding="utf-8")
-        snap_p = out_p.with_name(out_p.stem + "_snapshot.json")
-        snap_p.write_text(json.dumps(result["psychosomatic_snapshot"], indent=2), encoding="utf-8")
+    if out_path and snapshot_path:
+        out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        snapshot_path.write_text(json.dumps(result["psychosomatic_snapshot"], indent=2), encoding="utf-8")
     else:
         print(json.dumps(result, indent=2))
     return 0

@@ -59,4 +59,6 @@ Downstream applications can extend the pipeline through documented module hooks.
 
 ## License
 
-Executable code is licensed under MIT. Framework specifications and public creative materials use CC BY-SA 4.0. Named author-local character cards and relationship maps have separate terms. [License](LICENSE.md) · [Disclaimer and age requirements](DISCLAIMER.md)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0)
+
+Simulacra is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) (`SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0`). It is free for personal, hobby, research and other noncommercial use. Commercial use requires permission: contact [cian.didymos@gmail.com](mailto:cian.didymos@gmail.com). [License](LICENSE) · [Disclaimer and age requirements](DISCLAIMER.md)

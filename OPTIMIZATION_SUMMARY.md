@@ -245,7 +245,7 @@ The deploy script will automatically copy the current (already optimized) framew
 - **Standardized** bias catalog definitions between Main.md and CharacterRuntime.md
 - **Removed** duplicate Relationships sections from character cards (consolidated into Relations.md)
 - **Updated** migrate_optimized.py with atomic file operations and better error handling
-- **Removed** author-local character sample files (as per LICENSE.md §3)
+- **Removed** author-local character sample files (as per the former author-local license carve-out)
 - **Updated** OPTIMIZATION_SUMMARY.md to reflect current state
 
 ---

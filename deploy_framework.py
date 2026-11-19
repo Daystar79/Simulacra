@@ -36,7 +36,7 @@ DEPLOY_ALLOWLIST = frozenset({
 
 # Core: Cognitive Pipeline + Main + Rules + realm_data + state schema + templates.
 #
-# NOT deployed (author-local only; see LICENSE.md §3):
+# NOT deployed (author-local only):
 #   - Named character cards under Characters/
 #   - Characters/Relations.md / filled logs
 # Simulator/ is public — drop-in CharacterRuntime.
@@ -72,7 +72,7 @@ NEW_BOOK_IDENTITY_FILES = [
     ".gitignore",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE.md",
+    "LICENSE",
     "DISCLAIMER.md",
 ]
 

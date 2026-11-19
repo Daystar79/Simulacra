@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### License · November 19, 2026
+
+- Relicensed the project under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) (`SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0`). It is free for personal, hobby, research and other noncommercial use. Commercial use requires permission: contact cian.didymos@gmail.com.
+
 ### Persistent characters · November 19, 2026
 
 - Added a Python host API for one persistent Golem runtime per character. Timestamped events advance bodily state across restarts. The SQLite loop handles incoming messages, scheduled plans, neutral idle wakes, and pending decisions.

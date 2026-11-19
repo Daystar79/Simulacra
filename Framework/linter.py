@@ -170,7 +170,7 @@ DOC_FILES = {
     "PROJECT_SCOPE.md",
     "OPTIMIZATION_SUMMARY.md",
     "DISCLAIMER.md",
-    "LICENSE.md",
+    "LICENSE",
 }
 
 IGNORED_DIR_NAMES = {

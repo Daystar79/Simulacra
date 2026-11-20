@@ -20,9 +20,11 @@ DEPLOY_ALLOWLIST (or an explicit CLI path) receive framework files. That prevent
 accidental deploys into Keys/, Legal/, Provider/, etc.
 """
 
+import argparse
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Tuple
 
@@ -83,6 +85,81 @@ FRAMEWORK_DIRS = [
     "Framework/Prompts",
     "scripts",
 ]
+
+# A release update only writes these known product files. Hosts sometimes keep
+# their own modules, SQLite databases and generated snapshots alongside them.
+UPDATE_FILES = [
+    *(path for path in FRAMEWORK_FILES if not path.startswith("Characters/")),
+    "Framework/Mechanics/humanity.md",
+    "Framework/Mechanics/prose.md",
+    "Framework/Mechanics/voices.md",
+    "Framework/Prompts/character_builder_prompt.md",
+    "Framework/Prompts/improvement_pass_prompt.md",
+    "Framework/Prompts/world_builder_prompt.md",
+    "Framework/Schemas/examples/psychosomatic_state.example.json",
+    "scripts/README.md",
+    "scripts/goal_evolution.py",
+    "scripts/golem.py",
+    "scripts/golem_loop.py",
+    "scripts/run.py",
+    "scripts/validate_state.py",
+    *(f"scripts/unix/{name}.sh" for name in ("deploy", "lint", "validate")),
+    *(f"scripts/windows/{name}.{ext}" for name in ("deploy", "lint", "validate")
+      for ext in ("ps1", "cmd")),
+]
+
+
+def update_installation(source: Path, target: Path, *, check: bool = False) -> None:
+    """Refresh an installed framework between host wakes, preserving character data."""
+    source, target = source.resolve(), target.resolve()
+    if source == target or source in target.parents or target in source.parents:
+        raise ValueError("Use a release source separate from the installed framework.")
+    if not (target / "Framework/CognitivePipeline.md").is_file():
+        raise ValueError(f"Existing Simulacra installation not found at {target}")
+
+    changes = []
+    for name in UPDATE_FILES:
+        src, dst = source / name, target / name
+        if not src.is_file():
+            raise ValueError(f"Release file is missing: {src}")
+        if dst.resolve() != dst or (dst.exists() and not dst.is_file()):
+            raise ValueError(f"Expected a regular installation path: {dst}")
+        if not dst.exists() or src.read_bytes() != dst.read_bytes() or (
+            src.stat().st_mode & 0o111 != dst.stat().st_mode & 0o111
+        ):
+            changes.append(name)
+
+    if check:
+        for name in changes:
+            print(name)
+        print(f"{len(changes)} files would change in {target}")
+        return
+    if changes:
+        with tempfile.TemporaryDirectory(prefix=".simulacra-update-", dir=target) as tmp:
+            staged = Path(tmp)
+            applied = []
+            for name in changes:
+                new, old = staged / "new" / name, staged / "old" / name
+                new.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / name, new)
+                if (target / name).exists():
+                    old.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(target / name, old)
+            try:
+                for name in changes:
+                    dst = target / name
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(staged / "new" / name, dst)
+                    applied.append(name)
+            except BaseException:
+                for name in reversed(applied):
+                    old = staged / "old" / name
+                    if old.exists():
+                        os.replace(old, target / name)
+                    else:
+                        (target / name).unlink()
+                raise
+    print(f"Updated {len(changes)} files in {target}")
 
 NEW_BOOK_DIRS = [
     "Drafts",
@@ -310,6 +387,16 @@ def deploy_to_path(source_dir: str, target_dir: str, *, force: bool = False) -> 
 
 def main():
     source_dir = get_source_dir()
+    if "--update" in sys.argv[1:]:
+        parser = argparse.ArgumentParser(description="Update an existing Simulacra installation in place.")
+        parser.add_argument("--update", type=Path, required=True, metavar="INSTALL_DIR")
+        parser.add_argument("--check", action="store_true", help="List files that would change")
+        options = parser.parse_args()
+        try:
+            update_installation(Path(source_dir), options.update, check=options.check)
+        except (ValueError, OSError) as exc:
+            parser.exit(1, f"Update failed: {exc}\n")
+        return
     parent_dir = get_parent_dir()
     
     print("==================================================")

@@ -12,6 +12,27 @@ from scripts import golem_loop
 
 
 class TestGolemLoop(unittest.TestCase):
+    def test_incoming_host_receives_private_context_separately_on_retry(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "character.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            event = {"kind": "incoming", "id": "visitor", "context": "I used to live near here.",
+                     "host_notes": "The character remembers her brother leaving town."}
+
+            def interrupted(request):
+                raise RuntimeError("host interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "host interrupted"):
+                golem_loop.wake_character(db, interrupted, event=event)
+
+            def resume(request):
+                self.assertEqual(request["event"], event)
+                self.assertEqual(set(request["reply_guidance"]), {"stance", "disclosure"})
+                return {"id": "visitor", "reply": "Which street?"}
+
+            result = golem_loop.wake_character(db, resume)
+            self.assertEqual(result["events"][0]["reply"], "Which street?")
+
     def test_idle_decision_schedules_a_plan_that_survives_restart(self):
         start = datetime(2026, 11, 19, 17, tzinfo=timezone.utc)
         with TemporaryDirectory() as directory:
@@ -31,6 +52,7 @@ class TestGolemLoop(unittest.TestCase):
             with golem_loop.transaction(db) as connection:
                 request = golem_loop.pending_request(connection)
                 self.assertEqual(request["event"]["kind"], "idle")
+                self.assertNotIn("reply_guidance", request)
                 self.assertEqual(request["tick"]["golem_meta"]["elapsed_ms"], 60_000)
                 history = request["tick"]["next_history"]
                 self.assertEqual(golem_loop.advance(connection, config, start + timedelta(minutes=2))["status"],
@@ -98,8 +120,7 @@ class TestGolemLoop(unittest.TestCase):
             golem_loop.wake_character(db, host, event=event)
             self.assertEqual([r["event"]["id"] for r in requests], ["attempt", "retry"])
             estimates = requests[1]["expectations"]["performing"]
-            self.assertGreater(estimates["benefit"], 40)
-            self.assertGreater(estimates["cost"], 30)
+            self.assertEqual(estimates, {"benefit": 48.75, "cost": 37.5})
             assessment = requests[1]["recent"][-1]["assessment"]
             self.assertEqual(assessment["forecast"], event["expectation"])
             self.assertGreater(assessment["after"]["stress"], assessment["before"]["stress"])
@@ -107,6 +128,22 @@ class TestGolemLoop(unittest.TestCase):
                              original["tick"]["psychosomatic_snapshot"]["autonomic_state"]["stress"])
             with golem_loop.transaction(db) as connection:
                 self.assertEqual(golem_loop.runtime_config(connection)["expectations"]["performing"], estimates)
+
+    def test_strong_reaction_to_low_stakes_outcome(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "runtime.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            for turn, observed in enumerate([{"benefit": 5, "cost": 2}, {"benefit": 1, "cost": 0}]):
+                event = {"id": str(turn), "topic": "rehearsal", "kind": "world"}
+                golem_loop.wake_character(db, lambda request: {
+                    "id": request["event"]["id"],
+                    "experience": {**observed, "appraisal": {"interest": 80, "unease": 80}},
+                }, event=event)
+            with golem_loop.transaction(db) as connection:
+                first, second = [row["assessment"] for row in golem_loop.recent_events(connection)]
+            self.assertGreater(first["after"]["stress"], first["before"]["stress"])
+            self.assertEqual(first["next_expectation"], {"benefit": 5, "cost": 2})
+            self.assertEqual(second["next_expectation"], {"benefit": 4, "cost": 1.5})
 
     def test_overlapping_host_wakes_deliver_once(self):
         from concurrent.futures import ThreadPoolExecutor

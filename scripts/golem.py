@@ -54,6 +54,18 @@ EXPOSURE_RESPONSES = {
 }
 APPRAISAL_SIGNALS = ("interest", "attraction", "disgust", "unease", "uncertainty")
 APPRAISAL_HALF_LIFE_SECONDS = 10
+ACTIVATION_RECOVERY_MINUTES = 1
+SEXUAL_AROUSAL_RECOVERY_MINUTES = 2
+
+
+def sleep_excitation(minutes_asleep: float) -> float:
+    """Approximate intermittent autonomic excitation during sustained adult sleep."""
+    # Simulation defaults. Sample scene time so a long tick can span a peak.
+    phase = minutes_asleep % 90
+    rising = max(0.0, (phase - 55) / 20) if phase <= 75 else 0.0
+    since_peak = (minutes_asleep - 75) % 90
+    falling = 2 ** (-since_peak / SEXUAL_AROUSAL_RECOVERY_MINUTES) if minutes_asleep >= 75 else 0.0
+    return 24 * max(rising, falling)
 
 
 def clamp(val: int, lo: int = 0, hi: int = 100) -> int:
@@ -89,7 +101,7 @@ def overlay_log(
     state = {
         "character_id": card.get("character_id") or (card.get("call_name") or card.get("name", "unknown")).lower(),
         "canon_adult": card.get("canon_adult") is True,
-        "age": int(card.get("age", 18)),
+        "age": int(card.get("age", 0)),
         "sexual_drive_baseline": clamp(card.get("sexual_drive_baseline", 50)),
         "physical_pain_tolerance": clamp(card.get("physical_pain_tolerance", 50)),
         "emotional_distress_tolerance": clamp(card.get("emotional_distress_tolerance", 50)),
@@ -134,6 +146,7 @@ def overlay_log(
     if log_data.get("skills", {}).get("active"):
         state["skills"] = list(log_data["skills"]["active"])
     state["memories"] = log_data.get("memories", {})
+    state["relational_baselines"] = log_data.get("relational_baselines", {})
     state["current_goals"] = current_goals(card.get("goals"), log_data.get("goal_updates"), goal_changes)
     return state, log_data
 
@@ -330,7 +343,6 @@ def run_golem(
     context = stimulus.get("context", "broadcast")
     target = stimulus.get("caller_or_target", "caller")
     event_label = stimulus.get("event_label", "tick_01")
-    intimacy_cue = bool(stimulus.get("intimacy_cue", False))
     elapsed_ms, clock_state = event_clock(stimulus, history)
     if not math.isfinite(elapsed_ms):
         raise ValueError("Elapsed scene time must be finite")
@@ -440,10 +452,16 @@ def run_golem(
     emotional_load = emotional_distress_level * (150 - emotional_distress_tolerance) / 100
     distress_load = physical_load + emotional_load
     appraisal_activation = 0.25 * interest + 0.25 * disgust + 0.20 * unease
-    arousal = clamp(
-        25 + int(0.4 * threat) + int(0.3 * social_p) + int(0.25 * latent_hit_bonus)
-        + 0.5 * distress_load + appraisal_activation
+    resting_activation = {"sleeping": 5, "resting": 15, "awake": 25}[activity]
+    activation_target = clamp(
+        resting_activation + 0.4 * threat + 0.3 * social_p + 0.25 * latent_hit_bonus
+        + 0.35 * exertion + exposure_load + 0.5 * distress_load + appraisal_activation
     )
+    prior_activation = history.get("arousal", activation_target)
+    activation = activation_target + max(0, prior_activation - activation_target) * 2 ** (
+        -elapsed_minutes / ACTIVATION_RECOVERY_MINUTES
+    )
+    arousal = clamp(activation)
     baseline_stress = (
         10 + int(0.55 * threat) + int(0.2 * social_p) + int(0.35 * latent_hit_bonus)
         - int(0.15 * state["flexibility"])
@@ -454,6 +472,7 @@ def run_golem(
         baseline_stress + distress_load + 0.15 * hunger_level + exposure_load + exhaustion_load + appraisal_stress
     )
     if physical_pain == 100:
+        activation = 100
         arousal = stress = 100
         rules.append("ACUTE_PHYSICAL_PAIN_OVERLOAD")
     autonomic_surge = stress >= 75 or threat >= 80
@@ -550,7 +569,8 @@ def run_golem(
     # 6. Adult eligibility and background state (CognitivePipeline §2)
     adult_eligible = state["canon_adult"] is True and state["age"] >= 18
     drive_level = 0.0
-    direct_arousal = 0
+    sexual_response = 0.0
+    excitation = inhibition = minutes_asleep = 0.0
     sexual_arousal = 0
     if adult_eligible:
         baseline_drive = state.get("sexual_drive_baseline", 50)
@@ -560,13 +580,26 @@ def run_golem(
         # Keep the fractional state in history so short ticks can accumulate.
         remaining = 2 ** (-elapsed_minutes / 30)
         drive_level = target_drive + (previous_drive - target_drive) * remaining
-        direct_arousal = clamp(stimulus.get("sexual_arousal", history.get("sexual_arousal", 0)))
-        appraisal_arousal = attraction * (0.5 + 0.5 * drive_level / 100)
-        sexual_arousal = clamp(max(direct_arousal, appraisal_arousal) * (1 - disgust / 100))
+        cue_excitation = attraction * (0.5 + 0.5 * drive_level / 100)
+        if activity == "sleeping":
+            minutes_asleep = history.get("minutes_asleep", 0) + elapsed_minutes
+        # Older histories saved only the resulting response.
+        prior_excitation = history.get("sexual_excitation", history.get("sexual_arousal", 0))
+        recovery = 2 ** (-elapsed_minutes / SEXUAL_AROUSAL_RECOVERY_MINUTES)
+        residual = prior_excitation * recovery
+        if "sexual_arousal" in stimulus:
+            residual = clamp(stimulus["sexual_arousal"])
+        excitation = max(residual, cue_excitation, sleep_excitation(minutes_asleep))
+        inhibition = min(100, max(disgust, unease, 0.75 * physical_load, 0.75 * emotional_load,
+                                  stress - 25, 0.5 * exhaustion))
+        sexual_response = excitation * (1 - inhibition / 100)
+        sexual_arousal = clamp(sexual_response)
     else:
         appraisal_effects["attraction"] = 0
-    phys_attr = 15 if (adult_eligible and intimacy_cue) else (5 if adult_eligible else 0)
-    emot_attr = 20 if context == "broadcast" else 15
+    # A bodily response can have no interpersonal target (sleep, memory, or touch).
+    bond = state.get("relational_baselines", {}).get(target, {})
+    phys_attr = clamp(bond.get("attraction_physical", 0)) if adult_eligible else 0
+    emot_attr = clamp(bond.get("attraction_emotional", 0))
     rules.append(f"ADULT_GATE:{'ELIGIBLE' if adult_eligible else 'RESTRICTED'}")
 
     # 7. Durable commit eligibility (CognitivePipeline §8)
@@ -603,6 +636,8 @@ def run_golem(
             "cognitive_regime": cognitive_regime,
             "arousal": arousal,
             "sexual_drive": clamp(drive_level),
+            "sexual_excitation": clamp(excitation),
+            "sexual_inhibition": clamp(inhibition),
             "sexual_arousal": sexual_arousal,
             "visceral_revulsion": visceral_revulsion,
             "stress": stress,
@@ -702,7 +737,11 @@ def run_golem(
             "emotional_distress": emotional_distress_level,
             "recent_cues": (recent_cues + somatic_cues)[-10:],
             "sexual_drive": drive_level,
-            "sexual_arousal": direct_arousal,
+            "sexual_excitation": excitation,
+            "sexual_inhibition": inhibition,
+            "minutes_asleep": minutes_asleep,
+            "arousal": activation,
+            "sexual_arousal": sexual_response,
             "appraisal_effects": appraisal_effects,
             **({"recent_inquiries": recent_inquiries} if recent_inquiries else {}),
         },

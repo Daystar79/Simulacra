@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -189,6 +190,39 @@ class TestDeploymentDecoupling(unittest.TestCase):
 
     def test_framework_files_include_psyche_framework(self):
         self.assertIn("Framework/psyche_framework.md", deploy_framework.FRAMEWORK_FILES)
+
+    def test_in_place_update_preserves_host_files_and_is_repeatable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "Simulacra"
+            pipeline = target / "Framework/CognitivePipeline.md"
+            pipeline.parent.mkdir(parents=True)
+            pipeline.write_text("Previous release")
+            private = ["Characters/_template.yaml", "Characters/guest_log.yaml",
+                       "Simulator/guest.sqlite3", "scripts/host.py", "HOST.md"]
+            for name in private:
+                path = target / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"host-owned")
+            cmd = [sys.executable, str(ROOT / "scripts/run.py"), "deploy", "--update", str(target)]
+            preview = subprocess.check_output([*cmd, "--check"], text=True)
+            self.assertIn("Framework/CognitivePipeline.md", preview)
+            self.assertEqual(pipeline.read_text(), "Previous release")
+            subprocess.run(cmd, check=True, capture_output=True)
+            self.assertEqual(pipeline.read_bytes(), (ROOT / "Framework/CognitivePipeline.md").read_bytes())
+            self.assertIn("Updated 0 files", subprocess.check_output(cmd, text=True))
+            for name in private:
+                self.assertEqual((target / name).read_bytes(), b"host-owned")
+
+    def test_update_preflights_all_files_before_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            pipeline = target / "Framework/CognitivePipeline.md"
+            pipeline.parent.mkdir()
+            pipeline.write_text("Previous release")
+            (target / "scripts/golem.py").mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "golem.py"):
+                deploy_framework.update_installation(ROOT, target)
+            self.assertEqual(pipeline.read_text(), "Previous release")
 
 
 if __name__ == "__main__":

@@ -27,6 +27,23 @@ CM_FORCE_OS=unix    python3 scripts/run.py lint Drafts/
 | `validate` | Check a psychosomatic JSON snapshot against the schema | `… validate [state.json]` |
 | `golem` | Run a deterministic Golem tick | `… golem --card card.yaml --stimulus '{}'` |
 
+## In-place updates
+
+Finish the current wake and pause incoming and scheduled handlers during the update. For a Git-based installation tracking the release branch, run `git pull --ff-only` in that checkout. For a copied installation, run the following commands from a separate checkout or unpacked copy of the new release. Use the absolute path of the existing framework directory.
+
+```bash
+python3 scripts/run.py deploy --update /path/to/installed/Simulacra --check
+python3 scripts/run.py deploy --update /path/to/installed/Simulacra
+```
+
+The preview lists the framework documents and runtime scripts that will be replaced, including local edits at those paths. The updater leaves the entire `Characters/` tree, SQLite files, host configuration, and custom scripts in place. You can repeat it after an interruption. Before resuming wakes, run `python3 scripts/run.py validate` in the installed directory and restart any host process that keeps Python modules or framework instructions in memory.
+
+To apply the revised risk/reward calculation to an existing character's past outcomes, run this once with that character's existing database path. The calculation uses the stored outcomes and refreshes expectations on any pending request.
+
+```bash
+python3 scripts/run.py golem loop --db /path/to/character.sqlite3 recalculate-expectations
+```
+
 ## Layout
 
 ```
@@ -133,6 +150,8 @@ The host can pass `{"conversation":{"willing_to_help":false}}` in a request's st
 
 Return the host-rendered dialogue in the decision's optional `reply` field. Omit it for silence. Before delivery, `wake_character` checks the reply against the active character's descriptive card fields. Eight consecutive matching words, ignoring case and punctuation, flag the source field and leave the event pending for a revised draft. Hosts can call `copied_card_field(card, reply)` during drafting to get the field name and revise just the spoken line. Publish the accepted `reply` from the resolved event. Keep internal actions, memories, and decision notes in their existing fields. For profile-like paraphrases, use the scene-level rendering check in the cognitive pipeline.
 
+On incoming turns, put the speaker's words and observable action in `event.context`. Put a private scene association in the optional text field `event.host_notes`. For example, a visitor might say “I used to live near here,” while the host privately recalls that the character's brother left town. In `decide(request)`, use `request["reply_guidance"]` when drafting the response. It asks the host to decide what the character believes and how much they want this listener to know. The brother might come to mind every time the character sees this visitor, even if his name never comes up between them.
+
 ### Host boundary handling
 
 Pass a trusted `actor_id` and `screen_abuse` callback for incoming turns. The host supplies the actor and message IDs from its transport. The callback receives the incoming event plus the runtime status and the most recent boundary communicated to that actor. It can also consult the host's conversation history. Use the character's stated limits and the context of the exchange. A quoted insult, a disagreement, or an ordinary refusal can all occur in a healthy interaction.
@@ -174,6 +193,12 @@ A new ID requires an `objective`. For existing goals send only the changed field
 
 Resolved changes take effect on the next wake and survive restarts in SQLite. When the pending batch is approved for the configured YAML log, call `scripts.golem_loop.commit_goal_updates(db_path)`. This merges changed fields into `goal_updates`. The timeline retains the supporting episodes. A runtime provisioned without a YAML log uses SQLite for persistence.
 
+### Reporting a turn's bodily response
+
+The host interprets the character's reaction to message text. Supply a known appraisal in `event.stimulus.appraisal` to include it in the snapshot used to render the turn. If the host forms its appraisal during `decide(request)`, the decision may return `{"id":"turn-18","appraisal":{"interest":70}}`. Golem applies it at the same scene time and returns `body_response.before` and `body_response.after` on the resolved event. The timeline also records these measurements. Use either this field or `experience.appraisal` for one outcome.
+
+Read general activation from `autonomic_state.arousal` and the separate adult response from `autonomic_state.sexual_arousal`. An attraction appraisal can raise the latter when the card specifies both `canon_adult: true` and an age of at least 18. Interest alone can raise general activation. The carried history retains fractional levels between integer snapshots. For a perceived cue, the host appraises attraction to this particular person or experience using the character's preferences, history, and scene context. For example, seeing someone may prompt interest alone, or the host could supply `{"interest":60,"attraction":35}` if this character feels drawn to them. Read `sexual_excitation` and `sexual_inhibition` in the same snapshot to see how the response arose. An attraction appraisal of 80 can produce the same excitation in two scenes while worry in one scene dampens the resulting arousal. Excitation recovers with a two-minute half-life. An adult's sustained sleep can also produce a transient autonomic response. The sleep approximation uses a 90-minute cycle with a rise from minute 55 to a peak of 24/100 at minute 75. Waking resets sleep duration and the residual excitation recovers. These timings and weights are simulation defaults. The host interprets the bodily measurements and decides whether the character notices or acts. Relational attraction fields read the recorded bond baseline for the target.
+
 ### Experiential risk and reward
 
 An event or scheduled plan can include a `topic` and a forecast such as `"expectation": {"benefit": 65, "cost": 30}`. In its decision the host can record an outcome and an `experience`:
@@ -186,7 +211,9 @@ An event or scheduled plan can include a `topic` and a forecast such as `"expect
 
 Use the same topic across encounters. Benefit and cost are independent integer ratings from 0 to 100. An idle turn can name a newly chosen topic in its decision. The request supplies the character's learned expectations for future choices. The host may combine an experience with a learning observation or a new plan in the same decision.
 
-Golem applies the appraisal at the event's scene time. It records baseline and subsequent general arousal, interest, and stress in the event assessment. Benefit evidence is the reported benefit plus one quarter of the change in interest. Cost evidence is the reported cost plus one quarter of the change in stress. Each is bounded to 0–100. Each prior estimate moves one quarter of the way toward its own evidence. The first observation starts from the event forecast if supplied, otherwise directly from the evidence. These weights are simulation defaults. The timeline preserves the forecast, reported outcome scores, body measurements and resulting expectations for inspection.
+Choose a topic narrow enough that its prior encounters are relevant. A casual greeting and a difficult disclosure to the same person can teach different expectations. Score what changed for this character: a pleasant but inconsequential exchange may have small benefit, while a shift in trust or progress on a valued goal may warrant a larger one. Cost measures experienced burden on the same scale.
+
+Golem applies the appraisal at the event's scene time. It records baseline and subsequent general arousal, interest, and stress in the event assessment. The host scores the realized benefit and cost on separate 0–100 scales, including felt effort or discomfort when it mattered to this character. A surprising or stressful experience can still have little lasting cost. Each prior estimate moves one quarter of the way toward its reported outcome. The body measurements remain available to interpret what happened. The first observation starts from the event forecast if supplied, otherwise directly from the evidence. These weights are simulation defaults. The timeline preserves the forecast, reported outcome scores, body measurements and resulting expectations for inspection. For an existing database, `python3 scripts/run.py golem loop --db character.sqlite3 recalculate-expectations` replays recorded outcomes into the current estimates and refreshes any pending request. Historical assessments remain available for comparison.
 
 ## Humans
 

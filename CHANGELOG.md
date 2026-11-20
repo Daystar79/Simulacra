@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- Added `deploy --update INSTALL_DIR` for refreshing copied installations in place and `--check` to preview changed runtime files. Existing character state and host files stay in place.
+
+### Fixed
+
+- Incoming host requests now carry guidance for deciding what a character believes and what they will disclose to the current listener. Hosts can pass a private memory cue separately from the visitor's words in `event.host_notes`.
+
+- Topic expectations learn from reported outcomes. Interest and stress changes are recorded separately, preventing an intense reaction from inflating both scores.
+
+- General activation now responds to sleep, rest, exertion and sensory load. Both activation fields persist their computed response and recover over scene time. Eligible adult snapshots expose separate sexual excitation and inhibition. A cue can produce different bodily responses under calm and stressful conditions, and sustained sleep can produce a response without an interpersonal cue. Hosts can return an appraisal on an ordinary decision and inspect the immediate bodily change.
+
 ### License · November 19, 2026
 
 - Relicensed the project under the [PolyForm Shield License 1.0.0](https://polyformproject.org/licenses/shield/1.0.0) (`SPDX-License-Identifier: PolyForm-Shield-1.0.0`). It is free to use, including commercially, in your own projects. You just can't use it to build a product that competes with Simulacra. Questions or other uses: contact cian.didymos@gmail.com. This replaces the PolyForm Noncommercial 1.0.0 terms published earlier the same day.

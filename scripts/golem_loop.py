@@ -92,6 +92,8 @@ def enqueue(connection, event, history, now):
         raise ValueError("Use the event's at field for timing, outside stimulus")
     if not isinstance(event.get("context", ""), str):
         raise ValueError("Event context must be text")
+    if "host_notes" in event and not isinstance(event["host_notes"], str):
+        raise ValueError("Event host_notes must be text")
     if "expectation" in event:
         topic_key(event.get("topic"))
         scores(event["expectation"])
@@ -117,7 +119,8 @@ def enqueue(connection, event, history, now):
 
 def recent_events(connection, limit=RECENT_LIMIT):
     rows = connection.execute(
-        """SELECT input, due, decision, status, json_extract(request, '$.assessment') AS assessment FROM events
+        """SELECT input, due, decision, status, json_extract(request, '$.assessment') AS assessment,
+                  json_extract(request, '$.body_response') AS body_response FROM events
            WHERE status IN ('resolved', 'failed')
            ORDER BY due DESC, rowid DESC LIMIT ?""",
         (limit,),
@@ -127,6 +130,7 @@ def recent_events(connection, limit=RECENT_LIMIT):
             "event": json.loads(row["input"]), "at": datetime.fromtimestamp(row["due"], timezone.utc).isoformat(),
             "decision": json.loads(row["decision"]), "status": row["status"],
             **({"assessment": json.loads(row["assessment"])} if row["assessment"] else {}),
+            **({"body_response": json.loads(row["body_response"])} if row["body_response"] else {}),
         }
         for row in reversed(rows)
     ]
@@ -134,7 +138,24 @@ def recent_events(connection, limit=RECENT_LIMIT):
 
 def pending_request(connection):
     row = connection.execute("SELECT request FROM events WHERE status = 'pending'").fetchone()
-    return json.loads(row["request"]) if row else None
+    if not row:
+        return None
+    request = json.loads(row["request"])
+    if request["event"]["kind"] == "incoming":
+        request["reply_guidance"] = {
+            "stance": (
+                "What does the speaker claim, and what does the character already believe or know? "
+                "Acknowledge the speaker's experience in character. Agree where it fits, keep any "
+                "difference, and revise a belief only as far as the new evidence warrants."
+            ),
+            "disclosure": (
+                "What has this listener actually heard or witnessed? Treat host_notes and recalled "
+                "memories as private. Check remembered details against the card and established events. "
+                "Choose what this character has reason to reveal to this listener now. A memory may "
+                "affect the reply while every identifying detail stays private."
+            ),
+        }
+    return request
 
 
 def topic_key(topic):
@@ -165,6 +186,36 @@ def runtime_config(connection):
     return json.loads(connection.execute("SELECT data FROM runtime WHERE id = 1").fetchone()["data"])
 
 
+def next_expectation(prior, observed):
+    if prior is None:
+        return dict(observed)
+    return {key: round(0.75 * prior[key] + 0.25 * value, 2) for key, value in observed.items()}
+
+
+def recalculate_expectations(connection, config):
+    """Replay recorded outcome scores, retaining each topic's original starting forecast."""
+    rebuilt = {}
+    rows = connection.execute(
+        """SELECT json_extract(request, '$.assessment') FROM events
+           WHERE status = 'resolved' AND json_type(request, '$.assessment') = 'object'
+           ORDER BY due, rowid"""
+    )
+    for (data,) in rows:
+        assessment = json.loads(data)
+        topic = assessment["topic"]
+        prior = rebuilt.get(topic, assessment["forecast"])
+        rebuilt[topic] = next_expectation(prior, scores(assessment["observed"]))
+    if rebuilt:
+        estimates = config.setdefault("expectations", {})
+        estimates.update(rebuilt)
+        connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
+        connection.execute(
+            """UPDATE events SET request=json_set(request, '$.expectations', json(?))
+               WHERE status='pending'""", (json.dumps(estimates),),
+        )
+    return {"expectations": config.get("expectations", {})}
+
+
 def body_tick(config, stimulus):
     card = golem.load_character(Path(config["card"]), config["slug"])
     log = Path(config["log"]) if config["log"] else None
@@ -173,46 +224,43 @@ def body_tick(config, stimulus):
     return golem.run_golem(state, stimulus, realm_data, config["history"]), card, durable
 
 
-def assess_experience(connection, request, experience):
-    observed = scores(experience)
+def apply_appraisal(connection, request, appraisal, experience=None):
     event = request["event"]
-    topic = topic_key(experience.get("topic", event.get("topic")))
-    if "topic" in event and topic != topic_key(event["topic"]):
-        raise ValueError("Experience must refer to the event topic")
     config = runtime_config(connection)
-    estimates = config.setdefault("expectations", {})
-    forecast = event.get("expectation", estimates.get(topic))
     # Appraise at the same instant, retaining the scene without replaying one-time effects.
     stimulus = dict(event.get("stimulus", {}))
-    for field in ("food_intake", "conversation", "memory_cues"):
+    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal"):
         stimulus.pop(field, None)
-    stimulus.update(event_label=event["id"], event_at=request["at"], appraisal=experience.get("appraisal", {}))
+    stimulus.update(event_label=event["id"], event_at=request["at"], appraisal=appraisal)
     after, _, _ = body_tick(config, stimulus)
     before = request["tick"]
 
     def measurements(tick):
         body = tick["psychosomatic_snapshot"]["autonomic_state"]
-        return {"stress": body["stress"], "arousal": body["arousal"],
+        fields = ("stress", "arousal", "sexual_drive", "sexual_excitation", "sexual_inhibition", "sexual_arousal")
+        return {**{key: body[key] for key in fields if key in body},
                 "interest": tick["next_history"]["appraisal_effects"]["interest"]}
 
     initial, final = measurements(before), measurements(after)
-    evidence = {
-        "benefit": golem.clamp(observed["benefit"] + 0.25 * (final["interest"] - initial["interest"])),
-        "cost": golem.clamp(observed["cost"] + 0.25 * (final["stress"] - initial["stress"])),
-    }
-    # A stated forecast belongs to this episode. Repeated observations update the learned prior.
-    prior = estimates.get(topic, forecast)
-    estimates[topic] = {
-        key: round(0.75 * prior[key] + 0.25 * value, 2) if prior else value
-        for key, value in evidence.items()
-    }
-    request["assessment"] = {
-        "topic": topic, "forecast": forecast, "observed": observed, "before": initial, "after": final,
-        "evidence": evidence, "next_expectation": estimates[topic],
-    }
+    request["body_response"] = {"before": initial, "after": final}
+    if experience is not None:
+        observed = scores(experience)
+        topic = topic_key(experience.get("topic", event.get("topic")))
+        if "topic" in event and topic != topic_key(event["topic"]):
+            raise ValueError("Experience must refer to the event topic")
+        estimates = config.setdefault("expectations", {})
+        forecast = event.get("expectation", estimates.get(topic))
+        # A stated forecast belongs to this episode. Repeated observations update the learned prior.
+        prior = estimates.get(topic, forecast)
+        estimates[topic] = next_expectation(prior, observed)
+        request["assessment"] = {
+            "topic": topic, "forecast": forecast, "observed": observed, "before": initial, "after": final,
+            "evidence": observed, "next_expectation": estimates[topic],
+        }
     config["history"] = after["next_history"]
     connection.execute("UPDATE runtime SET data = ? WHERE id = 1", (json.dumps(config),))
     connection.execute("UPDATE events SET request = ? WHERE id = ?", (json.dumps(request), event["id"]))
+    return request["body_response"]
 
 
 def copied_card_field(card, reply):
@@ -277,8 +325,17 @@ def resolve(connection, decision, history, now):
         field = copied_card_field(card, decision["reply"])
         if field:
             raise ValueError(f"Draft reply copies card field {field}. Render this beat in the character's own words.")
-    if "experience" in decision:
-        assess_experience(connection, json.loads(row["request"]), decision["experience"])
+    result = {"id": event_id, "resolved": True}
+    if "experience" in decision or "appraisal" in decision:
+        experience = decision.get("experience", {})
+        if not isinstance(experience, dict):
+            raise ValueError("Experience must be an object")
+        if "appraisal" in decision and "appraisal" in experience:
+            raise ValueError("Supply the turn appraisal once")
+        appraisal = decision.get("appraisal", experience.get("appraisal", {}))
+        result["body_response"] = apply_appraisal(
+            connection, json.loads(row["request"]), appraisal, decision.get("experience"),
+        )
     if "goal_events" in decision:
         config = runtime_config(connection)
         goal_evolution.record_goal_events(config, json.loads(row["request"]), decision["goal_events"])
@@ -294,7 +351,7 @@ def resolve(connection, decision, history, now):
         "UPDATE events SET status = 'resolved', decision = ? WHERE id = ?",
         (json.dumps(decision), event_id),
     )
-    return {"id": event_id, "resolved": True}
+    return result
 
 
 def advance(connection, config, now, allow_idle=True):
@@ -362,6 +419,8 @@ def execute(db, args):
             return {"status": config["lifecycle"]}
         if args.command == "run":
             return advance(connection, config, now)
+        if args.command == "recalculate-expectations":
+            return recalculate_expectations(connection, config)
         if args.command == "enqueue":
             event = read_object(args.event)
             if event.get("kind") == "incoming" and config.get("owned_files"):
@@ -598,6 +657,7 @@ def main(argv):
     run.add_argument("--once", action="store_true", help="Process at most one ready event")
     commands.add_parser("pending")
     commands.add_parser("status")
+    commands.add_parser("recalculate-expectations", help="Refresh current estimates from recorded outcomes")
     commands.add_parser("timeline").add_argument("--limit", type=int, default=100)
     commands.add_parser("learned").add_argument("topic")
     commands.add_parser("enqueue").add_argument("event", type=Path)

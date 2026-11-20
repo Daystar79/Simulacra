@@ -55,6 +55,8 @@
         },
         "arousal": { "type": "integer", "minimum": 0, "maximum": 100, "description": "General autonomic activation." },
         "sexual_drive": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Background sexual drive for an eligible adult character." },
+        "sexual_excitation": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Excitatory bodily signal before inhibition, including carried and sleep-related responses." },
+        "sexual_inhibition": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current physiological damping of sexual excitation." },
         "sexual_arousal": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current physiological sexual arousal for an eligible adult character." },
         "visceral_revulsion": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Current bodily revulsion following an appraisal of disgust." },
         "stress": { "type": "integer", "minimum": 0, "maximum": 100 },

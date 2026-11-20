@@ -33,6 +33,12 @@ wake_character(db_path, decide, event={
 
 The host provides the paths, message data, and `decide(request)` function. The callback returns a decision with the pending event's ID. It can include a reply, private action, observed outcome, or future plan. A pending decision survives a restart. The integration guide covers hourly scheduling, contextual boundaries, and delivery retries. [Host integration](scripts/README.md#always-on-golem-loop)
 
+## Update an existing host
+
+Between wakes, run `git pull --ff-only` in the VM's Simulacra checkout on the release branch you follow. Restart any long-running host that imports Golem or caches the pipeline. A fresh process on each cron invocation loads the updated files on its next wake. Resume with the existing database, card, and log paths.
+
+For a host running a copied installation, the release checkout supplies an in-place updater with a preview. The integration guide also covers refreshing learned expectations from older runs. [In-place update instructions](scripts/README.md#in-place-updates)
+
 ## What carries forward
 
 | Record | What it holds |

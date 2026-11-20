@@ -98,8 +98,10 @@ def load_character(card_path: Path, slug: str | None) -> dict[str, Any]:
 def overlay_log(
     card: dict[str, Any], log_path: Path | None, *, goal_changes: dict | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    weights = card.get("transformation_weights") or {}
+    voice = card.get("voice") or {}
     state = {
-        "character_id": card.get("character_id") or (card.get("call_name") or card.get("name", "unknown")).lower(),
+        "character_id": card.get("character_id") or (card.get("call_name") or card.get("name") or "unknown").lower(),
         "canon_adult": card.get("canon_adult") is True,
         "age": int(card.get("age", 0)),
         "sexual_drive_baseline": clamp(card.get("sexual_drive_baseline", 50)),
@@ -108,25 +110,25 @@ def overlay_log(
         "physical_pain_baseline": clamp(card.get("physical_pain_baseline", 0)),
         "emotional_distress_baseline": clamp(card.get("emotional_distress_baseline", 0)),
         "active_focus": card.get("active_focus", "Realm X — The Return"),
-        "latent_weights": dict(card.get("transformation_weights", {}).get("latent_anchors", {})),
-        "bias_strength": int(card.get("transformation_weights", {}).get("bias_strength", 60)),
-        "flexibility": int(card.get("transformation_weights", {}).get("somatic_flexibility", 40)),
+        "latent_weights": dict(weights.get("latent_anchors") or {}),
+        "bias_strength": int(weights.get("bias_strength", 60)),
+        "flexibility": int(weights.get("somatic_flexibility", 40)),
         "defense_posture": card.get("defense_posture_default", "none"),
         "social_facade": card.get("social_facade_default", "cool_politeness"),
         "default_somatic": card.get("default_somatic_alignment", ""),
         "cognitive_bias": card.get("cognitive_bias", ""),
         "cognitive_gift": card.get("cognitive_gift", ""),
         "broadcast_persona": card.get("broadcast_persona"),
-        "conversational_stance": card.get("voice", {}).get("conversational_stance", ""),
-        "excluded_cues": set(card.get("excluded_cues", [])),
-        "skills": list(card.get("skills", [])),
+        "conversational_stance": voice.get("conversational_stance", ""),
+        "excluded_cues": set(card.get("excluded_cues") or []),
+        "skills": list(card.get("skills") or []),
     }
     if not log_path or not log_path.is_file():
         state["current_goals"] = current_goals(card.get("goals"), None, goal_changes)
         return state, None
 
-    log_data = yaml.safe_load(log_path.read_text(encoding="utf-8"))
-    snap = log_data.get("snapshot", {})
+    log_data = yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
+    snap = log_data.get("snapshot") or {}
     if snap.get("active_focus"):
         state["active_focus"] = snap["active_focus"]
     if snap.get("latent_weights"):
@@ -143,10 +145,11 @@ def overlay_log(
         state["default_somatic"] = snap["default_somatic"]
     if log_data.get("character_id"):
         state["character_id"] = log_data["character_id"]
-    if log_data.get("skills", {}).get("active"):
-        state["skills"] = list(log_data["skills"]["active"])
-    state["memories"] = log_data.get("memories", {})
-    state["relational_baselines"] = log_data.get("relational_baselines", {})
+    skills_map = log_data.get("skills") or {}
+    if skills_map.get("active"):
+        state["skills"] = list(skills_map["active"])
+    state["memories"] = log_data.get("memories") or {}
+    state["relational_baselines"] = log_data.get("relational_baselines") or {}
     state["current_goals"] = current_goals(card.get("goals"), log_data.get("goal_updates"), goal_changes)
     return state, log_data
 
@@ -478,12 +481,12 @@ def run_golem(
     autonomic_surge = stress >= 75 or threat >= 80
 
     involuntary_response = "none"
-    if stress >= 70 or autonomic_surge or (time_pressure == "split_second" and stress >= 55):
+    if stress >= 70 or arousal >= 75 or autonomic_surge or (time_pressure == "split_second" and stress >= 55):
         cognitive_regime = "reactive"
         polyvagal_mode = "dorsal_freeze" if fatigue_load >= 75 else "sympathetic_mobilized"
         involuntary_response = "freeze" if polyvagal_mode == "dorsal_freeze" else "brace"
         rules.append("DUAL_CIRCUIT_REACTIVE_BYPASS")
-        if time_pressure == "split_second" and stress < 70 and not autonomic_surge:
+        if time_pressure == "split_second" and stress < 70 and arousal < 75 and not autonomic_surge:
             rules.append("SPLIT_SECOND_REACTIVE_TIP")
     else:
         cognitive_regime = "deliberative"
@@ -597,9 +600,17 @@ def run_golem(
     else:
         appraisal_effects["attraction"] = 0
     # A bodily response can have no interpersonal target (sleep, memory, or touch).
-    bond = state.get("relational_baselines", {}).get(target, {})
+    bond = state.get("relational_baselines", {}).get(target) or {}
+    if not isinstance(bond, dict):
+        bond = {}
     phys_attr = clamp(bond.get("attraction_physical", 0)) if adult_eligible else 0
     emot_attr = clamp(bond.get("attraction_emotional", 0))
+    status_dynamic = bond.get("status_dynamic", "dominant")
+    if status_dynamic not in ("dominant", "yielding", "equals", "deference"):
+        status_dynamic = "dominant"
+    momentum = bond.get("relational_momentum", "stable")
+    if momentum not in ("building", "deepening", "stable", "eroding", "brittle", "suspended", "fractured"):
+        momentum = "stable"
     rules.append(f"ADULT_GATE:{'ELIGIBLE' if adult_eligible else 'RESTRICTED'}")
 
     # 7. Durable commit eligibility (CognitivePipeline §8)
@@ -680,13 +691,13 @@ def run_golem(
         },
         "relational_vectors": {
             target: {
-                "emotional_safety": 60,
+                "emotional_safety": clamp(bond.get("emotional_safety", 60)),
                 "attraction_physical": phys_attr,
                 "attraction_emotional": emot_attr,
-                "respect_competence": 45,
-                "status_dynamic": "dominant",
-                "resentment_friction": clamp(int(0.3 * threat)),
-                "relational_momentum": "stable",
+                "respect_competence": clamp(bond.get("respect_competence", 45)),
+                "status_dynamic": status_dynamic,
+                "resentment_friction": clamp(int(bond.get("resentment_friction", 0)) + int(0.3 * threat)),
+                "relational_momentum": momentum,
             }
         },
         "priority_arbitration": {
@@ -792,7 +803,7 @@ def locked_log(log_path: Path):
     except FileExistsError as exc:
         raise ValueError(f"Log is locked: {lock}") from exc
     try:
-        yield yaml.safe_load(log_path.read_text(encoding="utf-8"))
+        yield yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
     finally:
         lock.rmdir()
 

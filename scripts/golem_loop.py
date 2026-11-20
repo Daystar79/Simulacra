@@ -241,11 +241,18 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         stimulus.update(observed_stimulus)
     if isinstance(experience, dict) and "food_intake" in experience:
         stimulus["food_intake"] = experience["food_intake"]
+    prior_sequence = config["history"].get("event_sequence")
+    prior_cues = config["history"].get("recent_cues")
     after, _, _ = body_tick(config, stimulus)
     # The event's initial tick has already advanced persisted history. Apply
-    # post-tick bodily consequences (such as eating) at the same instant.
-    config["history"] = after["next_history"]
-    connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
+    # post-tick bodily consequences (such as eating) at the same instant without
+    # double-counting the event sequence or somatic cue history.
+    next_history = after["next_history"]
+    if prior_sequence is not None:
+        next_history["event_sequence"] = prior_sequence
+    if prior_cues is not None:
+        next_history["recent_cues"] = prior_cues
+    config["history"] = next_history
     before = request["tick"]
 
     def measurements(tick):
@@ -270,7 +277,6 @@ def apply_appraisal(connection, request, appraisal, experience=None):
             "topic": topic, "forecast": forecast, "observed": observed, "before": initial, "after": final,
             "evidence": observed, "next_expectation": estimates[topic],
         }
-    config["history"] = after["next_history"]
     connection.execute("UPDATE runtime SET data = ? WHERE id = 1", (json.dumps(config),))
     connection.execute("UPDATE events SET request = ? WHERE id = ?", (json.dumps(request), event["id"]))
     return request["body_response"]

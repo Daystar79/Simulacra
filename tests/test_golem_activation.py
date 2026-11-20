@@ -110,3 +110,50 @@ class TestGolemActivation(unittest.TestCase):
                 tick = golem.run_golem(state, {"elapsed_minutes": 2}, realms, {"sexual_arousal": 50})
                 self.assertEqual(tick["next_history"]["sexual_arousal"], expected)
                 self.assertEqual(tick["psychosomatic_snapshot"]["autonomic_state"]["sexual_arousal"], expected)
+
+    def test_high_arousal_triggers_reactive_regime(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        state, _ = golem.overlay_log({"age": 30, "canon_adult": True}, None)
+        tick = golem.run_golem(
+            state,
+            {"elapsed_ms": 0, "threat_level": 10, "social_pressure": 20, "exertion": 100, "appraisal": {"interest": 90}},
+            realms,
+            {},
+        )
+        auto = tick["psychosomatic_snapshot"]["autonomic_state"]
+        self.assertGreaterEqual(auto["arousal"], 75)
+        self.assertLess(auto["stress"], 70)
+        self.assertEqual(auto["cognitive_regime"], "reactive")
+
+    def test_relational_baselines_and_empty_log_overlay(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            empty_log = root / "empty_log.yaml"
+            empty_log.write_text("# empty\n")
+            card = {"name": "Rowan", "transformation_weights": None, "voice": None, "skills": None}
+            state, log_data = golem.overlay_log(card, empty_log)
+            self.assertEqual(log_data, {})
+
+            baseline_log = root / "baseline_log.yaml"
+            baseline_log.write_text(yaml.safe_dump({
+                "relational_baselines": {
+                    "guest": {
+                        "emotional_safety": 82,
+                        "attraction_physical": 40,
+                        "attraction_emotional": 55,
+                        "respect_competence": 78,
+                        "status_dynamic": "equals",
+                        "resentment_friction": 12,
+                        "relational_momentum": "deepening",
+                    }
+                }
+            }))
+            state, _ = golem.overlay_log({"name": "Rowan", "age": 30, "canon_adult": True}, baseline_log)
+            tick = golem.run_golem(state, {"elapsed_ms": 0, "caller_or_target": "guest", "threat_level": 0}, realms, {})
+            vec = tick["psychosomatic_snapshot"]["relational_vectors"]["guest"]
+            self.assertEqual(vec["emotional_safety"], 82)
+            self.assertEqual(vec["respect_competence"], 78)
+            self.assertEqual(vec["status_dynamic"], "equals")
+            self.assertEqual(vec["resentment_friction"], 12)
+            self.assertEqual(vec["relational_momentum"], "deepening")

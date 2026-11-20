@@ -127,7 +127,9 @@ class TestGolemLoop(unittest.TestCase):
             self.assertEqual(assessment["before"]["stress"],
                              original["tick"]["psychosomatic_snapshot"]["autonomic_state"]["stress"])
             with golem_loop.transaction(db) as connection:
-                self.assertEqual(golem_loop.runtime_config(connection)["expectations"]["performing"], estimates)
+                config = golem_loop.runtime_config(connection)
+                self.assertEqual(config["expectations"]["performing"], estimates)
+                self.assertEqual(config["history"]["event_sequence"], 2)
 
     def test_strong_reaction_to_low_stakes_outcome(self):
         with TemporaryDirectory() as directory:

@@ -232,7 +232,20 @@ def apply_appraisal(connection, request, appraisal, experience=None):
     for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal"):
         stimulus.pop(field, None)
     stimulus.update(event_label=event["id"], event_at=request["at"], appraisal=appraisal)
+    if isinstance(experience, dict):
+        observed_stimulus = experience.get("stimulus", {})
+        if not isinstance(observed_stimulus, dict):
+            raise ValueError("Experience stimulus must be an object")
+        if {"event_at", "elapsed_ms", "elapsed_minutes"} & observed_stimulus.keys():
+            raise ValueError("Experience stimulus cannot override event timing")
+        stimulus.update(observed_stimulus)
+    if isinstance(experience, dict) and "food_intake" in experience:
+        stimulus["food_intake"] = experience["food_intake"]
     after, _, _ = body_tick(config, stimulus)
+    # The event's initial tick has already advanced persisted history. Apply
+    # post-tick bodily consequences (such as eating) at the same instant.
+    config["history"] = after["next_history"]
+    connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     before = request["tick"]
 
     def measurements(tick):
@@ -243,7 +256,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
 
     initial, final = measurements(before), measurements(after)
     request["body_response"] = {"before": initial, "after": final}
-    if experience is not None:
+    if experience is not None and ("benefit" in experience or "cost" in experience):
         observed = scores(experience)
         topic = topic_key(experience.get("topic", event.get("topic")))
         if "topic" in event and topic != topic_key(event["topic"]):
@@ -332,6 +345,10 @@ def resolve(connection, decision, history, now):
             raise ValueError("Experience must be an object")
         if "appraisal" in decision and "appraisal" in experience:
             raise ValueError("Supply the turn appraisal once")
+        if "food_intake" in experience and (
+            type(experience["food_intake"]) is not int or not 0 <= experience["food_intake"] <= 100
+        ):
+            raise ValueError("Food intake must be an integer score from 0 to 100")
         appraisal = decision.get("appraisal", experience.get("appraisal", {}))
         result["body_response"] = apply_appraisal(
             connection, json.loads(row["request"]), appraisal, decision.get("experience"),

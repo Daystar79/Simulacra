@@ -452,3 +452,70 @@ class TestGolemLoop(unittest.TestCase):
             self.assertTrue(log.exists())
             self.assertEqual(golem_loop.wake_character(db, self.fail)["status"], "deleted")
             self.assertFalse(card.exists() or log.exists())
+
+    def test_two_hour_memory_window_enforcement_rules_and_cue_recall(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            card = root / "character.yaml"
+            log = root / "character_log.yaml"
+            db = root / "runtime.sqlite3"
+            card.write_text(
+                "name: Rowan\n"
+                "character_id: rowan\n"
+                "voice:\n"
+                "  baseline: Direct and dry\n"
+                "  hard_bans:\n"
+                "    - Therapy jargon\n"
+            )
+            log.write_text(
+                "schema_version: 2\n"
+                "revision: 1\n"
+                "memories:\n"
+                "  detailed:\n"
+                "    - id: mem_harbor\n"
+                "      summary: Met at the old harbor pier.\n"
+                "      reason: Anchors trust.\n"
+                "      cues: [harbor, pier]\n"
+                "    - id: mem_violin\n"
+                "      summary: Broke a violin string before opening night.\n"
+                "      reason: Sore spot.\n"
+                "      cues: [violin]\n"
+            )
+            start = datetime(2026, 11, 21, 10, 0, tzinfo=timezone.utc)
+            golem_loop.initialize_character(db, card, log=log, history_at=start.isoformat())
+
+            seen_requests = []
+
+            def decide(req):
+                seen_requests.append(req)
+                return {"id": req["event"]["id"], "action": "Responds.", "reply": "Noted."}
+
+            golem_loop.wake_character(
+                db, decide,
+                event={"id": "e1", "kind": "incoming", "at": (start + timedelta(minutes=10)).isoformat(), "text": "Hello"},
+            )
+            golem_loop.wake_character(
+                db, decide,
+                event={"id": "e2", "kind": "incoming", "at": (start + timedelta(hours=1)).isoformat(), "text": "Still here"},
+            )
+            golem_loop.wake_character(
+                db, decide,
+                event={
+                    "id": "e3", "kind": "incoming",
+                    "at": (start + timedelta(hours=2, minutes=30)).isoformat(),
+                    "text": "Remember the harbor?",
+                },
+            )
+
+            latest = seen_requests[-1]
+            self.assertEqual(latest["active_memory_window_seconds"], 7200)
+            recent_ids = [entry["event"]["id"] for entry in latest["recent"]]
+            self.assertEqual(recent_ids, ["e2"])
+            recalled_ids = [m["id"] for m in latest.get("recalled_memories", [])]
+            self.assertEqual(recalled_ids, ["mem_harbor"])
+            rules = latest["behavior_guidance"]["enforcement_rules"]
+            self.assertIn("identity_lock", rules)
+            self.assertIn("hard_bans", rules)
+            self.assertIn("anti_echo_and_presence", rules)
+            self.assertIn("memory_and_state_boundaries", rules)
+            self.assertIn("pre_output_check", rules)

@@ -37,7 +37,7 @@ python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" run --once
 python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" pending
 ```
 
-If `run --once` returns `{"status":"sleeping"}`, there is no due work. If it returns a pending event, read the `pending` request and use Simulacra's cognitive pipeline and full character card/log context to select a response, action, or no action. Return a JSON decision with the exact pending event ID. Do not invent bodily values: Golem's `tick` is the deterministic source of physiological state. Respect `behavior_guidance`, goals, commitments, and actual host capabilities/resources.
+If `run --once` returns `{"status":"sleeping"}`, there is no due work. If it returns a pending event, read the `pending` request and start from `identity_anchor` (voice, `hard_bans`, `conversational_stance`, bias/gift) so the character is always themselves first. Active working memory (`recent`) is gated to the last 2 hours; use only `recalled_memories` surfaced for this turn rather than loading the full YAML log or long chat history into context. Return a JSON decision with the exact pending event ID. Do not invent bodily values: Golem's `tick` is the deterministic source of physiological state. Strictly obey `behavior_guidance` (including `enforcement_rules` and `recent_reply_pattern` to prevent therapy-speak, user-echoing, or repeated body-cue openers), goals, commitments, and actual host capabilities/resources.
 
 ## Render the character, not the diagnostics
 

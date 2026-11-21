@@ -146,7 +146,7 @@ def overlay_log(
         "cognitive_gift": card.get("cognitive_gift", ""),
         "broadcast_persona": card.get("broadcast_persona"),
         "conversational_stance": voice.get("conversational_stance", ""),
-        "excluded_cues": set(card.get("excluded_cues") or []),
+        "excluded_cues": sorted(set(card.get("excluded_cues") or [])),
         "skills": list(card.get("skills") or []),
         "physiology_calibration": physiology_calibration(card),
     }

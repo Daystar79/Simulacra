@@ -23,6 +23,7 @@ else:
     import goal_evolution
 
 RECENT_LIMIT = 12
+ACTIVE_MEMORY_WINDOW_SECONDS = 2 * 60 * 60
 
 
 @contextmanager
@@ -192,6 +193,7 @@ def setup(connection, args, now):
         "idle_seconds": args.idle_seconds, "history": history,
         "idle_at": (now + timedelta(seconds=args.idle_seconds)).timestamp(),
     }
+    load_cached_character(config)
     connection.execute("CREATE TABLE runtime (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL)")
     connection.execute("""
         CREATE TABLE events (
@@ -253,14 +255,17 @@ def enqueue(connection, event, history, now):
     return {"id": event_id, "queued": True}
 
 
-def recent_events(connection, limit=RECENT_LIMIT):
-    rows = connection.execute(
-        """SELECT input, due, decision, status, json_extract(request, '$.assessment') AS assessment,
+def recent_events(connection, limit=RECENT_LIMIT, since_timestamp=None):
+    query = """SELECT input, due, decision, status, json_extract(request, '$.assessment') AS assessment,
                   json_extract(request, '$.body_response') AS body_response FROM events
-           WHERE status IN ('resolved', 'failed')
-           ORDER BY due DESC, rowid DESC LIMIT ?""",
-        (limit,),
-    ).fetchall()
+           WHERE status IN ('resolved', 'failed')"""
+    params: list[Any] = []
+    if since_timestamp is not None:
+        query += " AND due >= ?"
+        params.append(since_timestamp)
+    query += " ORDER BY due DESC, rowid DESC LIMIT ?"
+    params.append(limit)
+    rows = connection.execute(query, params).fetchall()
     return [
         {
             "event": json.loads(row["input"]), "at": datetime.fromtimestamp(row["due"], timezone.utc).isoformat(),
@@ -288,6 +293,54 @@ def repeated_action_pattern(events, window=5):
         count += 1
     return {"repeated": count >= 2, "consecutive_count": count,
             **({"action": actions[-1]} if count >= 2 else {})}
+
+
+def repeated_reply_pattern(events, window=5):
+    """Flag consecutive duplicate reply openers/somatic beats or user-echoing."""
+    replies = []
+    for entry in events[-window:]:
+        reply = (entry.get("decision") or {}).get("reply")
+        if isinstance(reply, str) and reply.strip():
+            replies.append((reply.strip(), entry.get("event") or {}))
+    if not replies:
+        return {"repeated_opener": False, "consecutive_count": 0, "echoing_user": False}
+
+    def opener_key(text):
+        stage = re.match(r"^\*([^*]+)\*", text)
+        if stage:
+            return re.sub(r"\W+", " ", stage.group(1).casefold()).strip()
+        words = re.findall(r"[a-z0-9']+", text.casefold())[:4]
+        return " ".join(words)
+
+    openers = [opener_key(text) for text, _ in replies]
+    count = 1
+    if len(openers) >= 2 and openers[-1]:
+        for key in reversed(openers[:-1]):
+            if key != openers[-1]:
+                break
+            count += 1
+
+    latest_reply, latest_event = replies[-1]
+    user_text = " ".join(
+        str(val) for val in (
+            latest_event.get("text"),
+            latest_event.get("message"),
+            (latest_event.get("stimulus") or {}).get("text"),
+        ) if isinstance(val, str) and val.strip()
+    )
+    user_words = {w for w in re.findall(r"[a-z0-9']+", user_text.casefold()) if len(w) >= 4}
+    reply_head_words = re.findall(r"[a-z0-9']+", latest_reply.casefold())[:16]
+    echoing = False
+    if len(user_words) >= 3 and reply_head_words:
+        overlap = user_words.intersection(reply_head_words)
+        echoing = len(overlap) / len(user_words) >= 0.6
+
+    return {
+        "repeated_opener": count >= 2,
+        "consecutive_count": count if count >= 2 else 0,
+        **({"opener": openers[-1]} if count >= 2 else {}),
+        "echoing_user": echoing,
+    }
 
 
 def pending_request(connection):
@@ -370,12 +423,87 @@ def recalculate_expectations(connection, config):
     return {"expectations": config.get("expectations", {})}
 
 
-def body_tick(config, stimulus):
-    card = golem.load_character(Path(config["card"]), config["slug"])
-    log = Path(config["log"]) if config["log"] else None
-    state, durable = golem.overlay_log(card, log, goal_changes=config.get("goal_changes"))
+def load_cached_character(config):
+    """Cache parsed card and overlaid log state in runtime config, refreshing when file mtimes change."""
+    card_path = Path(config["card"])
+    log_path = Path(config["log"]) if config.get("log") else None
+    card_mtime = card_path.stat().st_mtime_ns
+    log_mtime = log_path.stat().st_mtime_ns if log_path and log_path.exists() else None
+    goal_changes = config.get("goal_changes") or {}
+    cached = config.get("cached_character")
+    if (
+        isinstance(cached, dict)
+        and cached.get("card_mtime") == card_mtime
+        and cached.get("log_mtime") == log_mtime
+        and cached.get("goal_changes") == goal_changes
+    ):
+        return (
+            json.loads(json.dumps(cached["state"])),
+            cached["card"],
+            cached["durable"],
+        )
+    card = golem.load_character(card_path, config.get("slug"))
+    state, durable = golem.overlay_log(card, log_path, goal_changes=goal_changes)
+    config["cached_character"] = {
+        "card_mtime": card_mtime,
+        "log_mtime": log_mtime,
+        "goal_changes": json.loads(json.dumps(goal_changes)),
+        "card": card,
+        "state": state,
+        "durable": durable,
+    }
+    return json.loads(json.dumps(state)), card, durable
+
+
+def build_identity_anchor(card, state):
+    """Extract core identity and voice constraints without dumping full memories or history."""
+    anchor = {
+        key: card[key]
+        for key in ("name", "call_name", "character_id", "cognitive_bias", "cognitive_gift", "voice")
+        if key in card
+    }
+    for key in ("active_focus", "defense_posture", "social_facade"):
+        if key in state:
+            anchor[key] = state[key]
+    return anchor
+
+
+def extract_memory_cues(event, stimulus, memories):
+    """Match stored memory cues against incoming event text for on-demand recall."""
+    explicit = [str(c).strip() for c in stimulus.get("memory_cues", []) if str(c).strip()]
+    texts = [
+        event.get("text"),
+        event.get("message"),
+        event.get("topic"),
+        stimulus.get("text"),
+        (stimulus.get("conversation") or {}).get("open_topic"),
+    ]
+    haystack = " ".join(str(t) for t in texts if isinstance(t, str) and t.strip()).casefold()
+    if not haystack or not isinstance(memories, dict):
+        return explicit
+    matched = list(explicit)
+    seen = {c.casefold() for c in matched}
+    for bucket in ("detailed", "footnote"):
+        for entry in memories.get(bucket) or []:
+            for cue in entry.get("cues") or []:
+                cue_text = str(cue).strip()
+                if not cue_text or cue_text.casefold() in seen:
+                    continue
+                if re.search(rf"(?<!\w){re.escape(cue_text.casefold())}(?!\w)", haystack):
+                    matched.append(cue_text)
+                    seen.add(cue_text.casefold())
+    return matched
+
+
+def body_tick(config, stimulus, event=None):
+    state, card, durable = load_cached_character(config)
+    effective_stimulus = dict(stimulus)
+    if event is not None:
+        cues = extract_memory_cues(event, effective_stimulus, state.get("memories", {}))
+        if cues:
+            effective_stimulus["memory_cues"] = cues
     realm_data = yaml.safe_load(golem.REALM_DATA_PATH.read_text(encoding="utf-8"))
-    return golem.run_golem(state, stimulus, realm_data, config["history"]), card, durable
+    return golem.run_golem(state, effective_stimulus, realm_data, config["history"]), card, durable, state
 
 
 def apply_appraisal(connection, request, appraisal, experience=None):
@@ -397,7 +525,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         stimulus["food_intake"] = experience["food_intake"]
     prior_sequence = config["history"].get("event_sequence")
     prior_cues = config["history"].get("recent_cues")
-    after, _, _ = body_tick(config, stimulus)
+    after, _, _, _ = body_tick(config, stimulus)
     # The event's initial tick has already advanced persisted history. Apply
     # post-tick bodily consequences (such as eating) at the same instant without
     # double-counting the event sequence or somatic cue history.
@@ -572,7 +700,7 @@ def advance(connection, config, now, allow_idle=True):
 
     stimulus = {**event.get("stimulus", {}), "event_label": event["id"], "event_at": at.isoformat()}
     try:
-        tick, card, durable = body_tick(config, stimulus)
+        tick, card, durable, state = body_tick(config, stimulus, event=event)
     except (ValueError, TypeError, KeyError) as exc:
         if event["kind"] == "idle":
             raise
@@ -583,14 +711,18 @@ def advance(connection, config, now, allow_idle=True):
         return {"status": "failed", "id": event["id"], "error": str(exc)}
 
     request = {
-        "event": event, "at": at.isoformat(), "tick": tick,
+        "identity_anchor": build_identity_anchor(card, state),
+        "event": event, "at": at.isoformat(),
+        **({"recalled_memories": tick["recalled_memories"]} if tick.get("recalled_memories") else {}),
+        "tick": tick,
         "character": {key: config[key] for key in ("card", "slug", "log")},
         "expectations": config.get("expectations", {}),
         "motivations": card.get("motivations", {}), "incentives": card.get("incentives", {}),
         "goals": card.get("goals", {}), "goal_updates": (durable or {}).get("goal_updates", {}),
         "current_goals": tick.get("current_goals", {}),
         "goal_evidence": config.get("goal_evidence", {}),
-        "recent": recent_events(connection),
+        "recent": recent_events(connection, since_timestamp=at.timestamp() - ACTIVE_MEMORY_WINDOW_SECONDS),
+        "active_memory_window_seconds": ACTIVE_MEMORY_WINDOW_SECONDS,
     }
     if event.get("activity_due"):
         activity_row = connection.execute("SELECT * FROM activities WHERE id=?",
@@ -601,6 +733,38 @@ def advance(connection, config, now, allow_idle=True):
     else:
         request["activity"] = active_activity(connection)
     request["behavior_guidance"] = {
+        "identity_first_rule": (
+            "Render from identity_anchor (voice, hard_bans, conversational_stance) first. "
+            "Access only recalled_memories surfaced for this turn; do not load full log history into context. "
+            "Avoid therapist-style paraphrasing, validation fillers, or repeating ambient somatic cues."
+        ),
+        "enforcement_rules": {
+            "identity_lock": [
+                "YOU ARE THE CHARACTER IN identity_anchor. You are NOT an AI assistant, therapist, coach, or narrator.",
+                "DO NOT break character, acknowledge being an AI/model, or reference prompts, logs, snapshots, or system rules.",
+                "DO NOT default to generic helpful, validating, or clinical/therapy language. Speak from the character's voice, motivations, and cognitive_bias.",
+            ],
+            "hard_bans": [
+                "STRICTLY OBEY every item in identity_anchor.voice.hard_bans. Any violation is NOT ALLOWED.",
+                "If a draft violates hard_bans, stop and rewrite it from voice.baseline and generative_stance before outputting.",
+            ],
+            "anti_echo_and_presence": [
+                "DO NOT echo, repeat, or paraphrase the user's words back as a conversational crutch.",
+                "DO NOT hold or summarize the whole conversation history. React to what is happening NOW inside the active 2-hour window and current tick.",
+            ],
+            "memory_and_state_boundaries": [
+                "ONLY reference memories in recent (last 2 hours) or explicitly surfaced recalled_memories for this turn.",
+                "DO NOT load full log history and DO NOT invent or backfill unretrieved memories; if not recalled, admit not recalling or deflect in character.",
+                "DO NOT contradict the current Golem psychosomatic_snapshot or active activities.",
+            ],
+            "pre_output_check": [
+                "Before finalizing any reply, verify silently:",
+                "1. Does this sound like THIS character specifically, rather than a generic helpful LLM?",
+                "2. Did I avoid echoing the user and instead react from my own stance?",
+                "3. Did I obey all hard_bans and memory/Golem boundaries?",
+                "If any check fails, discard and rewrite.",
+            ],
+        },
         "body_pressure_is_not_an_action_order": True,
         "avoid_automatic_echo_or_repetition": (
             "Hunger, fatigue, and stress describe bodily pressure; they do not require repeating an action "
@@ -609,6 +773,7 @@ def advance(connection, config, now, allow_idle=True):
             "choose a different response, defer, or explain the obstacle."
         ),
         "recent_action_pattern": repeated_action_pattern(request["recent"]),
+        "recent_reply_pattern": repeated_reply_pattern(request["recent"]),
     }
     # Surface needs as observations for Simulacra. These are prompts for
     # appraisal, never automatic action orders or claims about available food.

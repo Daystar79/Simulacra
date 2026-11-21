@@ -87,6 +87,171 @@ class TestGolemLoop(unittest.TestCase):
                 self.assertEqual(golem_loop.advance(connection, config, start + timedelta(minutes=3))["id"],
                                  "back-home")
 
+    def test_maintenance_pressure_is_advisory_and_meal_updates_hunger_once(self):
+        start = datetime(2026, 11, 19, 17, tzinfo=timezone.utc)
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "character.sqlite3"
+            args = Namespace(card=golem.ROOT / "Characters" / "_template.yaml", slug=None, log=None,
+                             import_history=None, history_at=None, idle_seconds=60)
+            with golem_loop.transaction(db) as connection:
+                golem_loop.setup(connection, args, start)
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                config["history"].update(hunger=65)
+                connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
+                result = golem_loop.advance(connection, config, start + timedelta(seconds=60))
+                request = golem_loop.pending_request(connection)
+                self.assertEqual(request["maintenance_needs"]["hunger"], 65)
+                self.assertTrue(request["maintenance_needs"]["suggested_evaluation"])
+                self.assertTrue(request["behavior_guidance"]["body_pressure_is_not_an_action_order"])
+                self.assertIn("mirror", request["behavior_guidance"]["avoid_automatic_echo_or_repetition"])
+                decision = {"id": result["id"], "action": "Chooses to eat after finishing work.",
+                            "experience": {"food_intake": 30}}
+                golem_loop.resolve(connection, decision, request["tick"]["next_history"], start)
+                stored = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                self.assertAlmostEqual(stored["history"]["hunger"], 35 + 4 / 60)
+
+    def test_repeated_action_pattern_is_reported_without_rewriting_decisions(self):
+        events = [
+            {"decision": {"action": "Keeps arranging the papers."}},
+            {"decision": {"action": "Keeps arranging the papers!"}},
+        ]
+        pattern = golem_loop.repeated_action_pattern(events)
+        self.assertTrue(pattern["repeated"])
+        self.assertEqual(pattern["consecutive_count"], 2)
+        self.assertEqual(pattern["action"], "keeps arranging the papers")
+
+    def test_duration_activity_recovers_after_restart_and_completes_once(self):
+        start = datetime(2026, 11, 19, 17, tzinfo=timezone.utc)
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "persistent" / "character.sqlite3"
+            db.parent.mkdir()
+            args = Namespace(card=golem.ROOT / "Characters" / "_template.yaml", slug=None, log=None,
+                             import_history=None, history_at=None, idle_seconds=3600)
+            with golem_loop.transaction(db) as connection:
+                golem_loop.setup(connection, args, start)
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                golem_loop.enqueue(connection, {"id": "sleep-start", "kind": "world"},
+                                   config["history"], start)
+                golem_loop.advance(connection, config, start)
+                request = golem_loop.pending_request(connection)
+                golem_loop.resolve(connection, {
+                    "id": "sleep-start", "action": "Chooses to sleep.",
+                    "activity": {"op": "start", "id": "overnight", "kind": "sleep",
+                                 "state": "sleeping", "duration_seconds": 8 * 3600},
+                }, request["tick"]["next_history"], start)
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                self.assertEqual(config["history"]["activity"], "sleeping")
+                activity_row = connection.execute(
+                    "SELECT status,duration_seconds FROM activities WHERE id='overnight'").fetchone()
+                self.assertEqual((activity_row["status"], activity_row["duration_seconds"]),
+                                 ("active", 8 * 3600))
+
+            # Reopen the persistent database as a replacement VM would.
+            due = start + timedelta(hours=8)
+            with golem_loop.transaction(db) as connection:
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                result = golem_loop.advance(connection, config, due)
+                self.assertEqual(result["status"], "pending")
+                request = golem_loop.pending_request(connection)
+                self.assertEqual(request["activity"]["status"], "due")
+                self.assertEqual(request["tick"]["next_history"]["sleep_debt"], 0)
+                completion = {"id": result["id"], "activity": {"op": "complete", "id": "overnight"}}
+                first = golem_loop.resolve(connection, completion, request["tick"]["next_history"], due)
+                again = golem_loop.resolve(connection, completion, request["tick"]["next_history"], due)
+                self.assertTrue(first["resolved"])
+                self.assertFalse(again["resolved"])
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                self.assertEqual(config["history"]["activity"], "awake")
+                row = connection.execute("SELECT status,start_event_id,end_event_id FROM activities WHERE id='overnight'").fetchone()
+                self.assertEqual((row["status"], row["start_event_id"], row["end_event_id"]),
+                                 ("completed", "sleep-start", result["id"]))
+
+    def test_interrupted_activity_can_resume_after_restart(self):
+        start = datetime(2026, 11, 19, 17, tzinfo=timezone.utc)
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "runtime.sqlite3"
+            args = Namespace(card=golem.ROOT / "Characters" / "_template.yaml", slug=None, log=None,
+                             import_history=None, history_at=None, idle_seconds=3600)
+            with golem_loop.transaction(db) as connection:
+                golem_loop.setup(connection, args, start)
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                golem_loop.enqueue(connection, {"id": "rest-start", "kind": "world"}, config["history"], start)
+                golem_loop.advance(connection, config, start)
+                request = golem_loop.pending_request(connection)
+                golem_loop.resolve(connection, {"id": "rest-start", "activity": {
+                    "op": "start", "id": "break", "kind": "rest", "state": "resting",
+                    "duration_seconds": 3600}}, request["tick"]["next_history"], start)
+                interrupt_at = start + timedelta(minutes=20)
+                golem_loop.enqueue(connection, {"id": "interruption", "kind": "incoming",
+                                                "at": interrupt_at.isoformat(), "context": "A call arrives."},
+                                   json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])["history"],
+                                   interrupt_at)
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                result = golem_loop.advance(connection, config, interrupt_at)
+                request = golem_loop.pending_request(connection)
+                golem_loop.resolve(connection, {"id": result["id"], "activity": {
+                    "op": "interrupt", "id": "break", "state": "awake"}},
+                    request["tick"]["next_history"], interrupt_at)
+                row = connection.execute("SELECT status FROM activities WHERE id='break'").fetchone()
+                self.assertEqual(row[0], "interrupted")
+                due_status = connection.execute("SELECT status FROM events WHERE id='activity:break:due:1'").fetchone()[0]
+                self.assertEqual(due_status, "cancelled")
+
+            resume_at = start + timedelta(minutes=25)
+            with golem_loop.transaction(db) as connection:
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                golem_loop.enqueue(connection, {"id": "resume-break", "kind": "world",
+                                                "at": resume_at.isoformat()}, config["history"], resume_at)
+                result = golem_loop.advance(connection, config, resume_at)
+                request = golem_loop.pending_request(connection)
+                golem_loop.resolve(connection, {"id": result["id"], "activity": {
+                    "op": "resume", "id": "break", "duration_seconds": 900}},
+                    request["tick"]["next_history"], resume_at)
+                row = connection.execute("SELECT status,revision FROM activities WHERE id='break'").fetchone()
+                self.assertEqual((row["status"], row["revision"]), ("active", 2))
+
+    def test_completed_meal_effect_is_applied_once_and_old_database_migrates(self):
+        start = datetime(2026, 11, 19, 17, tzinfo=timezone.utc)
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "runtime.sqlite3"
+            args = Namespace(card=golem.ROOT / "Characters" / "_template.yaml", slug=None, log=None,
+                             import_history=None, history_at=None, idle_seconds=3600)
+            with golem_loop.transaction(db) as connection:
+                golem_loop.setup(connection, args, start)
+                config = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                config["history"]["hunger"] = 50
+                connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
+                golem_loop.enqueue(connection, {"id": "meal-start", "kind": "world"}, config["history"], start)
+                golem_loop.advance(connection, config, start)
+                request = golem_loop.pending_request(connection)
+                golem_loop.resolve(connection, {"id": "meal-start", "activity": {
+                    "op": "start", "id": "meal-1", "kind": "meal", "state": "awake",
+                    "duration_seconds": 1800, "data": {"effects": {"food_intake": 30}}}},
+                    request["tick"]["next_history"], start)
+                stored = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                self.assertEqual(stored["history"]["hunger"], 50)
+                due = start + timedelta(minutes=30)
+                config = stored
+                event = golem_loop.advance(connection, config, due)
+                request = golem_loop.pending_request(connection)
+                decision = {"id": event["id"], "activity": {"op": "complete", "id": "meal-1"}}
+                golem_loop.resolve(connection, decision, request["tick"]["next_history"], due)
+                after = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                value = after["history"]["hunger"]
+                self.assertAlmostEqual(value, 50 + 4 * 0.5 - 30)
+                golem_loop.resolve(connection, decision, request["tick"]["next_history"], due)
+                repeated = json.loads(connection.execute("SELECT data FROM runtime").fetchone()["data"])
+                self.assertEqual(repeated["history"]["hunger"], value)
+
+            # An old runtime can acquire the activity table without resetting state.
+            with golem_loop.transaction(db) as connection:
+                connection.execute("DROP TABLE activities")
+            result = golem_loop.execute(db, Namespace(command="status"))
+            self.assertEqual(result["history"]["hunger"], value)
+            with golem_loop.transaction(db) as connection:
+                self.assertIsNotNone(connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='activities'").fetchone())
+
     def test_host_retry_and_independent_benefit_and_cost(self):
         with TemporaryDirectory() as directory:
             db = Path(directory) / "runtime.sqlite3"
@@ -202,6 +367,8 @@ class TestGolemLoop(unittest.TestCase):
             self.assertEqual(outcome["events"][0]["reply"], "Ask me tomorrow.")
             with golem_loop.transaction(db) as connection:
                 self.assertEqual(golem_loop.runtime_config(connection)["history"]["event_sequence"], 1)
+                self.assertEqual(golem_loop.recent_events(connection, 1)[0]["decision"]["reply"],
+                                 "Ask me tomorrow.")
             self.assertIsNone(golem_loop.copied_card_field(
                 golem.load_character(card_path, None), "Put a pin in it until the next train."))
 

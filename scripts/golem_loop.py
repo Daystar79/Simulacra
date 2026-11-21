@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -36,7 +37,142 @@ def transaction(db: Path):
         connection.close()
 
 
+def ensure_activity_schema(connection):
+    """Non-destructive migration for persistent runtimes created before activities."""
+    connection.execute("""CREATE TABLE IF NOT EXISTS activities (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        state TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL,
+        ended_at TEXT,
+        start_event_id TEXT NOT NULL,
+        due_event_id TEXT,
+        end_event_id TEXT,
+        revision INTEGER NOT NULL DEFAULT 1,
+        data TEXT NOT NULL DEFAULT '{}'
+    )""")
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(activities)")}
+    if "duration_seconds" not in columns:
+        connection.execute("ALTER TABLE activities ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 0")
+    connection.execute("CREATE INDEX IF NOT EXISTS activity_status_due ON activities(status, due_at)")
+
+
+def active_activity(connection):
+    row = connection.execute(
+        "SELECT * FROM activities WHERE status IN ('active','due') ORDER BY started_at LIMIT 1"
+    ).fetchone()
+    if not row:
+        return None
+    return dict(row) | {"data": json.loads(row["data"])}
+
+
+def schedule_activity_due(connection, activity_id, kind, at, revision):
+    due_id = f"activity:{activity_id}:due:{revision}"
+    event = {"id": due_id, "kind": "plan", "at": at,
+             "activity_due": activity_id,
+             "context": f"The planned {kind} period has reached its scheduled end."}
+    row = connection.execute("SELECT input FROM events WHERE id=?", (due_id,)).fetchone()
+    if row:
+        if json.loads(row["input"]) != event:
+            raise ValueError(f"Activity due event ID collision: {due_id}")
+    else:
+        connection.execute("INSERT INTO events (id,due,input) VALUES (?,?,?)",
+                           (due_id, golem.parse_event_time(at).timestamp(), json.dumps(event)))
+    connection.execute("UPDATE activities SET due_event_id=? WHERE id=?", (due_id, activity_id))
+    return due_id
+
+
+def apply_activity_decision(connection, activity, event_id, at):
+    """Persist a selected duration activity and its scheduled transition atomically."""
+    if not isinstance(activity, dict):
+        raise ValueError("Decision activity must be an object")
+    op = activity.get("op")
+    allowed_ops = {"start", "complete", "interrupt", "resume", "extend"}
+    if op not in allowed_ops:
+        raise ValueError("Activity op must be start, complete, interrupt, resume, or extend")
+    at_dt = golem.parse_event_time(at)
+    if op == "start":
+        activity_id, kind = activity.get("id"), activity.get("kind")
+        state, seconds = activity.get("state"), activity.get("duration_seconds")
+        if not isinstance(activity_id, str) or not activity_id.strip() or not isinstance(kind, str) or not kind.strip():
+            raise ValueError("Starting an activity requires stable id and kind strings")
+        if state not in ("awake", "resting", "sleeping"):
+            raise ValueError("Activity state must be awake, resting, or sleeping")
+        if type(seconds) is not int or seconds < 1:
+            raise ValueError("Activity duration_seconds must be a positive integer")
+        if connection.execute("SELECT 1 FROM activities WHERE status IN ('active','due')").fetchone():
+            raise ValueError("An activity is already active; interrupt or complete it first")
+        due_at = (at_dt + timedelta(seconds=seconds)).isoformat()
+        data = activity.get("data", {})
+        if not isinstance(data, dict):
+            raise ValueError("Activity data must be an object")
+        effects = data.get("effects", {})
+        if not isinstance(effects, dict):
+            raise ValueError("Activity effects must be an object")
+        if set(effects) - {"food_intake"}:
+            raise ValueError("Activity effects currently support food_intake only")
+        if "food_intake" in effects and (type(effects["food_intake"]) is not int
+                                          or not 0 <= effects["food_intake"] <= 100):
+            raise ValueError("Activity food_intake must be an integer from 0 to 100")
+        connection.execute("""INSERT INTO activities
+            (id,kind,status,state,started_at,due_at,duration_seconds,start_event_id,revision,data)
+            VALUES (?,?, 'active', ?,?,?,?,?,1,?)""",
+                           (activity_id, kind, state, at_dt.isoformat(), due_at, seconds, event_id,
+                            json.dumps(data)))
+        schedule_activity_due(connection, activity_id, kind, due_at, 1)
+        return {"state": state, "op": op, "activity_id": activity_id}
+
+    activity_id = activity.get("id")
+    row = connection.execute("SELECT * FROM activities WHERE id=?", (activity_id,)).fetchone()
+    if not row:
+        raise ValueError("Unknown activity id")
+    if op == "complete":
+        if row["status"] != "due":
+            raise ValueError("An activity can be completed only after its due event")
+        next_state = activity.get("state", "awake")
+        if next_state not in ("awake", "resting", "sleeping"):
+            raise ValueError("Activity state must be awake, resting, or sleeping")
+        connection.execute("UPDATE activities SET status='completed',ended_at=?,end_event_id=? WHERE id=?",
+                           (at_dt.isoformat(), event_id, activity_id))
+        return {"state": next_state, "op": op, "activity_id": activity_id,
+                "effects": json.loads(row["data"]).get("effects", {})}
+    if op == "interrupt":
+        if row["status"] not in ("active", "due"):
+            raise ValueError("Only an active activity can be interrupted")
+        next_state = activity.get("state", "awake")
+        if next_state not in ("awake", "resting", "sleeping"):
+            raise ValueError("Activity state must be awake, resting, or sleeping")
+        connection.execute("UPDATE events SET status='cancelled' WHERE id=? AND status='queued'",
+                           (row["due_event_id"],))
+        connection.execute("UPDATE activities SET status='interrupted',ended_at=?,end_event_id=? WHERE id=?",
+                           (at_dt.isoformat(), event_id, activity_id))
+        return {"state": next_state, "op": op, "activity_id": activity_id}
+    if op in ("resume", "extend"):
+        permitted = "interrupted" if op == "resume" else "due"
+        if row["status"] != permitted:
+            raise ValueError(f"Activity {op} requires status {permitted}")
+        seconds = activity.get("duration_seconds")
+        if type(seconds) is not int or seconds < 1:
+            raise ValueError(f"Activity {op} requires positive duration_seconds")
+        state = activity.get("state", row["state"])
+        if state not in ("awake", "resting", "sleeping"):
+            raise ValueError("Activity state must be awake, resting, or sleeping")
+        connection.execute("UPDATE events SET status='cancelled' WHERE id=? AND status='queued'",
+                           (row["due_event_id"],))
+        due_at = (at_dt + timedelta(seconds=seconds)).isoformat()
+        revision = row["revision"] + 1
+        connection.execute("""UPDATE activities SET status='active',state=?,due_at=?,duration_seconds=?,
+            ended_at=NULL,end_event_id=NULL,revision=? WHERE id=?""",
+                           (state, due_at, seconds, revision, activity_id))
+        schedule_activity_due(connection, activity_id, row["kind"], due_at, revision)
+        return {"state": state, "op": op, "activity_id": activity_id}
+
+
 def setup(connection, args, now):
+    ensure_activity_schema(connection)
     card = args.card.resolve(strict=True)
     log = args.log.resolve(strict=True) if args.log else None
     golem.overlay_log(golem.load_character(card, args.slug), log)
@@ -75,7 +211,7 @@ def setup(connection, args, now):
 
 
 def read_object(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value = json.loads(sys.stdin.read() if str(path) == "-" else path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain a JSON object")
     return value
@@ -134,6 +270,24 @@ def recent_events(connection, limit=RECENT_LIMIT):
         }
         for row in reversed(rows)
     ]
+
+
+def repeated_action_pattern(events, window=5):
+    """Describe consecutive duplicate actions without changing or rejecting them."""
+    actions = [
+        re.sub(r"\W+", " ", (entry.get("decision") or {}).get("action", "").casefold()).strip()
+        for entry in events[-window:]
+    ]
+    actions = [action for action in actions if action]
+    if len(actions) < 2:
+        return {"repeated": False, "consecutive_count": 0}
+    count = 1
+    for action in reversed(actions[:-1]):
+        if action != actions[-1]:
+            break
+        count += 1
+    return {"repeated": count >= 2, "consecutive_count": count,
+            **({"action": actions[-1]} if count >= 2 else {})}
 
 
 def pending_request(connection):
@@ -322,6 +476,8 @@ def resolve(connection, decision, history, now):
     plans = decision.get("plans", [])
     if not isinstance(plans, list) or any(not isinstance(plan, dict) for plan in plans):
         raise ValueError("Decision plans must be an array of event objects")
+    if "activity" in decision and not isinstance(decision["activity"], dict):
+        raise ValueError("Decision activity must be an object")
     learning = decision.get("learning")
     if "learning" in decision:
         if not isinstance(learning, dict):
@@ -345,10 +501,26 @@ def resolve(connection, decision, history, now):
         if field:
             raise ValueError(f"Draft reply copies card field {field}. Render this beat in the character's own words.")
     result = {"id": event_id, "resolved": True}
-    if "experience" in decision or "appraisal" in decision:
-        experience = decision.get("experience", {})
-        if not isinstance(experience, dict):
+    activity_transition = None
+    if "activity" in decision:
+        activity_transition = apply_activity_decision(
+            connection, decision["activity"], event_id, json.loads(row["request"])["at"]
+        )
+    if "experience" in decision or "appraisal" in decision or activity_transition:
+        raw_experience = decision.get("experience", {})
+        if not isinstance(raw_experience, dict):
             raise ValueError("Experience must be an object")
+        experience = dict(raw_experience)
+        stimulus_effects = experience.get("stimulus", {})
+        if not isinstance(stimulus_effects, dict):
+            raise ValueError("Experience stimulus must be an object")
+        if activity_transition and activity_transition["op"] == "start":
+            if "food_intake" in experience or "food_intake" in stimulus_effects:
+                raise ValueError("Duration activity effects apply at completion, not at start")
+        if activity_transition:
+            experience["stimulus"] = {**experience.get("stimulus", {}),
+                                       "activity": activity_transition["state"]}
+            experience.update(activity_transition.get("effects", {}))
         if "appraisal" in decision and "appraisal" in experience:
             raise ValueError("Supply the turn appraisal once")
         if "food_intake" in experience and (
@@ -357,7 +529,7 @@ def resolve(connection, decision, history, now):
             raise ValueError("Food intake must be an integer score from 0 to 100")
         appraisal = decision.get("appraisal", experience.get("appraisal", {}))
         result["body_response"] = apply_appraisal(
-            connection, json.loads(row["request"]), appraisal, decision.get("experience"),
+            connection, json.loads(row["request"]), appraisal, experience,
         )
     if "goal_events" in decision:
         config = runtime_config(connection)
@@ -420,6 +592,32 @@ def advance(connection, config, now, allow_idle=True):
         "goal_evidence": config.get("goal_evidence", {}),
         "recent": recent_events(connection),
     }
+    if event.get("activity_due"):
+        activity_row = connection.execute("SELECT * FROM activities WHERE id=?",
+                                          (event["activity_due"],)).fetchone()
+        if activity_row and activity_row["status"] == "active":
+            connection.execute("UPDATE activities SET status='due' WHERE id=?", (event["activity_due"],))
+        request["activity"] = active_activity(connection)
+    else:
+        request["activity"] = active_activity(connection)
+    request["behavior_guidance"] = {
+        "body_pressure_is_not_an_action_order": True,
+        "avoid_automatic_echo_or_repetition": (
+            "Hunger, fatigue, and stress describe bodily pressure; they do not require repeating an action "
+            "or mirroring the user's words, phrasing, movement, or behavior. Repeat or mirror only when "
+            "the character has an independent, context-supported reason. If a prior action made no progress, "
+            "choose a different response, defer, or explain the obstacle."
+        ),
+        "recent_action_pattern": repeated_action_pattern(request["recent"]),
+    }
+    # Surface needs as observations for Simulacra. These are prompts for
+    # appraisal, never automatic action orders or claims about available food.
+    body = tick["psychosomatic_snapshot"]["autonomic_state"]
+    request["maintenance_needs"] = {
+        "hunger": body["hunger"], "fatigue": body["fatigue"],
+        "sleep_debt": body["sleep_debt"], "activity": body["activity"],
+        "suggested_evaluation": any(body[key] >= 60 for key in ("hunger", "fatigue", "sleep_debt")),
+    }
     if "topic" in event:
         request["learned"] = learned_observations(connection, event["topic"], RECENT_LIMIT)
     config["history"] = tick["next_history"]
@@ -437,6 +635,7 @@ def execute(db, args):
         now = datetime.now(timezone.utc)
         if args.command == "init":
             return setup(connection, args, now)
+        ensure_activity_schema(connection)
         config = runtime_config(connection)
         if config.get("lifecycle"):
             return {"status": config["lifecycle"]}
@@ -457,7 +656,11 @@ def execute(db, args):
             return recent_events(connection, args.limit)
         if args.command == "learned":
             return learned_observations(connection, args.topic)
-        return {"history": config["history"], "expectations": config.get("expectations", {}), "pending": pending_request(connection), "recent": recent_events(connection)}
+        activities = [dict(row) | {"data": json.loads(row["data"])} for row in connection.execute(
+            "SELECT * FROM activities ORDER BY started_at")]
+        return {"history": config["history"], "expectations": config.get("expectations", {}),
+                "activities": activities, "pending": pending_request(connection),
+                "recent": recent_events(connection)}
 
 
 def commit_goal_updates(db):
@@ -540,6 +743,7 @@ def report_abuse(db, *, actor_id, event_id):
     actor = hashlib.sha256(actor_id.encode()).hexdigest()
     incident = hashlib.sha256(event_id.encode()).hexdigest()
     with transaction(db) as connection:
+        ensure_activity_schema(connection)
         config = runtime_config(connection)
         status = config.get("lifecycle")
         if status == "deleted":
@@ -606,6 +810,8 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
         raise ValueError("Initialize the character database first")
     if not callable(decide) or type(max_events) is not int or max_events < 1:
         raise ValueError("wake_character requires a decision callback and a positive event limit")
+    with transaction(db) as connection:
+        ensure_activity_schema(connection)
     # flock is released by the VM kernel when the process exits, including after a crash.
     import fcntl
 

@@ -39,6 +39,10 @@ Between wakes, run `git pull --ff-only` in the VM's Simulacra checkout on the re
 
 For a host running a copied installation, the release checkout supplies an in-place updater with a preview. The integration guide also covers refreshing learned expectations from older runs. [In-place update instructions](scripts/README.md#in-place-updates)
 
+## Muse.AI
+
+Muse uses the shared Python CLI and SQLite runtime through scheduled cognitive wakes. See the [Muse skill](Muse.AI/SKILL.md) and [installation guide](Muse.AI/INSTALLATION.md) for persistent paths, exact commands, and restart recovery.
+
 ## What carries forward
 
 | Record | What it holds |
@@ -46,7 +50,7 @@ For a host running a copied installation, the release checkout supplies an in-pl
 | Character card (YAML) | Authored identity, voice, motivations, and initial goals |
 | Character log (YAML) | Approved durable changes, including cue-linked memories and amendments to goals |
 | Golem snapshot (JSON) | Bodily and psychological state for one tick, validated against the [snapshot schema](Framework/Schemas/psychosomatic_state.json) |
-| Character database (SQLite) | Event clock, pending decisions, plans, learning, and the evidence behind changing expectations and goals |
+| Character database (SQLite) | Event clock, pending decisions, plans, duration-based activity lifecycle, learning, and the evidence behind changing expectations and goals |
 
 A character can turn down a rehearsal because they have to work, or turn it down on a free afternoon to teach someone else. Golem can record the first as a prevented opportunity and the second as a choice to pass. If that pattern matters to the character, the host can record teaching as a new ambition while preserving the love of music behind both goals. [Goal evolution](scripts/README.md#evolving-goals)
 

@@ -11,6 +11,39 @@ from scripts import golem, golem_loop
 
 
 class TestGolemActivation(unittest.TestCase):
+    def test_enduring_relationship_attraction_survives_idle_day(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        state, _ = golem.overlay_log({"name": "Rowan", "age": 30, "canon_adult": True}, None)
+        state["relational_baselines"] = {"caller": {"attraction_emotional": 72, "attraction_physical": 48}}
+        first = golem.run_golem(state, {"elapsed_ms": 0, "caller_or_target": "caller",
+                                        "appraisal": {"attraction": 80}}, realms, {})
+        idle = golem.run_golem(state, {"elapsed_minutes": 24 * 60, "caller_or_target": "caller"},
+                               realms, first["next_history"])
+        vectors = idle["psychosomatic_snapshot"]["relational_vectors"]["caller"]
+        self.assertEqual((vectors["attraction_emotional"], vectors["attraction_physical"]), (72, 48))
+        self.assertEqual(idle["next_history"]["appraisal_effects"]["attraction"], 0)
+
+    def test_calibrated_elapsed_time_and_sleep_recovery(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        state, _ = golem.overlay_log({"name": "Rowan"}, None)
+        one_hour = golem.run_golem(state, {"elapsed_minutes": 60}, realms, {})["next_history"]
+        self.assertAlmostEqual(one_hour["hunger"], 4)
+        self.assertAlmostEqual(one_hour["last_fatigue"], 15.8)
+        eight_hours = golem.run_golem(state, {"elapsed_minutes": 480}, realms, {})["next_history"]
+        self.assertAlmostEqual(eight_hours["hunger"], 32)
+        one_day = golem.run_golem(state, {"elapsed_minutes": 24 * 60}, realms, {})["next_history"]
+        self.assertAlmostEqual(one_day["hunger"], 96)
+        working = golem.run_golem(state, {"elapsed_minutes": 8 * 60, "exertion": 50}, realms, {})["next_history"]
+        self.assertAlmostEqual(working["last_fatigue"], 37.4)
+        self.assertAlmostEqual(working["sleep_debt"], 12)
+        slept = golem.run_golem(state, {"elapsed_minutes": 480, "activity": "sleeping"}, realms,
+                                {"last_fatigue": 40, "sleep_debt": 40})["next_history"]
+        self.assertEqual(slept["last_fatigue"], 0)
+        self.assertEqual(slept["sleep_debt"], 0)
+        self.assertEqual(slept["hunger"], 16)
+        multi_day = golem.run_golem(state, {"elapsed_minutes": 5 * 24 * 60}, realms, {})["next_history"]
+        self.assertEqual(multi_day["hunger"], 96)  # One tick is capped at 24 simulated hours.
+
     def test_65_turns_through_the_host_loop(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

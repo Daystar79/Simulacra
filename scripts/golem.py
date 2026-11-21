@@ -44,7 +44,20 @@ ZONE_MAP = {
 
 PHYSICAL_PAIN_HALF_LIFE_MINUTES = 2
 EMOTIONAL_DISTRESS_HALF_LIFE_MINUTES = 20
-HUNGER_POINTS_PER_HOUR = 12
+# Physiological rates are per simulated hour. Cards may override these under
+# physiology_calibration; old cards use the shared, character-neutral defaults.
+DEFAULT_PHYSIOLOGY_CALIBRATION = {
+    "hunger_awake_per_hour": 4.0,
+    "hunger_sleeping_per_hour": 2.0,
+    "fatigue_awake_per_hour": 0.8,
+    "fatigue_exertion_per_hour": 0.04,
+    "fatigue_resting_recovery_per_hour": 2.0,
+    "fatigue_sleep_recovery_per_hour": 5.0,
+    "sleep_debt_awake_per_hour": 1.5,
+    "sleep_debt_resting_per_hour": 0.5,
+    "sleep_debt_sleep_recovery_per_hour": 12.0,
+    "max_elapsed_hours_per_tick": 24.0,
+}
 # Half-lives are in seconds. Sensory loads can rise immediately.
 EXPOSURE_RESPONSES = {
     "cold": ("Cold discomfort", 300, 0.25, False),
@@ -70,6 +83,19 @@ def sleep_excitation(minutes_asleep: float) -> float:
 
 def clamp(val: int, lo: int = 0, hi: int = 100) -> int:
     return max(lo, min(hi, int(round(val))))
+
+
+def physiology_calibration(card: dict[str, Any]) -> dict[str, float]:
+    configured = card.get("physiology_calibration") or {}
+    if not isinstance(configured, dict) or set(configured) - DEFAULT_PHYSIOLOGY_CALIBRATION.keys():
+        raise ValueError("physiology_calibration must contain only documented rate keys")
+    values = {**DEFAULT_PHYSIOLOGY_CALIBRATION, **configured}
+    for key, value in values.items():
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"physiology_calibration.{key} must be a finite nonnegative number")
+    if values["max_elapsed_hours_per_tick"] <= 0:
+        raise ValueError("physiology_calibration.max_elapsed_hours_per_tick must be positive")
+    return {key: float(value) for key, value in values.items()}
 
 
 def recover_distress(
@@ -122,6 +148,7 @@ def overlay_log(
         "conversational_stance": voice.get("conversational_stance", ""),
         "excluded_cues": set(card.get("excluded_cues") or []),
         "skills": list(card.get("skills") or []),
+        "physiology_calibration": physiology_calibration(card),
     }
     if not log_path or not log_path.is_file():
         state["current_goals"] = current_goals(card.get("goals"), None, goal_changes)
@@ -358,6 +385,8 @@ def run_golem(
     ):
         raise ValueError("Appraisal must map known signals to integer scores from 0 to 100")
     prior_appraisal_effects = history.get("appraisal_effects", {})
+    # These are immediate appraisals, not enduring relationship measures.
+    # Durable attraction/attachment remains in relational_baselines.
     remaining_appraisal = 2 ** (-elapsed_ms / (1_000 * APPRAISAL_HALF_LIFE_SECONDS))
     appraisal_effects = {
         signal: max(appraisal.get(signal, 0), prior_appraisal_effects.get(signal, 0) * remaining_appraisal)
@@ -388,7 +417,13 @@ def run_golem(
     physical_pain = clamp(physical_pain_level)
     emotional_distress = clamp(emotional_distress_level)
 
-    accumulated_hunger = min(100.0, history.get("hunger", 0) + HUNGER_POINTS_PER_HOUR * elapsed_minutes / 60)
+    calibration = {**DEFAULT_PHYSIOLOGY_CALIBRATION, **state.get("physiology_calibration", {})}
+    activity = stimulus.get("activity", history.get("activity", "awake"))
+    if activity not in ("awake", "resting", "sleeping"):
+        raise ValueError("Activity must be awake, resting, or sleeping")
+    elapsed_hours = min(elapsed_minutes / 60, float(calibration["max_elapsed_hours_per_tick"]))
+    hunger_rate = calibration["hunger_sleeping_per_hour"] if activity == "sleeping" else calibration["hunger_awake_per_hour"]
+    accumulated_hunger = min(100.0, history.get("hunger", 0) + hunger_rate * elapsed_hours)
     food_intake = clamp(stimulus.get("food_intake", 0))
     hunger_level = max(0.0, accumulated_hunger - food_intake)
     hunger = clamp(hunger_level)
@@ -419,20 +454,18 @@ def run_golem(
         "split_second" if response_time_ms <= 800 else ("deliberate" if response_time_ms >= 2500 else "normal"),
     )
 
-    activity = stimulus.get("activity", history.get("activity", "awake"))
-    if activity not in ("awake", "resting", "sleeping"):
-        raise ValueError("Activity must be awake, resting, or sleeping")
-
     exertion = 0
     if activity == "sleeping":
-        fatigue_rate, sleep_debt_rate = -12, -12
+        fatigue_rate = -float(calibration["fatigue_sleep_recovery_per_hour"])
+        sleep_debt_rate = -float(calibration["sleep_debt_sleep_recovery_per_hour"])
     elif activity == "resting":
-        fatigue_rate, sleep_debt_rate = -8, 5
+        fatigue_rate = -float(calibration["fatigue_resting_recovery_per_hour"])
+        sleep_debt_rate = float(calibration["sleep_debt_resting_per_hour"])
     else:
         exertion = clamp(stimulus.get("exertion", history.get("exertion", 0)))
-        fatigue_rate, sleep_debt_rate = 3 + 0.27 * exertion, 5
+        fatigue_rate = float(calibration["fatigue_awake_per_hour"]) + float(calibration["fatigue_exertion_per_hour"]) * exertion
+        sleep_debt_rate = float(calibration["sleep_debt_awake_per_hour"])
 
-    elapsed_hours = elapsed_minutes / 60
     previous_fatigue = history.get("last_fatigue", 15)
     previous_sleep_debt = history.get("sleep_debt", 0)
     fatigue_level = min(100.0, max(0.0, previous_fatigue + fatigue_rate * elapsed_hours))

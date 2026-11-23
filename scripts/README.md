@@ -272,3 +272,30 @@ Old records remain intact. No historical data is deleted or rewritten. Contextua
 Run `python3 scripts/run.py deploy --update /path/to/installation --check` to preview framework changes **and** missing character-card defaults. Run without `--check` to apply. Deployment migrates named YAML cards under `Characters/` using Golem's neutral defaults, retaining existing values, logs, and SQLite state. Modified cards receive timestamped `.predeploy-*.bak` backups. Repeated updates do not add fields again.
 
 Normal `golem.load_character()` calls are read-only: incoming messages never rewrite character cards. Cards stored outside the installation's `Characters/` directory are not discovered automatically; migrate them explicitly with `golem.migrate_character_card(path, slug)` before starting the host. Stop character wakes during deployment.
+
+
+### Relationship evolution, event priority and historical request compression
+
+Relationship state is **time-varying**, not a permanent card property. An incoming event may specify `relationship_target` (a stable host-provided identifier). The pending request includes the current `relationship_state` when known, and contextual expectation lookup uses that current state. The host can return `experience.relationship_change` with a `target`, numeric `delta` values for dimensions such as `trust` or `familiarity`, and optional `drift_per_day` rates. Example:
+
+```json
+{"id":"message-42","experience":{"relationship_change":{"target":"person-7","delta":{"trust":-3},"drift_per_day":{"trust":0.1}}}}
+```
+
+Relationship dimensions are clamped to 0–100. Drift is opt-in, toward a neutral baseline of 50; with no configured drift, elapsed time alone does not change a relationship. The history of observations remains in the event ledger. The host must still decide whether an interaction actually warrants relational change; Golem does not infer it from a joke or topic.
+
+Within **identical due timestamps**, incoming messages now take precedence over background events. Older due events still execute first to maintain monotonic physiological time. This does not guarantee instant incoming replies when a previously due background event is already pending; hosts should limit background decision cost separately.
+
+Preview historical request compaction:
+
+```sh
+python3 scripts/run.py golem loop --db /path/to/character.sqlite3 compact-history
+```
+
+After stopping the host and backing up the SQLite database, apply:
+
+```sh
+python3 scripts/run.py golem loop --db /path/to/character.sqlite3 compact-history --apply
+```
+
+This stores complete resolved/failed request JSON in the `request_archive` table as compressed zlib bytes, leaving the `at`, `assessment`, and `body_response` fields in the normal event rows for existing timeline and expectation replay. Pending and queued requests are not changed. Run SQLite `VACUUM` separately (with sufficient free disk space) to reclaim file size. Existing archived requests can be recovered by `zlib.decompress` of `request_archive.compressed`; this operation is reversible and does not delete event evidence.

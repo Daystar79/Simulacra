@@ -1,8 +1,32 @@
 # Simulacra
 
-Simulacra is a framework for writing and running fictional characters who carry experience from one scene into the next. Authors use it to draft long-form fiction. An LLM host can also use it to run a persistent character between conversations.
+**A framework for persistent virtual people: embodied cognition, memory, choice, and change over time.**
 
-Golem, the Python body engine, advances scene time and calculates what the character feels. Simulacra uses the character's memories, motives, relationships, and immediate circumstances to shape what they think, say, and do. The host renders the scene in the character's voice. [Cognitive pipeline](Framework/CognitivePipeline.md)
+Simulacra is a file-native cognitive architecture for creating and running virtual individuals with continuing identities, rather than a collection of scripted character responses. A virtual person begins with an authored identity but can accumulate experiences, develop or abandon goals, change relationships, learn from outcomes, and act without waiting for a user prompt. The framework also supports long-form fiction, where the same cognitive and continuity rules guide character behavior across scenes.
+
+**“Virtual people” describes the design goal and functional architecture, not a claim of proven consciousness or legal/moral personhood.** Simulacra models aspects of human cognition and Golem simulates physiology; the distinguishing objective is to let persistent individuals make context-dependent decisions and carry their consequences forward.
+
+## How the architecture works
+
+Simulacra separates the body, cognitive interpretation, decision-making, persistence, and presentation:
+
+1. **Golem — body and time.** The Python physiology engine advances elapsed time and calculates bodily state, including fatigue, hunger, stress, autonomic responses, and concurrent affective signals. These are inputs to cognition, **not commands to act**. A hungry individual can choose to eat, delay eating, or prioritize something else.
+2. **Simulacra — identity and cognition.** The [cognitive pipeline](Framework/CognitivePipeline.md) combines identity, remembered experiences, current circumstances, bodily signals, competing motives, relational context, and deliberative or acute reactive processing. It specifies the `Feels / Thinks / Says / Does` channels and the constraints under which decisions are made.
+3. **Host — decisions and expression.** An LLM host supplies the `decide(request)` callback, applies the pipeline, and chooses and renders speech, action, silence, private reflection, or future plans. The host owns the UI, model invocation, scheduling, external tools, and delivery. Simulacra is not itself an LLM or a standalone consciousness.
+4. **Persistence — continuity and consequences.** YAML cards provide the initial identity; durable YAML logs carry approved long-term changes; SQLite retains the event clock, pending decisions, plans, learning, and evolving goals. Future decisions can draw on the individual's prior choices and outcomes.
+
+The loop is **body/state → interpretation and competing motivations → decision → action or silence → observed consequence → updated state and memory**. The process can recur on incoming events, scheduled plans, or quiet wakes. Physiological calculations are deterministic, and some cognitive rules impose hard constraints; **agency here means a designed capacity for contextual choice within those constraints**, not freedom from computation or proof of metaphysical free will.
+
+## What makes this different from a scripted character
+
+- **Continuity:** The individual does not start from the same prompt-only state on every conversation. Durable memory, relationships, plans, and learned expectations influence later choices.
+- **Embodiment without puppeteering:** Somatic signals shape urgency, attention, and emotion, but do not automatically dictate voluntary behavior. Cognition can also feed appraisal back into bodily state.
+- **Competing motives and mixed emotions:** Multiple feelings and priorities can coexist. The system represents ambivalence, hesitation, self-justification, and pressure rather than assigning one fixed mood or response.
+- **Initiative and refusal:** A host can wake the individual without a message. They may pursue a plan, reconsider a past event, ask a question, decline a request, set a boundary, or do nothing.
+- **Development:** Outcomes can change expectations and goal commitments; new goals can emerge while older goals become dormant, blocked, completed, or abandoned.
+- **Individual expression:** Cards provide an initial voice; the host renders what the individual chooses to disclose, say, or withhold. A character-chosen dialect preference can persist across wakes.
+
+These are **architectural capabilities, not a guarantee of human-equivalent cognition or spontaneous autonomy in every deployment**. Actual behavior depends on the host's decision model, scheduling, context, persistence, and tool permissions. The [project scope](PROJECT_SCOPE.md) documents the core/host boundary; [host integration](scripts/README.md#always-on-golem-loop) describes the persistent runtime.
 
 ## Draft a scene
 

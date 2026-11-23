@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -28,6 +29,51 @@ else:
 
 RECENT_LIMIT = 12
 ACTIVE_MEMORY_WINDOW_SECONDS = 2 * 60 * 60
+_REALM_CACHE: dict[str, Any] = {}
+
+
+def load_cached_realm_data() -> dict[str, Any]:
+    mtime = golem.REALM_DATA_PATH.stat().st_mtime_ns
+    if _REALM_CACHE.get("mtime") != mtime:
+        _REALM_CACHE["data"] = yaml.safe_load(golem.REALM_DATA_PATH.read_text(encoding="utf-8"))
+        _REALM_CACHE["mtime"] = mtime
+    return _REALM_CACHE["data"]
+
+
+@contextmanager
+def file_lock(lock_path: Path):
+    """Cross-platform exclusive file lock released on exit or process termination."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        if os.name == "nt":
+            import msvcrt
+
+            if lock.seek(0, os.SEEK_END) == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    time.sleep(0.01)
+            try:
+                yield
+            finally:
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
 
 
 @contextmanager
@@ -364,6 +410,16 @@ def relevant_expectations(expectations, event, recent, limit=12):
                 topics.append(key)
         if len(topics) >= limit:
             break
+    if len(topics) < limit and isinstance(event, dict):
+        haystack = " ".join(
+            str(t) for t in (message_text(event), event.get("context")) if isinstance(t, str) and t.strip()
+        ).casefold()
+        if haystack:
+            for key in expectations:
+                if key not in topics and re.search(rf"(?<!\w){re.escape(key)}(?!\w)", haystack):
+                    topics.append(key)
+                    if len(topics) >= limit:
+                        break
     return {key: expectations[key] for key in topics}
 
 
@@ -530,6 +586,66 @@ def learned_observations(connection, topic, limit=-1):
     return [{**json.loads(row["data"]), "event_id": row["id"]} for row in reversed(records.fetchall())]
 
 
+_OBSERVATION_STOPWORDS = {
+    "about", "after", "again", "before", "being", "between", "both", "Could", "could",
+    "every", "first", "from", "have", "into", "just", "like", "made", "make", "more",
+    "most", "Never", "never", "only", "other", "over", "same", "some", "still", "such",
+    "than", "that", "their", "them", "then", "there", "these", "they", "this", "those",
+    "through", "under", "very", "what", "when", "where", "which", "while", "with", "would",
+}
+
+
+def relevant_learned_observations(connection, event, limit=RECENT_LIMIT):
+    """Retrieve exact topic observations when event.topic is set, or utterance-relevant observations otherwise."""
+    if "topic" in event:
+        return learned_observations(connection, event["topic"], limit)
+    haystack = " ".join(
+        str(t) for t in (message_text(event), event.get("context")) if isinstance(t, str) and t.strip()
+    ).casefold()
+    if not haystack:
+        return []
+    haystack_words = {
+        w for w in re.findall(r"[a-z0-9']+", haystack)
+        if len(w) >= 4 and w not in _OBSERVATION_STOPWORDS
+    }
+    if not haystack_words:
+        return []
+    topic_scores = {}
+    for (obs_topic,) in connection.execute("SELECT DISTINCT topic FROM observations"):
+        if not obs_topic:
+            continue
+        normalized_topic = re.sub(r"[-_]+", " ", obs_topic).strip()
+        if len(normalized_topic) >= 4 and re.search(rf"(?<!\w){re.escape(normalized_topic)}(?!\w)", haystack):
+            score = 100
+        else:
+            topic_words = {
+                w for w in re.findall(r"[a-z0-9']+", normalized_topic)
+                if len(w) >= 4 and w not in _OBSERVATION_STOPWORDS
+            }
+            if not topic_words:
+                continue
+            overlap = topic_words & haystack_words
+            required = 1 if len(topic_words) == 1 else 2
+            if len(overlap) < required:
+                continue
+            score = len(overlap) * 10 + int(10 * len(overlap) / len(topic_words))
+        topic_scores[obs_topic] = score
+    if not topic_scores:
+        return []
+    # Fetch only the winning observations' bodies, even on a long-lived database.
+    rows = connection.execute(
+        """SELECT id, data FROM (
+               SELECT events.id, observations.data, events.due, events.rowid AS sequence
+               FROM json_each(?) AS scores
+               JOIN observations ON observations.topic = scores.key
+               JOIN events ON events.id = observations.event_id
+               ORDER BY scores.value DESC, events.due DESC, events.rowid DESC LIMIT ?
+           ) ORDER BY due, sequence""",
+        (json.dumps(topic_scores), limit),
+    )
+    return [{**json.loads(row["data"]), "event_id": row["id"]} for row in rows]
+
+
 def scores(value):
     if not isinstance(value, dict) or any(
         type(value.get(key)) is not int or not 0 <= value[key] <= 100 for key in ("benefit", "cost")
@@ -677,6 +793,35 @@ def relationship_state_at(config, target, at):
     return current
 
 
+def resolve_relationship_target(event, stimulus=None):
+    """Extract a relationship target from event.relationship_target or stimulus.caller_or_target."""
+    if isinstance(event, dict):
+        explicit = event.get("relationship_target")
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip()
+    stim = stimulus if isinstance(stimulus, dict) else (event.get("stimulus") if isinstance(event, dict) else None)
+    if isinstance(stim, dict):
+        caller = stim.get("caller_or_target")
+        if isinstance(caller, str) and caller.strip() and caller.strip() != "caller":
+            return caller.strip()
+    return None
+
+
+def _seed_relationship_baseline(config, target):
+    durable = (config.get("cached_character") or {}).get("durable") or {}
+    rels = durable.get("relational_baselines") if isinstance(durable, dict) else None
+    raw = rels.get(target) if isinstance(rels, dict) else None
+    if not isinstance(raw, dict):
+        return {}, {}
+    baseline = {}
+    for key, val in raw.items():
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and 0 <= val <= 100:
+            baseline[key] = round(float(val), 2)
+    if "emotional_safety" in baseline and "trust" not in baseline:
+        baseline["trust"] = baseline["emotional_safety"]
+    return dict(baseline), dict(baseline)
+
+
 def update_relationship(config, change, at):
     """Apply explicit observed relational changes; never infer affection or trust from topic."""
     if not isinstance(change, dict):
@@ -687,12 +832,21 @@ def update_relationship(config, change, at):
     values = change.get("delta", {})
     if not isinstance(values, dict) or not values or len(values) > 16:
         raise ValueError("relationship_change.delta must contain 1-16 dimensions")
-    entry = relationship_state_at(config, target, at) or {
-        "values": {}, "baseline": {}, "drift_per_day": {}, "updated_at": at}
+    existing = relationship_state_at(config, target, at)
+    if existing:
+        entry = existing
+    else:
+        seeded_values, seeded_baseline = _seed_relationship_baseline(config, target)
+        entry = {
+            "values": seeded_values,
+            "baseline": seeded_baseline,
+            "drift_per_day": {},
+            "updated_at": at,
+        }
     for dimension, amount in values.items():
         if not isinstance(dimension, str) or not dimension or len(dimension) > 60 or type(amount) not in (int, float):
             raise ValueError("relationship dimensions and numeric deltas required")
-        old = entry["values"].get(dimension, 50)
+        old = entry["values"].get(dimension, entry.get("baseline", {}).get(dimension, 50))
         entry["values"][dimension] = round(max(0, min(100, old + amount)), 2)
     drift = change.get("drift_per_day")
     if drift is not None:
@@ -729,21 +883,28 @@ def compact_event_requests(connection, *, apply=False):
 
 
 def recalculate_expectations(connection, config):
-    """Replay recorded outcome scores, retaining each topic's original starting forecast."""
+    """Replay recorded outcome scores, retaining each topic's original starting forecast and contextual dimensions."""
     rebuilt = {}
+    contextual_scratch: dict[str, Any] = {}
     rows = connection.execute(
-        """SELECT json_extract(request, '$.assessment') FROM events
+        """SELECT json_extract(request, '$.assessment'), json_extract(request, '$.at') FROM events
            WHERE status = 'resolved' AND json_type(request, '$.assessment') = 'object'
            ORDER BY due, rowid"""
     )
-    for (data,) in rows:
+    for data, event_at in rows:
         assessment = json.loads(data)
         topic = assessment["topic"]
+        observed = scores(assessment["observed"])
         prior = rebuilt.get(topic, assessment["forecast"])
-        rebuilt[topic] = next_expectation(prior, scores(assessment["observed"]))
+        rebuilt[topic] = next_expectation(prior, observed)
+        dimensions = assessment.get("dimensions")
+        if isinstance(dimensions, dict) and dimensions:
+            record_contextual_expectation(contextual_scratch, topic, dimensions, observed, event_at or "")
     if rebuilt:
         estimates = config.setdefault("expectations", {})
         estimates.update(rebuilt)
+        if contextual_scratch.get("contextual_expectations"):
+            config["contextual_expectations"] = contextual_scratch["contextual_expectations"]
         connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
         # Refresh only the active event's relevant topics, not the entire map.
         pending = connection.execute(
@@ -754,13 +915,20 @@ def recalculate_expectations(connection, config):
             active_request = json.loads(pending["request"])
             active_request["expectations"] = relevant_expectations(
                 estimates, active_event, active_request.get("recent", []))
+            dimensions = expectation_dimensions(active_event)
+            relation = active_request.get("relationship_state")
+            if relation:
+                dimensions["relationship"] = {"target": resolve_relationship_target(active_event), **relation["values"]}
             active_request["situational_expectations"] = {
-                topic: contextual_forecast(config, topic, expectation_dimensions(active_event))
+                topic: contextual_forecast(config, topic, dimensions)
                 for topic in active_request["expectations"]
             }
             connection.execute("UPDATE events SET request=? WHERE id=?",
                                (json.dumps(active_request, separators=(",", ":")), pending["id"]))
-    return {"expectations": config.get("expectations", {})}
+    return {
+        "expectations": config.get("expectations", {}),
+        "contextual_expectations": config.get("contextual_expectations", {}),
+    }
 
 
 def load_cached_character(config):
@@ -775,6 +943,8 @@ def load_cached_character(config):
         isinstance(cached, dict)
         and cached.get("card_mtime") == card_mtime
         and cached.get("log_mtime") == log_mtime
+        and all(cached["state"].get(k) == cached["card"].get(k) for k in
+                ("subconscious_visceral_truth", "conscious_rationalization") if cached["card"].get(k))
         and cached.get("goal_changes") == goal_changes
     ):
         return (
@@ -845,11 +1015,39 @@ def extract_memory_cues(event, stimulus, memories):
 def body_tick(config, stimulus, event=None):
     state, card, durable = load_cached_character(config)
     effective_stimulus = dict(stimulus)
+    rel_target = resolve_relationship_target(event, effective_stimulus)
+    if rel_target:
+        effective_stimulus["caller_or_target"] = rel_target
+    active_target = rel_target or effective_stimulus.get("caller_or_target")
+    if isinstance(active_target, str) and active_target in (config.get("relationships") or {}):
+        event_at = effective_stimulus.get("event_at")
+        rel_entry = (
+            relationship_state_at(config, active_target, event_at)
+            if isinstance(event_at, str) and event_at
+            else config["relationships"].get(active_target)
+        )
+        if isinstance(rel_entry, dict) and isinstance(rel_entry.get("values"), dict):
+            baselines = dict(state.get("relational_baselines") or {})
+            target_bond = dict(baselines.get(active_target) or {})
+            vals = rel_entry["values"]
+            for key in (
+                "emotional_safety",
+                "attraction_physical",
+                "attraction_emotional",
+                "respect_competence",
+                "resentment_friction",
+            ):
+                if key in vals and isinstance(vals[key], (int, float)):
+                    target_bond[key] = golem.clamp(vals[key])
+            if "trust" in vals and "emotional_safety" not in vals and isinstance(vals["trust"], (int, float)):
+                target_bond["emotional_safety"] = golem.clamp(vals["trust"])
+            baselines[active_target] = target_bond
+            state["relational_baselines"] = baselines
     if event is not None:
         cues = extract_memory_cues(event, effective_stimulus, state.get("memories", {}))
         if cues:
             effective_stimulus["memory_cues"] = cues
-    realm_data = yaml.safe_load(golem.REALM_DATA_PATH.read_text(encoding="utf-8"))
+    realm_data = load_cached_realm_data()
     return golem.run_golem(state, effective_stimulus, realm_data, config["history"]), card, durable, state
 
 
@@ -872,6 +1070,9 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         stimulus["food_intake"] = experience["food_intake"]
     prior_sequence = config["history"].get("event_sequence")
     prior_cues = config["history"].get("recent_cues")
+    target = resolve_relationship_target(event, stimulus)
+    if target:
+        stimulus["caller_or_target"] = target
     after, _, _, _ = body_tick(config, stimulus)
     # The event's initial tick has already advanced persisted history. Apply
     # post-tick bodily consequences (such as eating) at the same instant without
@@ -901,8 +1102,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
             raise ValueError("Experience must refer to the event topic")
         estimates = config.setdefault("expectations", {})
         dimensions = expectation_dimensions(event, experience)
-        target = event.get("relationship_target")
-        if isinstance(target, str) and target:
+        if target:
             relation = relationship_state_at(config, target, request["at"])
             if relation:
                 dimensions["relationship"] = {"target": target, **relation.get("values", {})}
@@ -1095,11 +1295,12 @@ def advance(connection, config, now, allow_idle=True):
     # Recalled memories and current goals already appear at top level.
     compact_tick = {key: value for key, value in tick.items()
                     if key not in ("recalled_memories", "current_goals")}
-    target = event.get("relationship_target")
+    target = resolve_relationship_target(event, stimulus)
     relationship = (relationship_state_at(config, target, at.isoformat())
                     if isinstance(target, str) and target else None)
     if relationship:
         current_dimensions["relationship"] = {"target": target, **relationship.get("values", {})}
+    rel_expects = relevant_expectations(config.get("expectations", {}), event, recent)
     request = {
         **({"character_id": config["character_id"]} if config.get("character_id") else {}),
         **({"relationship_state": relationship} if relationship else {}),
@@ -1109,10 +1310,10 @@ def advance(connection, config, now, allow_idle=True):
         **({"recalled_memories": tick["recalled_memories"]} if tick.get("recalled_memories") else {}),
         "tick": compact_tick,
         "character": {key: config[key] for key in ("card", "slug", "log")},
-        "expectations": relevant_expectations(config.get("expectations", {}), event, recent),
+        "expectations": rel_expects,
         "situational_expectations": {
             topic: contextual_forecast(config, topic, current_dimensions, at.isoformat())
-            for topic in relevant_expectations(config.get("expectations", {}), event, recent)
+            for topic in rel_expects
         },
         "motivations": card.get("motivations", {}), "incentives": card.get("incentives", {}),
         "goals": card.get("goals", {}), "goal_updates": (durable or {}).get("goal_updates", {}),
@@ -1184,8 +1385,9 @@ def advance(connection, config, now, allow_idle=True):
         "sleep_debt": body["sleep_debt"], "activity": body["activity"],
         "suggested_evaluation": any(body[key] >= 60 for key in ("hunger", "fatigue", "sleep_debt")),
     }
-    if "topic" in event:
-        request["learned"] = learned_observations(connection, event["topic"], RECENT_LIMIT)
+    learned = relevant_learned_observations(connection, event, RECENT_LIMIT)
+    if "topic" in event or learned:
+        request["learned"] = learned
     config["history"] = tick["next_history"]
     config["idle_at"] = (now + timedelta(seconds=config["idle_seconds"])).timestamp()
     connection.execute("UPDATE runtime SET data = ? WHERE id = 1", (json.dumps(config),))
@@ -1520,8 +1722,6 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
         if owner and event is not None and event.get("character_id", owner) != owner:
             raise ValueError("Event character ID does not match the selected database")
     tag = {"character_id": owner} if owner else {}
-    # flock is released by the VM kernel when the process exits, including after a crash.
-    import fcntl
 
     if event is not None and event.get("kind") == "incoming":
         with transaction(db) as connection:
@@ -1546,8 +1746,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
             enqueue(connection, event, config["history"], datetime.now(timezone.utc))
 
     handled = []
-    with db.with_name(db.name + ".wake.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with file_lock(db.with_name(db.name + ".wake.lock")):
         for _ in range(max_events):
             with transaction(db) as connection:
                 config = runtime_config(connection)

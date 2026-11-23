@@ -92,7 +92,9 @@ def python_core(tool: str) -> Path:
 
 
 def run_windows_wrapper(ps1: Path, args: list[str]) -> int:
-    """Run a Windows PowerShell wrapper script."""
+    """Run a Windows PowerShell wrapper script, falling back to Python core if blocked by ExecutionPolicy."""
+    if sys.executable and not os.environ.get("CM_FORCE_WRAPPER"):
+        return run_python_core(ps1.stem, args)
     powershell = shutil.which("powershell") or shutil.which("pwsh")
     if not powershell:
         # Fall back to pure Python core
@@ -107,7 +109,10 @@ def run_windows_wrapper(ps1: Path, args: list[str]) -> int:
         *args,
     ]
     print(f"[run] OS=windows → {ps1.relative_to(ROOT)}", flush=True)
-    return subprocess.call(cmd, cwd=str(ROOT))
+    rc = subprocess.call(cmd, cwd=str(ROOT))
+    if rc != 0:
+        return run_python_core(ps1.stem, args)
+    return rc
 
 
 def run_unix_wrapper(sh: Path, args: list[str]) -> int:

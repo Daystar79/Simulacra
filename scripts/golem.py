@@ -241,6 +241,7 @@ def overlay_log(
         "default_somatic": card.get("default_somatic_alignment", ""),
         "cognitive_bias": card.get("cognitive_bias", ""),
         "cognitive_gift": card.get("cognitive_gift", ""),
+        **{k: card[k] for k in ("subconscious_visceral_truth", "conscious_rationalization") if card.get(k)},
         "broadcast_persona": card.get("broadcast_persona"),
         "conversational_stance": voice.get("conversational_stance", ""),
         "excluded_cues": sorted(set(card.get("excluded_cues") or [])),
@@ -756,14 +757,24 @@ def run_golem(
             impulse = urge["action"].strip()
 
     # 3. Subconscious Bias & Defense Posture
-    if threat >= 30 or latent_hit_bonus >= 12:
+    if threat >= 30 or latent_hit_bonus >= 12 or unease >= 45 or stress >= 45:
         bias_state = "DEFENSIVE_ACTIVE"
         defense_posture = state["defense_posture"]
         rules.append("BIAS_DEFENSIVE_ACTIVE")
-    else:
+    elif (
+        interest >= 35
+        or release["reward"] >= 30
+        or release["settling"] >= 30
+        or attraction >= 25
+        or active_realm_key in realm_hits
+    ):
         bias_state = "GENERATIVE_ACTIVE"
         defense_posture = "none"
         rules.append("BIAS_GENERATIVE_ACTIVE")
+    else:
+        bias_state = "DORMANT"
+        defense_posture = "none"
+        rules.append("BIAS_DORMANT")
 
     # 4. Social Masking & Strain
     mask_strain = clamp(int(0.6 * stress) + int(0.25 * latent_hit_bonus) - int(0.1 * state["flexibility"]))
@@ -776,9 +787,17 @@ def run_golem(
     if context == "broadcast" and state.get("broadcast_persona"):
         drives.append({"drive_name": "broadcast_entertainment_control", "circuit": "mind", "salience": clamp(88 - int(0.45 * stress))})
     drives.append({"drive_name": f"realm_{active_realm_key}_containment", "circuit": "body", "salience": clamp(45 + int(0.4 * state["bias_strength"]) + int(0.3 * latent_hit_bonus))})
-    drives.append({"drive_name": "warm_presence_and_intake", "circuit": "mind", "salience": clamp(62 - int(0.3 * threat))})
+    intake_boost = int(0.2 * max(interest, release["reward"]))
+    drives.append({"drive_name": "warm_presence_and_intake", "circuit": "mind", "salience": min(74, clamp(62 - int(0.3 * threat) + intake_boost))})
+    wound = str(state.get("cognitive_bias") or "").split("—", 1)[0].strip().rstrip(".")
+    gift = str(state.get("cognitive_gift") or "").split("—", 1)[0].strip().rstrip(".")
+    closed_account = wound.startswith("Closed Account")
     if bias_state == "DEFENSIVE_ACTIVE":
-        drives.append({"drive_name": "deflect_and_protect_closed_file", "circuit": "body", "salience": clamp(55 + int(0.4 * threat))})
+        wound_slug = re.sub(r"[^a-z0-9]+", "_", wound.casefold()).strip("_")
+        defensive_drive = f"defend_{wound_slug}" if wound_slug else "self_protection"
+        if closed_account:
+            defensive_drive = "deflect_and_protect_closed_file"
+        drives.append({"drive_name": defensive_drive, "circuit": "body", "salience": clamp(55 + int(0.4 * threat))})
 
     drives.sort(key=lambda d: d["salience"], reverse=True)
     if len(drives) > 1 and abs(drives[0]["salience"] - drives[1]["salience"]) <= 5:
@@ -890,6 +909,17 @@ def run_golem(
         feels = f"The body freezes involuntarily. {feels}"
     elif involuntary_response == "brace":
         feels = f"The body braces involuntarily. {feels}"
+    rationalization = f"I am addressing what is in front of me through {state['active_focus']}."
+    if closed_account:
+        visceral_truth = "Account stays closed; others' hesitation is read as leverage or weakness."
+        rationalization = "I am simply naming what is obvious and keeping the room moving."
+    elif bias_state == "DEFENSIVE_ACTIVE":
+        visceral_truth = f"Pressure against {wound or 'personal boundaries'} registers as exposure or loss of footing."
+    elif bias_state == "GENERATIVE_ACTIVE":
+        visceral_truth = f"Anchored in {gift or 'the present moment'}; attention stays clear without forcing control."
+    else:
+        visceral_truth = f"Baseline {state['active_focus']} awareness; {wound or 'the defensive response'} stays unactivated."
+
     snapshot = {
         "character_id": state["character_id"],
         "timestamp_or_movement": event_label,
@@ -933,8 +963,8 @@ def run_golem(
             "active_gift": state["cognitive_gift"],
             "bias_state": bias_state,
             "perceptual_warp": f"Filters stimulus through {state['active_focus']} ({bias_state}).",
-            "subconscious_visceral_truth": "Account stays closed; others' hesitation is read as leverage or weakness.",
-            "conscious_rationalization": "I am simply naming what is obvious and keeping the room moving.",
+            "subconscious_visceral_truth": state.get("subconscious_visceral_truth") or visceral_truth,
+            "conscious_rationalization": state.get("conscious_rationalization") or rationalization,
             "defense_posture": defense_posture,
         },
         "social_mask": {

@@ -242,3 +242,12 @@ scripts\windows\deploy.cmd
 ### Character-chosen dialect
 
 On any wake the character may include a free-text dialect preference in its decision, for example `"dialect": "When I'm home I use the Scots words I grew up with."` The loop stores it in that character's SQLite database and supplies the current value as `request["dialect"]` on subsequent wakes. Omit the field to keep it or send `null` to clear it. The character chooses their wording, rhythm, silence and gestures for each situation.
+
+
+### Compact decision context
+
+The pending decision request carries a compact projection of recent episodes (event ID, topic, short context, action, outcome, reply, and learned forecast/observation), rather than full historical body snapshots. Full event records and body assessments remain available through the SQLite timeline. The request includes learned expectations for the current topic and recently encountered topics only; the complete expectation map remains persisted in runtime state. The tick omits recalled memories and current goals already provided as top-level request fields.
+
+This is a context-transport optimization, **not** deletion of memories, logs, or physiological history. Hosts should use the request's `identity_anchor` and relevant context rather than re-reading the full card on every turn; load additional character detail only when necessary. Always resolve the exact pending event ID. Existing pending requests created before an update are not rewritten automatically.
+
+Incoming events still use chronological ordering. Priority scheduling needs a separate clock-safe change because processing a newer incoming event before an older due event can violate Golem's monotonic event-time rule.

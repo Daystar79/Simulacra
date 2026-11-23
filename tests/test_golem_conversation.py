@@ -50,6 +50,16 @@ class TestGolemConversation(unittest.TestCase):
         self.assertNotEqual(later["affective_state"]["impulse"], "reach for a hug")
         self.assertEqual(later["relational_vectors"]["stranger"]["intimacy"], 0)
 
+    def test_concurrent_feelings_survive_decay_and_selective_revision(self):
+        mix = {"pride": 80, "grief": 68, "gratitude": 54, "envy": 12}
+        first = self.tick({"emotions": mix, "elapsed_ms": 0})
+        emotions = first["psychosomatic_snapshot"]["affective_state"]["emotions"]
+        self.assertEqual({name: emotions[name] for name in mix}, mix)
+        later = self.tick({"emotions": {"pride": 0, "envy": 3}, "elapsed_ms": 10000})
+        emotions = later["psychosomatic_snapshot"]["affective_state"]["emotions"]
+        self.assertNotIn("pride", emotions)
+        self.assertEqual([emotions[k] for k in ("grief", "gratitude", "envy")], [34, 27, 3])
+
     def test_approved_low_pressure_memory_survives_reload_without_pressure_commit(self):
         memory = self.directory / "memory.json"
         memory.write_text(json.dumps({

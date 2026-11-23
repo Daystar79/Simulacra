@@ -571,6 +571,29 @@ def run_golem(
         "sadness": appraisal_effects["loss"], "anger": appraisal_effects["frustration"],
         "anticipation": appraisal_effects["anticipation"], "disgust": disgust,
     }
+    emotional_pressures.update(interest=interest, unease=unease, uncertainty=uncertainty)
+    # The host can recognize feelings whose meaning depends on the character's interpretation.
+    # Keep fractional carryover so that repeated short ticks equal one longer interval.
+    felt = {
+        name: intensity * remaining_appraisal
+        for name, intensity in history.get("felt_emotions", {}).items()
+        if intensity * remaining_appraisal >= 0.5
+    }
+    updates = stimulus.get("emotions", {})
+    if not isinstance(updates, dict):
+        raise ValueError("emotions must map names to intensity scores")
+    for name, intensity in updates.items():
+        if not isinstance(name, str) or not name.strip() or name != name.strip():
+            raise ValueError("emotion names must be nonempty text without surrounding whitespace")
+        if type(intensity) is not int or not 0 <= intensity <= 100:
+            raise ValueError("emotion intensity must be an integer from 0 to 100")
+        if intensity:
+            felt[name] = intensity
+        else:
+            felt.pop(name, None)
+    for name, intensity in felt.items():
+        emotional_pressures[name] = max(emotional_pressures.get(name, 0), intensity)
+    emotions = {name: clamp(value) for name, value in emotional_pressures.items() if clamp(value)}
     salient = sorted((name for name in emotional_pressures if emotional_pressures[name] >= 40),
                      key=emotional_pressures.get, reverse=True)
     if salient:
@@ -747,11 +770,11 @@ def run_golem(
         "affective_state": {
             "initiative": clamp(pursuit - exhaustion * 0.25),
             "release_state": {key: clamp(value) for key, value in release.items()},
+            "emotions": emotions,
             "primary_emotion": primary_emotion,
             "secondary_emotion": secondary_emotion,
             "emotional_intensity": emotional_intensity,
             "impulse": impulse,
-            "ambivalence": "enjoys conversational control while keeping closed accounts untouched",
         },
         "subconscious_bias": {
             "active_wound": state["cognitive_bias"],
@@ -821,6 +844,7 @@ def run_golem(
         "next_history": {
             **clock_state,
             "release_state": release,
+            "felt_emotions": felt,
             "last_fatigue": fatigue_level,
             "sleep_debt": sleep_debt_level,
             "activity": activity,

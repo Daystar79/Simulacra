@@ -511,7 +511,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
     config = runtime_config(connection)
     # Appraise at the same instant, retaining the scene without replaying one-time effects.
     stimulus = dict(event.get("stimulus", {}))
-    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal", "urge"):
+    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal", "urge", "emotions"):
         stimulus.pop(field, None)
     stimulus.update(event_label=event["id"], event_at=request["at"], appraisal=appraisal)
     if isinstance(experience, dict):
@@ -541,6 +541,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         body = tick["psychosomatic_snapshot"]["autonomic_state"]
         fields = ("stress", "arousal", "sexual_drive", "sexual_excitation", "sexual_inhibition", "sexual_arousal")
         return {**{key: body[key] for key in fields if key in body},
+                "emotions": tick["psychosomatic_snapshot"]["affective_state"].get("emotions", {}),
                 "interest": tick["next_history"]["appraisal_effects"]["interest"]}
 
     initial, final = measurements(before), measurements(after)
@@ -741,6 +742,9 @@ def advance(connection, config, now, allow_idle=True):
         request["activity"] = active_activity(connection)
     request["behavior_guidance"] = {
         "affect_and_action": (
+            "Consider all concurrent feelings in affective_state.emotions. Choose which to show, temper, "
+            "or keep private. To capture feelings you recognize, return experience.stimulus.emotions "
+            "as a map of emotion names to intensities (0–100). "
             "Weigh initiative alongside current goals and available energy. Express salient emotions "
             "through this character's choices and voice. Intimacy reflects willingness to be seen "
             "by this target, including physical ease or anticipation. It does not imply permission. "

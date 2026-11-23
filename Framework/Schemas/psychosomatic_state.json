@@ -114,6 +114,10 @@
         "impulse"
       ],
       "properties": {
+        "emotions": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 100 }
+        },
         "initiative": { "type": "integer", "minimum": 0, "maximum": 100 },
         "release_state": { "type": "object" },
         "primary_emotion": { "type": "string" },

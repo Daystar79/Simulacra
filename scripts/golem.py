@@ -65,7 +65,8 @@ EXPOSURE_RESPONSES = {
     "noise": ("Noise discomfort", 2, 0.20, True),
     "bright_light": ("Bright light discomfort", 5, 0.15, True),
 }
-APPRAISAL_SIGNALS = ("interest", "attraction", "disgust", "unease", "uncertainty")
+APPRAISAL_SIGNALS = ("interest", "attraction", "disgust", "unease", "uncertainty",
+                     "anticipation", "loss", "frustration", "delight", "relief")
 APPRAISAL_HALF_LIFE_SECONDS = 10
 ACTIVATION_RECOVERY_MINUTES = 1
 SEXUAL_AROUSAL_RECOVERY_MINUTES = 2
@@ -555,6 +556,45 @@ def run_golem(
         primary_emotion, secondary_emotion = "warm_amusement", "poised_curiosity"
         impulse = "lean_in_and_steer"
 
+    # Relative activation, with separate body and appraisal inputs.
+    # These are simulation scales rather than measured hormone concentrations.
+    release = {
+        "alarm": max(physical_load, threat, unease),
+        "reward": max(appraisal_effects["delight"], interest * 0.5),
+        "settling": appraisal_effects["relief"],
+    }
+    prior_release = history.get("release_state", {})
+    release = {key: min(100, max(value, prior_release.get(key, 0) * remaining_appraisal))
+               for key, value in release.items()}
+    emotional_pressures = {
+        "fear": release["alarm"], "joy": release["reward"], "relief": release["settling"],
+        "sadness": appraisal_effects["loss"], "anger": appraisal_effects["frustration"],
+        "anticipation": appraisal_effects["anticipation"], "disgust": disgust,
+    }
+    salient = sorted((name for name in emotional_pressures if emotional_pressures[name] >= 40),
+                     key=emotional_pressures.get, reverse=True)
+    if salient:
+        if cognitive_regime == "reactive":
+            secondary_emotion = salient[0]
+        else:
+            primary_emotion = salient[0]
+            if len(salient) > 1:
+                secondary_emotion = salient[1]
+        emotional_intensity = max(emotional_intensity, clamp(emotional_pressures[salient[0]]))
+
+    for key in ("willingness_to_pursue", "willingness_to_be_seen"):
+        if key in stimulus and (type(stimulus[key]) is not int or not 0 <= stimulus[key] <= 100):
+            raise ValueError(f"{key} must be an integer from 0 to 100")
+    pursuit = stimulus.get("willingness_to_pursue", max(interest, release["reward"], hunger * 0.5))
+    urge = stimulus.get("urge")
+    if urge is not None:
+        if (not isinstance(urge, dict) or not isinstance(urge.get("action"), str)
+                or not urge["action"].strip() or type(urge.get("strength")) is not int
+                or not 0 <= urge["strength"] <= 100):
+            raise ValueError("urge requires an action and an integer strength from 0 to 100")
+        if cognitive_regime != "reactive" and urge["strength"]:
+            impulse = urge["action"].strip()
+
     # 3. Subconscious Bias & Defense Posture
     if threat >= 30 or latent_hit_bonus >= 12:
         bias_state = "DEFENSIVE_ACTIVE"
@@ -600,6 +640,10 @@ def run_golem(
     internal_friction = clamp(abs(drives[0]["salience"] - drives[1]["salience"]) if len(drives) > 1 else 0)
     internal_friction = clamp(100 - internal_friction) if len(drives) > 1 and drives[1]["salience"] >= 60 else clamp(int(0.4 * stress) + int(0.3 * latent_hit_bonus))
     arbitration_status = "bypassed_reactive" if cognitive_regime == "reactive" else "arbitrated"
+    if (urge and cognitive_regime != "reactive" and urge["strength"] >= 75
+            and urge["strength"] > salience_score and time_pressure != "deliberate"):
+        arbitration_status = "impulse_override"
+        winning_drive, salience_score = impulse, urge["strength"]
     rules.append(f"ARBITRATION:{arbitration_status}:{winning_drive}")
 
     # 6. Adult eligibility and background state (CognitivePipeline §2)
@@ -701,6 +745,8 @@ def run_golem(
             "involuntary_response": involuntary_response,
         },
         "affective_state": {
+            "initiative": clamp(pursuit - exhaustion * 0.25),
+            "release_state": {key: clamp(value) for key, value in release.items()},
             "primary_emotion": primary_emotion,
             "secondary_emotion": secondary_emotion,
             "emotional_intensity": emotional_intensity,
@@ -724,6 +770,9 @@ def run_golem(
         },
         "relational_vectors": {
             target: {
+                "intimacy": clamp(stimulus.get("willingness_to_be_seen",
+                                      bond.get("emotional_safety", 0) - threat * 0.5
+                                      - unease * 0.25 - bond.get("resentment_friction", 0) * 0.25)),
                 "emotional_safety": clamp(bond.get("emotional_safety", 60)),
                 "attraction_physical": phys_attr,
                 "attraction_emotional": emot_attr,
@@ -771,6 +820,7 @@ def run_golem(
         },
         "next_history": {
             **clock_state,
+            "release_state": release,
             "last_fatigue": fatigue_level,
             "sleep_debt": sleep_debt_level,
             "activity": activity,

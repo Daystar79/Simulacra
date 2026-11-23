@@ -32,6 +32,24 @@ class TestGolemConversation(unittest.TestCase):
         )
         return json.loads(result.stdout.split("\n", 1)[1])
 
+    def test_spontaneous_urge_and_deliberate_restraint(self):
+        stimulus = {
+            "urge": {"action": "reach for a hug", "strength": 100},
+            "caller_or_target": "friend", "willingness_to_be_seen": 80,
+            "willingness_to_pursue": 85, "appraisal": {"delight": 90},
+        }
+        snapshot = self.tick(stimulus)["psychosomatic_snapshot"]
+        self.assertEqual(snapshot["priority_arbitration"]["arbitration_status"], "impulse_override")
+        self.assertEqual(snapshot["affective_state"]["primary_emotion"], "joy")
+        self.assertEqual(snapshot["affective_state"]["initiative"], 85)
+        self.assertEqual(snapshot["relational_vectors"]["friend"]["intimacy"], 80)
+        deliberate = self.tick({**stimulus, "time_pressure": "deliberate"})["psychosomatic_snapshot"]
+        self.assertEqual(deliberate["affective_state"]["impulse"], "reach for a hug")
+        self.assertEqual(deliberate["priority_arbitration"]["arbitration_status"], "arbitrated")
+        later = self.tick({"caller_or_target": "stranger"})["psychosomatic_snapshot"]
+        self.assertNotEqual(later["affective_state"]["impulse"], "reach for a hug")
+        self.assertEqual(later["relational_vectors"]["stranger"]["intimacy"], 0)
+
     def test_approved_low_pressure_memory_survives_reload_without_pressure_commit(self):
         memory = self.directory / "memory.json"
         memory.write_text(json.dumps({

@@ -511,7 +511,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
     config = runtime_config(connection)
     # Appraise at the same instant, retaining the scene without replaying one-time effects.
     stimulus = dict(event.get("stimulus", {}))
-    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal"):
+    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal", "urge"):
         stimulus.pop(field, None)
     stimulus.update(event_label=event["id"], event_at=request["at"], appraisal=appraisal)
     if isinstance(experience, dict):
@@ -733,6 +733,13 @@ def advance(connection, config, now, allow_idle=True):
     else:
         request["activity"] = active_activity(connection)
     request["behavior_guidance"] = {
+        "affect_and_action": (
+            "Weigh initiative alongside current goals and available energy. Express salient emotions "
+            "through this character's choices and voice. Intimacy reflects willingness to be seen "
+            "by this target, including physical ease or anticipation. It does not imply permission. "
+            "An impulse_override brings an urge to mind before deliberation. Decide whether to act, "
+            "redirect or hold back. A felt urge alone does not establish an action or outcome."
+        ),
         "identity_first_rule": (
             "Render from identity_anchor (voice, hard_bans, conversational_stance) first. "
             "Access only recalled_memories surfaced for this turn; do not load full log history into context. "

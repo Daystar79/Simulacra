@@ -114,6 +114,8 @@
         "impulse"
       ],
       "properties": {
+        "initiative": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "release_state": { "type": "object" },
         "primary_emotion": { "type": "string" },
         "secondary_emotion": { "type": "string" },
         "emotional_intensity": { "type": "integer", "minimum": 0, "maximum": 100 },
@@ -208,6 +210,7 @@
           "resentment_friction"
         ],
         "properties": {
+          "intimacy": { "type": "integer", "minimum": 0, "maximum": 100 },
           "emotional_safety": { "type": "integer", "minimum": 0, "maximum": 100 },
           "attraction_physical": { "type": "integer", "minimum": 0, "maximum": 100 },
           "attraction_emotional": { "type": "integer", "minimum": 0, "maximum": 100 },
@@ -259,7 +262,7 @@
         "salience_score": { "type": "integer", "minimum": 0, "maximum": 100 },
         "arbitration_status": {
           "type": "string",
-          "enum": ["arbitrated", "bypassed_reactive"],
+          "enum": ["arbitrated", "bypassed_reactive", "impulse_override"],
           "description": "Whether drives were deliberated across weights ('arbitrated') or preempted by limbic emergency lock ('bypassed_reactive')"
         },
         "internal_friction": {

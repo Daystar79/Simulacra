@@ -238,3 +238,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\deploy.ps1 B
 scripts\windows\lint.cmd Drafts
 scripts\windows\deploy.cmd
 ```
+
+### Character-chosen dialect
+
+On any wake the character may include a free-text dialect preference in its decision, for example `"dialect": "When I'm home I use the Scots words I grew up with."` The loop stores it in that character's SQLite database and supplies the current value as `request["dialect"]` on subsequent wakes. Omit the field to keep it or send `null` to clear it. The character chooses their wording, rhythm, silence and gestures for each situation.

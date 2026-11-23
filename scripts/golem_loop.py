@@ -659,9 +659,15 @@ def resolve(connection, decision, history, now):
         result["body_response"] = apply_appraisal(
             connection, json.loads(row["request"]), appraisal, experience,
         )
-    if "goal_events" in decision:
+    if "goal_events" in decision or "dialect" in decision:
         config = runtime_config(connection)
-        goal_evolution.record_goal_events(config, json.loads(row["request"]), decision["goal_events"])
+        if "goal_events" in decision:
+            goal_evolution.record_goal_events(config, json.loads(row["request"]), decision["goal_events"])
+        if "dialect" in decision:
+            dialect = decision["dialect"]
+            if dialect is not None and (not isinstance(dialect, str) or not dialect.strip()):
+                raise ValueError("Decision dialect must be descriptive text or null")
+            config["dialect"] = dialect.strip() if dialect is not None else None
         connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     for plan in plans:
         enqueue(connection, {**plan, "kind": "plan"}, history, now)
@@ -712,6 +718,7 @@ def advance(connection, config, now, allow_idle=True):
 
     request = {
         "identity_anchor": build_identity_anchor(card, state),
+        "dialect": config.get("dialect"),
         "event": event, "at": at.isoformat(),
         **({"recalled_memories": tick["recalled_memories"]} if tick.get("recalled_memories") else {}),
         "tick": tick,
@@ -741,7 +748,10 @@ def advance(connection, config, now, allow_idle=True):
             "redirect or hold back. A felt urge alone does not establish an action or outcome."
         ),
         "identity_first_rule": (
-            "Render from identity_anchor (voice, hard_bans, conversational_stance) first. "
+            "Use the card as your starting voice. Choose how to speak or show what the body feels. "
+            "Your dialect is a current preference. Vary your expression for the listener and moment. "
+            "To adopt or revise a lasting dialect, return dialect as a short description in your decision. "
+            "Omit it to keep your preference or return null to clear it. "
             "Access only recalled_memories surfaced for this turn; do not load full log history into context. "
             "Avoid therapist-style paraphrasing, validation fillers, or repeating ambient somatic cues."
         ),

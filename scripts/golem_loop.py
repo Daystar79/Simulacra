@@ -277,6 +277,41 @@ def recent_events(connection, limit=RECENT_LIMIT, since_timestamp=None):
     ]
 
 
+def compact_recent_events(events):
+    """Decision-context projection; the complete event ledger remains in SQLite."""
+    compact = []
+    for entry in events:
+        event, decision = entry.get("event") or {}, entry.get("decision") or {}
+        item = {"id": event.get("id"), "kind": event.get("kind"), "at": entry.get("at"),
+                "status": entry.get("status")}
+        if event.get("topic"):
+            item["topic"] = event["topic"]
+        if event.get("context"):
+            item["context"] = str(event["context"])[:320]
+        for key in ("action", "outcome", "reply"):
+            if isinstance(decision.get(key), str) and decision[key]:
+                item[key] = decision[key][:320]
+        assessment = entry.get("assessment") or {}
+        for key in ("topic", "forecast", "observed", "next_expectation"):
+            if key in assessment:
+                item[key] = assessment[key]
+        compact.append(item)
+    return compact
+
+
+def relevant_expectations(expectations, event, recent, limit=12):
+    """Surface matching learned topics, not the entire cumulative expectation map."""
+    topics = []
+    for candidate in [event.get("topic"), *(item.get("topic") for item in reversed(recent))]:
+        if isinstance(candidate, str):
+            key = candidate.strip().casefold()
+            if key and key not in topics and key in expectations:
+                topics.append(key)
+        if len(topics) >= limit:
+            break
+    return {key: expectations[key] for key in topics}
+
+
 def repeated_action_pattern(events, window=5):
     """Describe consecutive duplicate actions without changing or rejecting them."""
     actions = [
@@ -399,6 +434,81 @@ def next_expectation(prior, observed):
     return {key: round(0.75 * prior[key] + 0.25 * value, 2) for key, value in observed.items()}
 
 
+def expectation_dimensions(event, experience=None):
+    """Relational, situational and contextual cues; no static relationship assumptions."""
+    experience = experience or {}
+    supplied = experience.get("expectation_context", event.get("expectation_context", {}))
+    if not isinstance(supplied, dict):
+        raise ValueError("expectation_context must be a mapping")
+    result = {}
+    for dimension in ("relationship", "situation", "context"):
+        value = supplied.get(dimension)
+        if isinstance(value, (str, int, float, bool)):
+            result[dimension] = str(value).strip().casefold()[:120]
+        elif isinstance(value, dict):
+            # Canonicalize a small set of explicit current-state cues; no snapshots.
+            result[dimension] = {str(k)[:60]: str(v).strip().casefold()[:120]
+                                 for k, v in sorted(value.items()) if isinstance(v, (str, int, float, bool))}
+        elif value is not None:
+            raise ValueError(f"expectation_context.{dimension} must be a scalar or mapping")
+    return {key: value for key, value in result.items() if value}
+
+
+def expectation_matches(entry, dimensions):
+    """Rank matching situational evidence without treating past relationship states as current."""
+    old = entry.get("dimensions") or {}
+    if not old or not dimensions:
+        return 0
+    score = 0
+    for dimension, weight in (("relationship", 4), ("situation", 3), ("context", 2)):
+        prior, current = old.get(dimension), dimensions.get(dimension)
+        if prior is None or current is None:
+            continue
+        if isinstance(prior, dict) and isinstance(current, dict):
+            overlap = set(prior) & set(current)
+            if overlap:
+                score += weight * sum(prior[k] == current[k] for k in overlap) / len(overlap)
+        elif prior == current:
+            score += weight
+    return score
+
+
+def contextual_forecast(config, topic, dimensions, at=None):
+    """Return matching observed evidence, falling back to legacy topic estimates."""
+    records = config.get("contextual_expectations", {}).get(topic, [])
+    if not isinstance(records, list):
+        records = []
+    ranked = sorted((entry for entry in records if isinstance(entry, dict)),
+                    key=lambda entry: expectation_matches(entry, dimensions), reverse=True)
+    if ranked and expectation_matches(ranked[0], dimensions) > 0:
+        return ranked[0].get("predicted")
+    return config.get("expectations", {}).get(topic)
+
+
+def record_contextual_expectation(config, topic, dimensions, observed, at):
+    """Bounded evidence per topic, retaining the relationship state at observation time."""
+    if not dimensions:
+        return None
+    all_records = config.setdefault("contextual_expectations", {})
+    records = all_records.setdefault(topic, [])
+    if not isinstance(records, list):
+        records = []
+        all_records[topic] = records
+    for entry in records:
+        if entry.get("dimensions") == dimensions:
+            entry["predicted"] = next_expectation(entry.get("predicted"), observed)
+            entry["observations"] = entry.get("observations", 1) + 1
+            entry["last_observed_at"] = at
+            return entry["predicted"]
+    records.append({"dimensions": dimensions, "predicted": dict(observed),
+                    "observations": 1, "last_observed_at": at})
+    # Cap stored contexts per topic; full episode evidence remains in the ledger.
+    if len(records) > 24:
+        records.sort(key=lambda item: item.get("last_observed_at", ""))
+        del records[:-24]
+    return dict(observed)
+
+
 def recalculate_expectations(connection, config):
     """Replay recorded outcome scores, retaining each topic's original starting forecast."""
     rebuilt = {}
@@ -416,10 +526,21 @@ def recalculate_expectations(connection, config):
         estimates = config.setdefault("expectations", {})
         estimates.update(rebuilt)
         connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
-        connection.execute(
-            """UPDATE events SET request=json_set(request, '$.expectations', json(?))
-               WHERE status='pending'""", (json.dumps(estimates),),
-        )
+        # Refresh only the active event's relevant topics, not the entire map.
+        pending = connection.execute(
+            "SELECT id, input, request FROM events WHERE status='pending'"
+        ).fetchone()
+        if pending and pending["request"]:
+            active_event = json.loads(pending["input"])
+            active_request = json.loads(pending["request"])
+            active_request["expectations"] = relevant_expectations(
+                estimates, active_event, active_request.get("recent", []))
+            active_request["situational_expectations"] = {
+                topic: contextual_forecast(config, topic, expectation_dimensions(active_event))
+                for topic in active_request["expectations"]
+            }
+            connection.execute("UPDATE events SET request=? WHERE id=?",
+                               (json.dumps(active_request, separators=(",", ":")), pending["id"]))
     return {"expectations": config.get("expectations", {})}
 
 
@@ -433,7 +554,6 @@ def load_cached_character(config):
     cached = config.get("cached_character")
     if (
         isinstance(cached, dict)
-        and not any(golem.missing_card_fields(cached.get("card", {})))
         and cached.get("card_mtime") == card_mtime
         and cached.get("log_mtime") == log_mtime
         and cached.get("goal_changes") == goal_changes
@@ -554,11 +674,16 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         if "topic" in event and topic != topic_key(event["topic"]):
             raise ValueError("Experience must refer to the event topic")
         estimates = config.setdefault("expectations", {})
-        forecast = event.get("expectation", estimates.get(topic))
-        # A stated forecast belongs to this episode. Repeated observations update the learned prior.
+        dimensions = expectation_dimensions(event, experience)
+        forecast = event.get("expectation", contextual_forecast(config, topic, dimensions, request["at"]))
+        # Preserve legacy topic aggregates as broad fallbacks, while learning
+        # situation-specific evidence independently from current relationship cues.
         prior = estimates.get(topic, forecast)
         estimates[topic] = next_expectation(prior, observed)
+        contextual = record_contextual_expectation(config, topic, dimensions, observed, request["at"])
         request["assessment"] = {
+            "dimensions": dimensions,
+            **({"contextual_expectation": contextual} if contextual is not None else {}),
             "topic": topic, "forecast": forecast, "observed": observed, "before": initial, "after": final,
             "evidence": observed, "next_expectation": estimates[topic],
         }
@@ -719,19 +844,29 @@ def advance(connection, config, now, allow_idle=True):
         )
         return {"status": "failed", "id": event["id"], "error": str(exc)}
 
+    full_recent = recent_events(connection, since_timestamp=at.timestamp() - ACTIVE_MEMORY_WINDOW_SECONDS)
+    recent = compact_recent_events(full_recent)
+    # The full tick remains available for the physiology/appraisal contract.
+    # Recalled memories and current goals already appear at top level.
+    compact_tick = {key: value for key, value in tick.items()
+                    if key not in ("recalled_memories", "current_goals")}
     request = {
         "identity_anchor": build_identity_anchor(card, state),
         "dialect": config.get("dialect"),
         "event": event, "at": at.isoformat(),
         **({"recalled_memories": tick["recalled_memories"]} if tick.get("recalled_memories") else {}),
-        "tick": tick,
+        "tick": compact_tick,
         "character": {key: config[key] for key in ("card", "slug", "log")},
-        "expectations": config.get("expectations", {}),
+        "expectations": relevant_expectations(config.get("expectations", {}), event, recent),
+        "situational_expectations": {
+            topic: contextual_forecast(config, topic, expectation_dimensions(event), at.isoformat())
+            for topic in relevant_expectations(config.get("expectations", {}), event, recent)
+        },
         "motivations": card.get("motivations", {}), "incentives": card.get("incentives", {}),
         "goals": card.get("goals", {}), "goal_updates": (durable or {}).get("goal_updates", {}),
         "current_goals": tick.get("current_goals", {}),
         "goal_evidence": config.get("goal_evidence", {}),
-        "recent": recent_events(connection, since_timestamp=at.timestamp() - ACTIVE_MEMORY_WINDOW_SECONDS),
+        "recent": recent,
         "active_memory_window_seconds": ACTIVE_MEMORY_WINDOW_SECONDS,
     }
     if event.get("activity_due"):
@@ -796,8 +931,8 @@ def advance(connection, config, now, allow_idle=True):
             "the character has an independent, context-supported reason. If a prior action made no progress, "
             "choose a different response, defer, or explain the obstacle."
         ),
-        "recent_action_pattern": repeated_action_pattern(request["recent"]),
-        "recent_reply_pattern": repeated_reply_pattern(request["recent"]),
+        "recent_action_pattern": repeated_action_pattern(full_recent),
+        "recent_reply_pattern": repeated_reply_pattern(full_recent),
     }
     # Surface needs as observations for Simulacra. These are prompts for
     # appraisal, never automatic action orders or claims about available food.
@@ -814,7 +949,7 @@ def advance(connection, config, now, allow_idle=True):
     connection.execute("UPDATE runtime SET data = ? WHERE id = 1", (json.dumps(config),))
     connection.execute(
         "UPDATE events SET status = 'pending', request = ? WHERE id = ?",
-        (json.dumps(request), event["id"]),
+        (json.dumps(request, separators=(",", ":")), event["id"]),
     )
     return {"status": "pending", "id": event["id"]}
 

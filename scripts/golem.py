@@ -191,11 +191,14 @@ def insert_card_defaults(source, data, card_path, changes):
 
 
 def load_character(card_path: Path, slug: str | None) -> dict[str, Any]:
+    """Read a character without modifying its card during a live wake."""
+    card, _ = selected_card(yaml.safe_load(Path(card_path).read_text(encoding="utf-8")), slug)
+    return card
+
+
+def migrate_character_card(card_path: Path, slug: str | None = None) -> dict[str, Any]:
+    """Add missing neutral defaults explicitly, during deployment only."""
     card_path = card_path.resolve()
-    source = card_path.read_text(encoding="utf-8")
-    card, _ = selected_card(yaml.safe_load(source), slug)
-    if not any(missing_card_fields(card)):
-        return card
     with locked_file(card_path):
         source = card_path.read_text(encoding="utf-8")
         data = yaml.safe_load(source)

@@ -433,6 +433,7 @@ def load_cached_character(config):
     cached = config.get("cached_character")
     if (
         isinstance(cached, dict)
+        and not any(golem.missing_card_fields(cached.get("card", {})))
         and cached.get("card_mtime") == card_mtime
         and cached.get("log_mtime") == log_mtime
         and cached.get("goal_changes") == goal_changes

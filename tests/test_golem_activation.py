@@ -11,6 +11,26 @@ from scripts import golem, golem_loop
 
 
 class TestGolemActivation(unittest.TestCase):
+    def test_legacy_card_backfill_preserves_overrides_and_siblings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cards.yaml"
+            path.write_text("characters:\n  a:\n    name: A # keep me\n"
+                            "    physiology_calibration: {hunger_awake_per_hour: 0}\n"
+                            "    canon_adult: false\n  b: {name: B}\n")
+            before = yaml.safe_load(path.read_text())["characters"]["a"]
+            state, _ = golem.overlay_log(before, None)
+            card = golem.load_character(path, "a")
+            self.assertEqual(golem.overlay_log(card, None)[0], state)
+            self.assertEqual(card["physiology_calibration"]["hunger_awake_per_hour"], 0)
+            self.assertEqual(card["age"], 0)
+            self.assertFalse(card["canon_adult"])
+            self.assertFalse(list(golem.missing_card_fields(card)))
+            self.assertIn("# keep me", path.read_text())
+            self.assertEqual(yaml.safe_load(path.read_text())["characters"], {"a": card, "b": {"name": "B"}})
+            stamp = path.stat().st_mtime_ns
+            self.assertEqual(golem.load_character(path, "a"), card)
+            self.assertEqual(path.stat().st_mtime_ns, stamp)
+
     def test_enduring_relationship_attraction_survives_idle_day(self):
         realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
         state, _ = golem.overlay_log({"name": "Rowan", "age": 30, "canon_adult": True}, None)

@@ -11,6 +11,7 @@ plus triggered rules and somatic cues for downstream LLM rendering.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -112,14 +113,106 @@ def parse_realm_num(focus_str: str) -> str:
     return m.group(1) if m else "X"
 
 
+# Only persist defaults that are character-neutral or already used by the runtime.
+CARD_DEFAULTS = {
+    "age": 0, "canon_adult": False, "physical_pain_baseline": 0,
+    "emotional_distress_baseline": 0, "physical_pain_tolerance": 50,
+    "emotional_distress_tolerance": 50, "sexual_drive_baseline": 50,
+    "physiology_calibration": DEFAULT_PHYSIOLOGY_CALIBRATION,
+    "active_focus": "Realm X — The Return", "defense_posture_default": "none",
+    "social_facade_default": "cool_politeness", "default_somatic_alignment": "",
+    "cognitive_bias": "", "cognitive_gift": "", "excluded_cues": [],
+    "transformation_weights": {"latent_anchors": {}, "bias_strength": 60, "somatic_flexibility": 40},
+    "voice": {"conversational_stance": ""}, "skills": [], "relationships": [],
+    "motivations": {}, "incentives": {}, "goals": {},
+}
+
+
+def missing_card_fields(card, defaults=CARD_DEFAULTS, path=()):
+    for key, default in defaults.items():
+        if key not in card:
+            yield path, key, default
+        elif isinstance(default, dict) and isinstance(card[key], dict):
+            yield from missing_card_fields(card[key], default, (*path, key))
+
+
+def selected_card(data, slug):
+    if not isinstance(data, dict):
+        raise ValueError("Character card must be a YAML mapping")
+    if isinstance(data.get("characters"), dict):
+        cards = data["characters"]
+        key = slug or next(iter(cards), None)
+        if key not in cards:
+            raise KeyError(f"Slug '{key}' not found; available: {list(cards)}")
+        if not isinstance(cards[key], dict):
+            raise ValueError("Selected character card must be a YAML mapping")
+        return cards[key], ("characters", key)
+    return data, ()
+
+
+def insert_card_defaults(source, data, card_path, changes):
+    # Insert into the original mappings so comments, quoting and untouched cards survive.
+    root = yaml.compose(source)
+    additions = {}
+    for path, key, value in changes:
+        additions.setdefault(card_path + path, {})[key] = value
+    edits = []
+    for path, fields in additions.items():
+        node = root
+        for part in path:
+            node = next((v for k, v in node.value if k.value == part), None)
+            if node is None:  # A mapping inherited through a YAML merge.
+                break
+        if node is None:
+            break
+        if node.flow_style:
+            pos = node.end_mark.index - 1
+            fragment = (", " if node.value else "") + json.dumps(fields, ensure_ascii=False)[1:-1]
+            if node.value and source[node.value[-1][1].end_mark.index:pos].strip() == ",":
+                fragment = fragment[1:]
+        else:
+            first = node.value[0][0].start_mark
+            pos = first.index
+            indent = " " * first.column
+            lines = yaml.safe_dump(fields, sort_keys=False, allow_unicode=True).rstrip().splitlines()
+            fragment = ("\n" + indent).join(lines) + "\n" + indent
+        edits.append((pos, fragment))
+    else:
+        candidate = source
+        for pos, fragment in sorted(edits, reverse=True):
+            candidate = candidate[:pos] + fragment + candidate[pos:]
+        try:
+            if yaml.safe_load(candidate) == data:
+                return candidate
+        except yaml.YAMLError:
+            pass
+    # Shared aliases and inherited mappings may require materializing a separate card.
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+
+
 def load_character(card_path: Path, slug: str | None) -> dict[str, Any]:
-    data = yaml.safe_load(card_path.read_text(encoding="utf-8"))
-    if "characters" in data and isinstance(data["characters"], dict):
-        key = slug or next(iter(data["characters"]))
-        if key not in data["characters"]:
-            raise KeyError(f"Slug '{key}' not found in {card_path}; available: {list(data['characters'])}")
-        return dict(data["characters"][key])
-    return dict(data)
+    card_path = card_path.resolve()
+    source = card_path.read_text(encoding="utf-8")
+    card, _ = selected_card(yaml.safe_load(source), slug)
+    if not any(missing_card_fields(card)):
+        return card
+    with locked_file(card_path):
+        source = card_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(source)
+        card, path = selected_card(data, slug)
+        changes = list(missing_card_fields(card))
+        if changes:
+            # Copy mappings along the edit path to isolate YAML anchors shared by other cards.
+            for parents, key, default in changes:
+                current = data
+                for part in path + parents:
+                    current[part] = dict(current[part])
+                    current = current[part]
+                current[key] = copy.deepcopy(default)
+            card, _ = selected_card(data, slug)
+            overlay_log(card, None)  # Validate operational values before updating the file.
+            replace_text(card_path, insert_card_defaults(source, data, path, changes))
+        return card
 
 
 def overlay_log(
@@ -954,17 +1047,23 @@ def replace_text(path: Path, text: str) -> None:
 
 
 @contextmanager
-def locked_log(log_path: Path):
-    log_path = log_path.resolve()
-    lock = log_path.with_name(log_path.name + ".lock")
+def locked_file(path: Path):
+    path = path.resolve()
+    lock = path.with_name(path.name + ".lock")
     try:
         lock.mkdir()
     except FileExistsError as exc:
-        raise ValueError(f"Log is locked: {lock}") from exc
+        raise ValueError(f"File is locked: {lock}") from exc
     try:
-        yield yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
+        yield
     finally:
         lock.rmdir()
+
+
+@contextmanager
+def locked_log(log_path: Path):
+    with locked_file(log_path):
+        yield yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
 
 
 def update_log(

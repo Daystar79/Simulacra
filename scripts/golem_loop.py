@@ -277,6 +277,41 @@ def recent_events(connection, limit=RECENT_LIMIT, since_timestamp=None):
     ]
 
 
+def compact_recent_events(events):
+    """Decision-context projection; the complete event ledger remains in SQLite."""
+    compact = []
+    for entry in events:
+        event, decision = entry.get("event") or {}, entry.get("decision") or {}
+        item = {"id": event.get("id"), "kind": event.get("kind"), "at": entry.get("at"),
+                "status": entry.get("status")}
+        if event.get("topic"):
+            item["topic"] = event["topic"]
+        if event.get("context"):
+            item["context"] = str(event["context"])[:320]
+        for key in ("action", "outcome", "reply"):
+            if isinstance(decision.get(key), str) and decision[key]:
+                item[key] = decision[key][:320]
+        assessment = entry.get("assessment") or {}
+        for key in ("topic", "forecast", "observed", "next_expectation"):
+            if key in assessment:
+                item[key] = assessment[key]
+        compact.append(item)
+    return compact
+
+
+def relevant_expectations(expectations, event, recent, limit=12):
+    """Surface matching learned topics, not the entire cumulative expectation map."""
+    topics = []
+    for candidate in [event.get("topic"), *(item.get("topic") for item in reversed(recent))]:
+        if isinstance(candidate, str):
+            key = candidate.strip().casefold()
+            if key and key not in topics and key in expectations:
+                topics.append(key)
+        if len(topics) >= limit:
+            break
+    return {key: expectations[key] for key in topics}
+
+
 def repeated_action_pattern(events, window=5):
     """Describe consecutive duplicate actions without changing or rejecting them."""
     actions = [
@@ -719,19 +754,25 @@ def advance(connection, config, now, allow_idle=True):
         )
         return {"status": "failed", "id": event["id"], "error": str(exc)}
 
+    full_recent = recent_events(connection, since_timestamp=at.timestamp() - ACTIVE_MEMORY_WINDOW_SECONDS)
+    recent = compact_recent_events(full_recent)
+    # The full tick remains available for the physiology/appraisal contract.
+    # Recalled memories and current goals already appear at top level.
+    compact_tick = {key: value for key, value in tick.items()
+                    if key not in ("recalled_memories", "current_goals")}
     request = {
         "identity_anchor": build_identity_anchor(card, state),
         "dialect": config.get("dialect"),
         "event": event, "at": at.isoformat(),
         **({"recalled_memories": tick["recalled_memories"]} if tick.get("recalled_memories") else {}),
-        "tick": tick,
+        "tick": compact_tick,
         "character": {key: config[key] for key in ("card", "slug", "log")},
-        "expectations": config.get("expectations", {}),
+        "expectations": relevant_expectations(config.get("expectations", {}), event, recent),
         "motivations": card.get("motivations", {}), "incentives": card.get("incentives", {}),
         "goals": card.get("goals", {}), "goal_updates": (durable or {}).get("goal_updates", {}),
         "current_goals": tick.get("current_goals", {}),
         "goal_evidence": config.get("goal_evidence", {}),
-        "recent": recent_events(connection, since_timestamp=at.timestamp() - ACTIVE_MEMORY_WINDOW_SECONDS),
+        "recent": recent,
         "active_memory_window_seconds": ACTIVE_MEMORY_WINDOW_SECONDS,
     }
     if event.get("activity_due"):
@@ -796,8 +837,8 @@ def advance(connection, config, now, allow_idle=True):
             "the character has an independent, context-supported reason. If a prior action made no progress, "
             "choose a different response, defer, or explain the obstacle."
         ),
-        "recent_action_pattern": repeated_action_pattern(request["recent"]),
-        "recent_reply_pattern": repeated_reply_pattern(request["recent"]),
+        "recent_action_pattern": repeated_action_pattern(full_recent),
+        "recent_reply_pattern": repeated_reply_pattern(full_recent),
     }
     # Surface needs as observations for Simulacra. These are prompts for
     # appraisal, never automatic action orders or claims about available food.
@@ -814,7 +855,7 @@ def advance(connection, config, now, allow_idle=True):
     connection.execute("UPDATE runtime SET data = ? WHERE id = 1", (json.dumps(config),))
     connection.execute(
         "UPDATE events SET status = 'pending', request = ? WHERE id = ?",
-        (json.dumps(request), event["id"]),
+        (json.dumps(request, separators=(",", ":")), event["id"]),
     )
     return {"status": "pending", "id": event["id"]}
 

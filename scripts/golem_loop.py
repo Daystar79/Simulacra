@@ -936,6 +936,9 @@ def advance(connection, config, now, allow_idle=True):
     target = event.get("relationship_target")
     relationship = (relationship_state_at(config, target, at.isoformat())
                     if isinstance(target, str) and target else None)
+    current_dimensions = expectation_dimensions(event)
+    if relationship:
+        current_dimensions["relationship"] = {"target": target, **relationship.get("values", {})}
     request = {
         **({"relationship_state": relationship} if relationship else {}),
         "identity_anchor": build_identity_anchor(card, state),
@@ -946,7 +949,7 @@ def advance(connection, config, now, allow_idle=True):
         "character": {key: config[key] for key in ("card", "slug", "log")},
         "expectations": relevant_expectations(config.get("expectations", {}), event, recent),
         "situational_expectations": {
-            topic: contextual_forecast(config, topic, expectation_dimensions(event), at.isoformat())
+            topic: contextual_forecast(config, topic, current_dimensions, at.isoformat())
             for topic in relevant_expectations(config.get("expectations", {}), event, recent)
         },
         "motivations": card.get("motivations", {}), "incentives": card.get("incentives", {}),
@@ -1054,6 +1057,8 @@ def execute(db, args):
             return advance(connection, config, now)
         if args.command == "recalculate-expectations":
             return recalculate_expectations(connection, config)
+        if args.command == "compact-history":
+            return compact_event_requests(connection, apply=args.apply)
         if args.command == "enqueue":
             event = read_object(args.event)
             if event.get("kind") == "incoming" and config.get("owned_files"):
@@ -1298,6 +1303,8 @@ def main(argv):
     commands.add_parser("pending")
     commands.add_parser("status")
     commands.add_parser("recalculate-expectations", help="Refresh current estimates from recorded outcomes")
+    compact = commands.add_parser("compact-history", help="Losslessly compress completed event requests")
+    compact.add_argument("--apply", action="store_true", help="Archive completed requests (default is preview)")
     commands.add_parser("timeline").add_argument("--limit", type=int, default=100)
     commands.add_parser("learned").add_argument("topic")
     commands.add_parser("enqueue").add_argument("event", type=Path)

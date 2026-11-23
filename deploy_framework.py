@@ -443,6 +443,10 @@ def deploy_to_path(source_dir: str, target_dir: str, *, force: bool = False) -> 
             shutil.rmtree(stale_d)
             print(f"    Removed retired directory: {rel_d}/")
 
+    # Named cards are migrated only after framework deployment; never overwritten.
+    if not is_new:
+        migrate_installed_cards(Path(source_dir), Path(target_dir))
+
     print(f"[✓] Deployment to '{os.path.basename(target_dir)}' completed successfully!")
     print("  (Skipped author-local only: named character cards, Relations.md)")
     print("  (Skipped overwriting existing product README/CHANGELOG/LICENSE/DISCLAIMER)")

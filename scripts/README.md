@@ -264,3 +264,11 @@ For a new event, the host can supply a small `expectation_context` mapping with 
 When resolving an outcome, the host may supply `experience.expectation_context` to record the context actually observed; otherwise the event's context is used. Each observed benefit/cost updates a bounded per-topic contextual evidence record. The older topic-only expectation remains a broad fallback for compatibility. The pending request surfaces `situational_expectations` for matching recent/current topics, without shipping the full evidence collection. Relationship cues must be refreshed by the host as relationships evolve; this patch does **not** invent automatic relationship growth/decay or infer trust from elapsed time.
 
 Old records remain intact. No historical data is deleted or rewritten. Contextual matches are heuristic, not causal conclusions; a separate relationship-state subsystem should own how trust and attachment change over time.
+
+
+
+### Character-card migration during release updates
+
+Run `python3 scripts/run.py deploy --update /path/to/installation --check` to preview framework changes **and** missing character-card defaults. Run without `--check` to apply. Deployment migrates named YAML cards under `Characters/` using Golem's neutral defaults, retaining existing values, logs, and SQLite state. Modified cards receive timestamped `.predeploy-*.bak` backups. Repeated updates do not add fields again.
+
+Normal `golem.load_character()` calls are read-only: incoming messages never rewrite character cards. Cards stored outside the installation's `Characters/` directory are not discovered automatically; migrate them explicitly with `golem.migrate_character_card(path, slug)` before starting the host. Stop character wakes during deployment.

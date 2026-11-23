@@ -109,6 +109,66 @@ UPDATE_FILES = [
 ]
 
 
+def migrate_installed_cards(source: Path, target: Path, *, check: bool = False) -> int:
+    """Preflight and migrate installed named cards, never logs or templates.
+
+    Runs before the framework files are replaced, using the release's schema.
+    Backups are kept beside modified cards so a deployment cannot silently
+    overwrite a character's original identity.
+    """
+    import yaml
+
+    sys.path.insert(0, str(source / "scripts"))
+    try:
+        import golem
+    finally:
+        sys.path.pop(0)
+
+    root = target / "Characters"
+    if not root.is_dir():
+        return 0
+    candidates = []
+    for path in sorted(root.rglob("*.yaml")):
+        if path.is_symlink() or path.name.startswith("_") or "log" in path.stem.lower():
+            continue
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            continue
+        if isinstance(data.get("characters"), dict):
+            slugs = list(data["characters"])
+        elif any(key in data for key in ("age", "canon_adult", "physical", "motivations", "cognitive_bias")):
+            slugs = [None]
+        else:
+            continue
+        for slug in slugs:
+            card, _ = golem.selected_card(data, slug)
+            if any(golem.missing_card_fields(card)):
+                candidates.append((path, slug))
+
+    if check:
+        for path, slug in candidates:
+            print(f"Card migration: {path.relative_to(target)}" + (f" [{slug}]" if slug else ""))
+        return len(candidates)
+
+    from datetime import datetime, timezone
+    backups = {}
+    try:
+        for path, slug in candidates:
+            if path not in backups:
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+                backup = path.with_name(path.name + f".predeploy-{stamp}.bak")
+                shutil.copy2(path, backup)
+                backups[path] = backup
+            golem.migrate_character_card(path, slug)
+    except Exception:
+        for path, backup in backups.items():
+            shutil.copy2(backup, path)
+        raise
+    if backups:
+        print(f"Migrated {len(candidates)} card entries in {len(backups)} files; backups retained")
+    return len(candidates)
+
+
 def update_installation(source: Path, target: Path, *, check: bool = False) -> None:
     """Refresh an installed framework between host wakes, preserving character data."""
     source, target = source.resolve(), target.resolve()
@@ -132,8 +192,10 @@ def update_installation(source: Path, target: Path, *, check: bool = False) -> N
     if check:
         for name in changes:
             print(name)
-        print(f"{len(changes)} files would change in {target}")
+        count = migrate_installed_cards(source, target, check=True)
+        print(f"{len(changes)} files and {count} character-card entries would change in {target}")
         return
+    migrate_installed_cards(source, target)
     if changes:
         with tempfile.TemporaryDirectory(prefix=".simulacra-update-", dir=target) as tmp:
             staged = Path(tmp)

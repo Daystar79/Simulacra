@@ -251,3 +251,16 @@ The pending decision request carries a compact projection of recent episodes (ev
 This is a context-transport optimization, **not** deletion of memories, logs, or physiological history. Hosts should use the request's `identity_anchor` and relevant context rather than re-reading the full card on every turn; load additional character detail only when necessary. Always resolve the exact pending event ID. Existing pending requests created before an update are not rewritten automatically.
 
 Incoming events still use chronological ordering. Priority scheduling needs a separate clock-safe change because processing a newer incoming event before an older due event can violate Golem's monotonic event-time rule.
+
+
+### Relational, situational and contextual expectations
+
+For a new event, the host can supply a small `expectation_context` mapping with `relationship`, `situation` and `context` keys. These describe the **current** relational state and circumstances, not permanent relationship labels. For example:
+
+```json
+{"id":"chat-42","kind":"incoming","topic":"teasing","expectation_context":{"relationship":{"target":"friend-7","trust":"strained"},"situation":"private conversation","context":{"tone":"serious"}}}
+```
+
+When resolving an outcome, the host may supply `experience.expectation_context` to record the context actually observed; otherwise the event's context is used. Each observed benefit/cost updates a bounded per-topic contextual evidence record. The older topic-only expectation remains a broad fallback for compatibility. The pending request surfaces `situational_expectations` for matching recent/current topics, without shipping the full evidence collection. Relationship cues must be refreshed by the host as relationships evolve; this patch does **not** invent automatic relationship growth/decay or infer trust from elapsed time.
+
+Old records remain intact. No historical data is deleted or rewritten. Contextual matches are heuristic, not causal conclusions; a separate relationship-state subsystem should own how trust and attachment change over time.

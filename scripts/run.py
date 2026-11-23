@@ -137,7 +137,9 @@ def run_python_core(tool: str, args: list[str]) -> int:
     py = find_python()
     cmd = [*py, str(core), *args]
     print(f"[run] python core → {core.relative_to(ROOT)}", file=sys.stderr, flush=True)
-    return subprocess.call(cmd, cwd=str(ROOT))
+    # Golem locates its bundled resources from __file__. Relative character
+    # files belong to the calling host's working directory.
+    return subprocess.call(cmd, cwd=None if tool == "golem" else str(ROOT))
 
 
 def usage() -> None:

@@ -33,6 +33,8 @@ Adapt executable paths to the target OS and environment. Preserve the host's exi
 
 ## Phase 3 — Wire persistent execution
 
+For multiple characters on one VM, provision a private profile per character. Route every message and heartbeat from its configured character ID, use a separate model conversation per character, and return both the character ID and event ID on each profile decision. The shared checkout contains the code. Each profile directory contains the writable state. [Multi-character setup](README.md#multiple-characters-on-one-machine)
+
 - Provision exactly one durable SQLite database per character, with the correct card and optional log.
 - Initialize only when the database does not already exist. For old CLI history, follow the documented `--import-history` migration rather than discarding state.
 - Make the repository importable to the host Python interpreter.

@@ -34,6 +34,8 @@ The Golem and loop commands return JSON objects on stdout. Errors go to stderr a
 
 ## Persistent host loop
 
+For multiple characters on one VM, provision a private profile per character. Route every message and heartbeat from its configured character ID, use a separate model conversation per character, and return both the character ID and event ID on each profile decision. The shared checkout contains the code. Each profile directory contains the writable state. [Multi-character setup](README.md#multiple-characters-on-one-machine)
+
 Initialize one database per character. On incoming turns and scheduled heartbeats, invoke `scripts.golem_loop.wake_character(db_path, decide, compact=True, event=optional_event)`. `decide(request)` must run the Simulacra cognitive decision process and return the same event ID. The compact request carries computed `emotions`, current bodily cues, motivations, goals, recent events, and `maintenance_needs` (hunger, fatigue, sleep debt, activity, and an evaluation hint).
 
 Maintenance handoff:

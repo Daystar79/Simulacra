@@ -31,6 +31,8 @@ Do not run both modes as independent writers for the same character. If migratin
 
 ## Provision one character
 
+For multiple characters on one VM, provision a private profile per character. Route every message and heartbeat from its configured character ID, use a separate model conversation per character, and return both the character ID and event ID on each profile decision. The shared checkout contains the code. Each profile directory contains the writable state. [Multi-character setup](README.md#multiple-characters-on-one-machine)
+
 Use absolute paths in production. Ensure the character card and optional existing durable log are accessible to the host process.
 
 ```python

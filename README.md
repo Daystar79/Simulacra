@@ -57,6 +57,33 @@ wake_character(db_path, decide, compact=True, event={
 
 The host provides the paths, message data, and `decide(request)` function. The callback returns a decision with the pending event's ID. It can include a reply, private action, observed outcome, or future plan. A pending decision survives a restart. The integration guide covers hourly scheduling, contextual boundaries, and delivery retries. [Host integration](scripts/README.md#always-on-golem-loop)
 
+## Multiple characters on one machine
+
+Use one checkout for the code and a persistent directory for the cast. Provision each character once, for example:
+
+```bash
+python3 scripts/run.py golem loop --characters-dir /srv/characters --character-id talia init --card /cards/talia.yaml
+python3 scripts/run.py golem loop --characters-dir /srv/characters --character-id selene init --card /cards/selene.yaml
+```
+
+Each directory contains its own `character.yaml`, `character_log.yaml`, and `runtime.sqlite3`. The database holds that character's event queue, memories recorded through learning, goals, and decisions. A shared source card pack can supply both characters. Provisioning copies the selected entry into each directory. Use `--log` to seed the private log. Use the card's stable `character_id` when present. A standalone source card without one receives the chosen ID in its private copy. For a pack the default selection key is the requested ID.
+
+Bind chat sessions, scheduled jobs, model history, delivery receipts, and any host-generated files to that directory's character. Return both `character_id` and `id` from the request when resolving a decision. Two characters can receive the same message ID independently.
+
+Use the same character route for durable memory writes. For example, `golem loop --characters-dir /srv/characters --character-id talia remember memory.json` saves an approved memory to Talia's log. The host can store any extra transcript or snapshot files alongside her database.
+
+```python
+from scripts.golem_loop import character_database, initialize_profile, wake_character
+
+# For a new installation this provisions the same layout as the CLI.
+initialize_profile("/srv/characters", "talia", "/cards/talia.yaml")
+# On each wake, the host supplies the ID bound to this chat or scheduled job.
+db = character_database("/srv/characters", character_id)
+wake_character(db, decide, event=event, compact=True, character_id=character_id)
+```
+
+For an existing character, pause its host and use `init --from-db /absolute/path/to/character.sqlite3` in a fresh profile directory to retain pending work and history. The source database is preserved. Existing single-character integrations can continue using `--db`. Golem now resolves relative file arguments from the caller's working directory. Use absolute paths for jobs that previously relied on checkout-relative paths. [Muse setup and import](Muse.AI/INSTALLATION.md)
+
 ## Update an existing host
 
 Between wakes, run `git pull --ff-only` in the VM's Simulacra checkout on the release branch you follow. Restart any long-running host that imports Golem or caches the pipeline. A fresh process on each cron invocation loads the updated files on its next wake. Resume with the existing database, card, and log paths.

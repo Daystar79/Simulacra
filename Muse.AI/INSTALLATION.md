@@ -10,61 +10,49 @@ Muse's audited persistent workspace is `~/workspace`. Use this default checkout 
 export SIMULACRA_DIR="${SIMULACRA_DIR:-$HOME/workspace/repos/Simulacra}"
 export SIMULACRA_DATA="$HOME/workspace/simulacra"
 export CHARACTER_ID="rowan"
-export CHARACTER_DIR="$SIMULACRA_DATA/characters/$CHARACTER_ID"
-export DB="$CHARACTER_DIR/runtime.sqlite3"
-export CARD="$CHARACTER_DIR/character.yaml"
-export LOG="$CHARACTER_DIR/character_log.yaml"
+export CHARACTERS_DIR="$SIMULACRA_DATA/characters"
 ```
 
-Override only `SIMULACRA_DIR` for a different checkout. Keep the DB, copied character card, durable memory/log, and any other data needed after replacement under `~/workspace`. The repository itself can be recloned or replaced; the DB and canon data must not be stored in it.
+Bind the ID separately in each chat adapter and heartbeat. Give each character its own Muse conversation history and tool working directory under `$CHARACTERS_DIR/$CHARACTER_ID`. Share the checkout and read-only framework instructions across jobs.
 
-## 2. Install the skill instructions and character files
+## 2. Provision or import a character
 
-Load `Muse.AI/SKILL.md` as the Muse agent's Simulacra skill/instructions. Configure the scheduled agent to use the character's existing Simulacra card, log, goals, and character context. Copy existing files without editing canon:
+Install Python 3, PyYAML and the Muse skill. To create a new character runtime from authored files:
 
 ```bash
-mkdir -p "$CHARACTER_DIR"
-cp /path/to/existing/character.yaml "$CARD"
-cp /path/to/existing/character_log.yaml "$LOG"  # omit only when no log exists
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" init --card /path/to/rowan.yaml --log /path/to/rowan_log.yaml
 ```
 
-Install Python 3, PyYAML, and the Simulacra checkout. Verify the CLI:
+For an existing character, pause its old chat handler and heartbeat. Choose a fresh destination directory under a suitable characters root. Import its existing database in place of running the fresh-card command:
 
 ```bash
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --help
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" init --from-db /path/to/old.sqlite3
 ```
 
-Initialize a new character DB once:
-
-```bash
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" init \
-  --card "$CARD" --log "$LOG" --idle-seconds 3600
-```
-
-Do not run `init` against an existing DB. Omit `--log` only if no durable character log is configured.
+The importer copies the SQLite ledger, pending work, current card and durable log. Registered character-owned files are copied too. Place any separate host-maintained transcripts or attachments in the new character directory. Resume the chat handler and heartbeat against the new profile. If the old history already includes material from multiple characters, it requires review before import. [Profile layout and Python API](../README.md#multiple-characters-on-one-machine)
 
 ## 3. Configure scheduled agent jobs
 
 Schedule the host job at the desired cadence. It prepares one due event and follows the decision and receipt contract in the [Muse host guide](SKILL.md#prepare-and-resolve-one-turn).
 
 ```bash
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" prepare
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" prepare
 ```
 
 ## 4. Incoming messages
 
 Have the messaging adapter call `prepare --event -` with the stable transport ID and message as event JSON on stdin. Feed the returned decision context to Simulacra once. Resolve its decision with `resolve --receipt -` and deliver the accepted reply, deduplicated by character and event ID. Follow the same guide for retries and earlier pending work. Replace any older per-message job instructions that request a full tick, separate snapshot files, or a written emotional rationale.
 
-For a Python adapter, use `wake_character(db, decide, event=incoming, compact=True)`. Preserve the host's boundary screening and trusted actor ID. Runtimes with registered owned files require the screened Python adapter for incoming events.
+For a Python adapter, use `wake_character(db, decide, event=incoming, character_id=character_id, compact=True)`. Preserve the host's boundary screening and trusted actor ID. Runtimes with registered owned files require the screened Python adapter for incoming events.
 
 ## 5. VM replacement recovery
 
 After replacement, use the same persistent DB and scheduled job. Check runtime state:
 
 ```bash
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" status
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" pending
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" timeline --limit 100
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" status
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" pending
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" timeline --limit 100
 ```
 
 An unresolved pending request is returned unchanged. Active or due activities and their original timestamps/event IDs are stored in SQLite. Resolve a pending request before asking for another wake. If no request is pending, `run --once` processes the next due plan or idle wake. Activity start/completion/interruption and Golem state changes share a DB transaction; duplicate resolution of the same event ID does not apply consequences again. The runtime migrates older databases by creating its activity table without replacing existing state.

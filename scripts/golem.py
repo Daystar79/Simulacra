@@ -143,7 +143,7 @@ def selected_card(data, slug):
         cards = data["characters"]
         key = slug or next(iter(cards), None)
         if key not in cards:
-            raise KeyError(f"Slug '{key}' not found; available: {list(cards)}")
+            raise ValueError(f"Slug '{key}' not found; available: {list(cards)}")
         if not isinstance(cards[key], dict):
             raise ValueError("Selected character card must be a YAML mapping")
         return cards[key], ("characters", key)
@@ -252,6 +252,8 @@ def overlay_log(
         return state, None
 
     log_data = yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
+    if card.get("character_id") and log_data.get("character_id") not in (None, card["character_id"]):
+        raise ValueError("Character ID mismatch between card and durable log")
     snap = log_data.get("snapshot") or {}
     if snap.get("active_focus"):
         state["active_focus"] = snap["active_focus"]
@@ -499,6 +501,8 @@ def run_golem(
     history: dict[str, Any],
 ) -> dict[str, Any]:
     rules: list[str] = []
+    if history.get("character_id") not in (None, state["character_id"]):
+        raise ValueError("Character ID mismatch in carried history")
     threat = clamp(stimulus.get("threat_level", 10))
     social_p = clamp(stimulus.get("social_pressure", 20))
     physical_pain_tolerance = state.get("physical_pain_tolerance", 50)
@@ -990,6 +994,7 @@ def run_golem(
             "commit_eligible": commit_eligible,
         },
         "next_history": {
+            "character_id": state["character_id"],
             **clock_state,
             "release_state": release,
             "felt_emotions": felt,
@@ -1072,12 +1077,17 @@ def locked_log(log_path: Path):
 def update_log(
     log_path: Path, output: dict[str, Any] | None = None, *,
     commit: bool = False, force: bool = False, memory: dict[str, Any] | None = None,
+    character_id: str | None = None,
 ) -> tuple[bool, bool]:
     commit_pressure = output is not None and (force or (commit and output["golem_meta"]["commit_eligible"]))
     if not commit_pressure and memory is None:
         return False, False
 
     with locked_log(log_path) as log_data:
+        if character_id is not None and log_data.get("character_id") != character_id:
+            raise ValueError("Character ID mismatch when saving the durable log")
+        if output is not None and log_data.get("character_id") not in (None, output["psychosomatic_snapshot"]["character_id"]):
+            raise ValueError("Character ID mismatch when saving the durable log")
         saved_memory = memory is not None and add_memory(log_data, memory)
         if commit_pressure:
             record_pressure_commit(log_data, output)

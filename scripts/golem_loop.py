@@ -5,12 +5,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 import zlib
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -173,11 +176,41 @@ def apply_activity_decision(connection, activity, event_id, at):
         return {"state": state, "op": op, "activity_id": activity_id}
 
 
+def character_database(characters_dir, character_id):
+    """Locate a character under a shared state root without any process-wide active character."""
+    if not isinstance(character_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", character_id):
+        raise ValueError("Use a lowercase character ID containing letters, digits, underscores or hyphens")
+    root = Path(characters_dir).resolve()
+    path = root / character_id / "runtime.sqlite3"
+    if path.resolve() != path or (path.exists() and path.stat().st_nlink != 1):
+        raise ValueError("Character runtime directories and databases must have distinct physical paths")
+    return path
+
+
+def check_character_files(config, card, durable):
+    owner = config.get("character_id")
+    if owner is None:
+        return
+    identity = card.get("character_id") or config.get("slug") or (card.get("call_name") or card.get("name") or "").lower()
+    if identity != owner:
+        raise ValueError(f"Card identity {identity!r} does not match character ID {owner!r}")
+    if config.get("log") and (durable or {}).get("character_id") != owner:
+        raise ValueError(f"Durable log must declare character_id: {owner}")
+    if config["history"].get("character_id") not in (None, owner):
+        raise ValueError("Character ID mismatch in runtime history")
+
+
 def setup(connection, args, now):
     ensure_activity_schema(connection)
     card = args.card.resolve(strict=True)
     log = args.log.resolve(strict=True) if args.log else None
-    golem.overlay_log(golem.load_character(card, args.slug), log)
+    owner = getattr(args, "character_id", None)
+    slug = args.slug
+    if owner and not slug:
+        # Select by route for a shared pack. Single-card files retain their own identity.
+        data = yaml.safe_load(card.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("characters"), dict):
+            slug = owner
     history = read_object(args.import_history) if args.import_history else {}
     if args.history_at:
         if history.get("last_event_at"):
@@ -190,7 +223,8 @@ def setup(connection, args, now):
     if args.idle_seconds < 1:
         raise ValueError("--idle-seconds must be at least 1")
     config = {
-        "card": str(card), "log": str(log) if log else None, "slug": args.slug,
+        "card": str(card), "log": str(log) if log else None, "slug": slug,
+        **({"character_id": owner} if owner else {}),
         "idle_seconds": args.idle_seconds, "history": history,
         "idle_at": (now + timedelta(seconds=args.idle_seconds)).timestamp(),
     }
@@ -221,6 +255,11 @@ def read_object(path: Path) -> dict[str, Any]:
 
 
 def enqueue(connection, event, history, now):
+    if "character_id" in event:
+        config = runtime_config(connection)
+        owner = config.get("character_id") or config.get("cached_character", {}).get("state", {}).get("character_id")
+        if event["character_id"] != owner:
+            raise ValueError("Event character ID does not match the selected database")
     event_id = event.get("id")
     if not isinstance(event_id, str) or not event_id.strip() or event_id.startswith("idle:"):
         raise ValueError("Event id must be nonempty and cannot begin with idle:")
@@ -393,6 +432,18 @@ def pending_request(connection):
     if not row:
         return None
     request = json.loads(row["request"])
+    owner, profile = connection.execute(
+        "SELECT json_extract(data,'$.character_id'), json_extract(data,'$.profile') FROM runtime WHERE id=1"
+    ).fetchone()
+    if owner:
+        snapshot_id = request["tick"]["psychosomatic_snapshot"]["character_id"]
+        if snapshot_id != owner:
+            raise ValueError("Pending tick belongs to a different character")
+        request["character_id"] = owner
+    if profile:
+        directory = Path(connection.execute("PRAGMA database_list").fetchone()["file"]).parent
+        request["character"] = {"card": str(directory / "character.yaml"),
+                                "log": str(directory / "character_log.yaml"), "slug": None}
     if request["event"]["kind"] == "incoming":
         request["reply_guidance"] = {
             "stance": (
@@ -446,7 +497,7 @@ def decision_context(request):
     for key in ("initiative", "impulse"):
         if key in affect:
             context[key] = affect[key]
-    for key in ("identity_anchor", "dialect", "current_goals", "motivations", "incentives",
+    for key in ("character_id", "identity_anchor", "dialect", "current_goals", "motivations", "incentives",
                 "recalled_memories", "learned", "activity", "maintenance_needs", "expectations",
                 "situational_expectations", "relationship_state", "reply_guidance"):
         if request.get(key):
@@ -487,8 +538,28 @@ def scores(value):
     return {key: value[key] for key in ("benefit", "cost")}
 
 
-def runtime_config(connection):
+def runtime_config(connection, character_id=None):
     config = json.loads(connection.execute("SELECT data FROM runtime WHERE id = 1").fetchone()["data"])
+    if config.get("profile"):
+        directory = Path(connection.execute("PRAGMA database_list").fetchone()["file"]).parent
+        if directory.name != config["character_id"]:
+            raise ValueError("Profile database must stay in its character's directory")
+        for field, filename in (("card", "character.yaml"), ("log", "character_log.yaml")):
+            path = directory / filename
+            if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:
+                raise ValueError(f"Profile requires a private {filename} in {directory}")
+            config[field] = str(path)
+    if character_id is not None and config.get("character_id") != character_id:
+        if config.get("character_id") or config.get("lifecycle"):
+            raise ValueError("Character ID does not match the selected database")
+        # Adopt an existing single-character database in place. Verify the
+        # stored identity and current files before enabling scoped decisions.
+        config["character_id"] = character_id
+        cached = config.pop("cached_character", None)
+        if cached:
+            check_character_files(config, cached["card"], cached["durable"])
+        load_cached_character(config)
+        connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     if config.get("lifecycle") == "deleted":
         # Older tombstones can still have rows in the two newer ledger tables.
         clear_activity_and_archive(connection)
@@ -713,6 +784,9 @@ def load_cached_character(config):
         )
     card = golem.load_character(card_path, config.get("slug"))
     state, durable = golem.overlay_log(card, log_path, goal_changes=goal_changes)
+    check_character_files(config, card, durable)
+    if config.get("character_id"):
+        state["character_id"] = config["character_id"]
     config["cached_character"] = {
         "card_mtime": card_mtime,
         "log_mtime": log_mtime,
@@ -883,6 +957,13 @@ def copied_card_field(card, reply):
 
 
 def resolve(connection, decision, history, now):
+    config = runtime_config(connection)
+    owner = config.get("character_id")
+    if owner is not None and decision.get("character_id") != owner:
+        raise ValueError("Decision must include the pending character_id")
+    if owner is None and "character_id" in decision:
+        if decision["character_id"] != config.get("cached_character", {}).get("state", {}).get("character_id"):
+            raise ValueError("Decision belongs to a different character")
     event_id = decision.get("id")
     if not isinstance(event_id, str):
         raise ValueError("Decision requires an event id")
@@ -905,12 +986,15 @@ def resolve(connection, decision, history, now):
         if not isinstance(sources, list) or any(not isinstance(source, str) for source in sources):
             raise ValueError("Learning sources must be an array of text references")
     row = connection.execute("SELECT status, decision, request FROM events WHERE id = ?", (event_id,)).fetchone()
-    if row and row["status"] == "resolved" and json.loads(row["decision"]) == decision:
-        return {"id": event_id, "resolved": False}
+    if row and row["status"] == "resolved":
+        accepted = json.loads(row["decision"])
+        if owner:
+            accepted.setdefault("character_id", owner)  # Pre-profile delivery retry.
+        if accepted == decision:
+            return {"id": event_id, "resolved": False}
     if not row or row["status"] != "pending":
         raise ValueError("Decision must refer to the pending event")
     if "reply" in decision:
-        config = runtime_config(connection)
         card = golem.load_character(Path(config["card"]), config["slug"])
         field = copied_card_field(card, decision["reply"])
         if field:
@@ -1017,6 +1101,7 @@ def advance(connection, config, now, allow_idle=True):
     if relationship:
         current_dimensions["relationship"] = {"target": target, **relationship.get("values", {})}
     request = {
+        **({"character_id": config["character_id"]} if config.get("character_id") else {}),
         **({"relationship_state": relationship} if relationship else {}),
         "identity_anchor": build_identity_anchor(card, state),
         "dialect": config.get("dialect"),
@@ -1126,7 +1211,10 @@ def execute(db, args):
         if args.command == "init":
             return setup(connection, args, now)
         ensure_activity_schema(connection)
-        config = runtime_config(connection)
+        config = runtime_config(connection, getattr(args, "character_id", None))
+        if getattr(args, "characters_dir", None) and not config.get("profile") and not config.get("lifecycle"):
+            raise ValueError("Use --db for this legacy runtime or import it into a new character directory")
+        tag = {"character_id": config["character_id"]} if config.get("character_id") else {}
         if config.get("lifecycle"):
             return {"status": config["lifecycle"]}
         if args.command == "run":
@@ -1145,7 +1233,7 @@ def execute(db, args):
             if not queued["queued"]:
                 receipt = completed_event(connection, event["id"])
                 if receipt:
-                    return receipt
+                    return {**tag, **receipt}
         if args.command == "prepare":
             result = advance(connection, config, now)
             if result["status"] in ("pending", "waiting_for_host"):
@@ -1155,7 +1243,7 @@ def execute(db, args):
             decision = read_object(args.decision)
             result = resolve(connection, decision, config["history"], now)
             if getattr(args, "receipt", False):
-                return {"id": decision["id"], "status": "resolved",
+                return {**tag, "id": decision["id"], "status": "resolved",
                         **({"reply": decision["reply"]} if "reply" in decision else {})}
             return result
         if args.command == "pending":
@@ -1164,6 +1252,12 @@ def execute(db, args):
             return recent_events(connection, args.limit)
         if args.command == "learned":
             return learned_observations(connection, args.topic)
+        if args.command == "remember":
+            if not config.get("log"):
+                raise ValueError("No durable YAML log is configured")
+            _, saved = golem.update_log(Path(config["log"]), memory=read_object(args.memory),
+                                        character_id=config.get("character_id"))
+            return {**tag, "memory_saved": saved}
         activities = [dict(row) | {"data": json.loads(row["data"])} for row in connection.execute(
             "SELECT * FROM activities ORDER BY started_at")]
         return {"history": config["history"], "expectations": config.get("expectations", {}),
@@ -1171,10 +1265,10 @@ def execute(db, args):
                 "recent": recent_events(connection)}
 
 
-def commit_goal_updates(db):
+def commit_goal_updates(db, *, character_id=None):
     """Merge the host-approved batch of pending goal amendments into the configured YAML log."""
     with transaction(Path(db).resolve(strict=True)) as connection:
-        config = runtime_config(connection)
+        config = runtime_config(connection, character_id)
         if config.get("lifecycle"):
             raise ValueError("This character runtime is closed")
         changes = config.get("goal_changes", {})
@@ -1186,6 +1280,8 @@ def commit_goal_updates(db):
         if path.samefile(config["card"]):
             raise ValueError("The durable log must be a separate file from the character card")
         with golem.locked_log(path) as log:
+            if config.get("character_id") and log.get("character_id") != config["character_id"]:
+                raise ValueError("Cannot write goal updates to a different character's log")
             updates = log.setdefault("goal_updates", {})
             changed = False
             for goal_id, fields in changes.items():
@@ -1205,11 +1301,12 @@ def commit_goal_updates(db):
 
 
 def initialize_character(db, card, *, log=None, slug=None, idle_seconds=3600,
-                         import_history=None, history_at=None, owned_files=()):
+                         import_history=None, history_at=None, owned_files=(), character_id=None):
     """Create a new character runtime once. Existing databases are preserved."""
     args = argparse.Namespace(
         card=Path(card), log=Path(log) if log else None, slug=slug, idle_seconds=idle_seconds,
         import_history=Path(import_history) if import_history else None, history_at=history_at,
+        character_id=character_id,
     )
     with transaction(Path(db)) as connection:
         result = setup(connection, args, datetime.now(timezone.utc))
@@ -1233,6 +1330,100 @@ def initialize_character(db, card, *, log=None, slug=None, idle_seconds=3600,
         return result
 
 
+def initialize_profile(characters_dir, character_id, card=None, *, log=None, slug=None,
+                       idle_seconds=3600, import_history=None, history_at=None, from_db=None):
+    """Publish a complete, physically independent character directory in one rename."""
+    db = character_database(characters_dir, character_id)
+    directory = db.parent
+    if directory.exists() and any(directory.iterdir()):
+        raise ValueError(f"Character directory already contains files: {directory}")
+    if from_db and any((card, log, slug, import_history, history_at)):
+        raise ValueError("An existing database supplies its own card, log, slug and history")
+    if not from_db and not card:
+        raise ValueError("Provide a character card or an existing database")
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=directory.parent) as staging:
+        profile = Path(staging) / "profile"
+        profile.mkdir(mode=0o700)
+        staged_db = profile / db.name
+        if from_db:
+            original = Path(from_db).resolve(strict=True)
+            with closing(sqlite3.connect(original.as_uri() + "?mode=ro", uri=True)) as src:
+                with closing(sqlite3.connect(staged_db)) as dst:
+                    src.backup(dst)
+            with transaction(staged_db) as connection:
+                row = connection.execute("SELECT data FROM runtime WHERE id=1").fetchone()
+                if row is None:
+                    raise ValueError("Source database has no initialized character")
+                old = json.loads(row["data"])
+                foreign_tick = connection.execute(
+                    """SELECT id FROM events WHERE
+                       json_extract(request,'$.tick.psychosomatic_snapshot.character_id') != ? LIMIT 1""",
+                    (character_id,),
+                ).fetchone()
+                if foreign_tick:
+                    raise ValueError(f"Recorded tick for another character at event {foreign_tick['id']}")
+            if old.get("lifecycle") or old.get("character_id", character_id) != character_id:
+                raise ValueError("Existing database is closed or belongs to another character")
+            card = original.parent / "character.yaml" if old.get("profile") else Path(old["card"])
+            log = original.parent / "character_log.yaml" if old.get("profile") else old.get("log")
+            slug = old.get("slug")
+
+        source = Path(card).read_text(encoding="utf-8")
+        selected, location = golem.selected_card(yaml.safe_load(source), slug if from_db else slug or character_id)
+        if from_db:
+            previous_state, _ = golem.overlay_log(selected, Path(log) if log else None)
+            if previous_state["character_id"] != character_id:
+                raise ValueError("Imported card and log belong to a different character")
+        if location:
+            selected = dict(selected)
+            selected.setdefault("character_id", location[-1])
+            source = yaml.safe_dump(selected, sort_keys=False, allow_unicode=True)
+        elif "character_id" not in selected:
+            selected["character_id"] = character_id
+            source = golem.insert_card_defaults(source, selected, (), [((), "character_id", character_id)])
+        log_text = Path(log).read_text(encoding="utf-8") if log else ""
+        durable = yaml.safe_load(log_text) or {}
+        if not isinstance(durable, dict):
+            raise ValueError("Character log must be a YAML mapping")
+        if "character_id" not in durable:
+            durable["character_id"] = character_id
+            log_text = yaml.safe_dump(durable, sort_keys=False, allow_unicode=True)
+        local_card, local_log = profile / "character.yaml", profile / "character_log.yaml"
+        local_card.write_text(source, encoding="utf-8")
+        local_log.write_text(log_text, encoding="utf-8")
+        if not from_db:
+            initialize_character(staged_db, local_card, log=local_log, character_id=character_id,
+                                 idle_seconds=idle_seconds, import_history=import_history, history_at=history_at)
+        with transaction(staged_db) as connection:
+            ensure_activity_schema(connection)
+            config = json.loads(connection.execute("SELECT data FROM runtime WHERE id=1").fetchone()[0])
+            config.update(character_id=character_id, slug=None, card=str(local_card), log=str(local_log))
+            cached = config.pop("cached_character", None)
+            if from_db and cached and cached["state"]["character_id"] != character_id:
+                raise ValueError("Cached database identity does not match the requested character")
+            load_cached_character(config)
+            if from_db and config.get("owned_files"):
+                names = {local_card.name, local_log.name}
+                previous = {Path(card).name}
+                if log:
+                    previous.add(Path(log).name)
+                for name in set(config["owned_files"]) - previous:
+                    src_file = original.parent / name
+                    if (Path(name).name != name or src_file.is_symlink() or not src_file.is_file()
+                            or (profile / name).exists()):
+                        raise ValueError(f"Cannot copy registered character file {name!r}")
+                    shutil.copy2(src_file, profile / name)
+                    names.add(name)
+                config["owned_files"] = sorted(names)
+            config.update(profile=True, card=str(directory / local_card.name), log=str(directory / local_log.name))
+            connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
+            if from_db:
+                pending_request(connection)  # Verify ownership of an interrupted legacy turn before publishing.
+        os.rename(profile, directory)
+    return {"initialized": True, "character_id": character_id, "database": str(db)}
+
+
 def _finish_deletion(db, connection, config):
     clear_activity_and_archive(connection)
     connection.execute("DELETE FROM observations")
@@ -1243,7 +1434,9 @@ def _finish_deletion(db, connection, config):
         if path.is_symlink() or (path.exists() and not path.is_file()):
             raise ValueError(f"Character file changed type during deletion: {name}")
         path.unlink(missing_ok=True)
-    connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps({"lifecycle": "deleted"}),))
+    tombstone = {key: config[key] for key in ("character_id",) if key in config}
+    tombstone["lifecycle"] = "deleted"
+    connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(tombstone),))
 
 
 def report_abuse(db, *, actor_id, event_id):
@@ -1265,7 +1458,8 @@ def report_abuse(db, *, actor_id, event_id):
             config["lifecycle"] = "ended"
             if previous and previous != incident and config.get("owned_files"):
                 connection.execute("PRAGMA secure_delete=ON")
-                config = {"lifecycle": "deleting", "owned_files": config["owned_files"]}
+                config = {key: config[key] for key in ("owned_files", "character_id") if key in config}
+                config["lifecycle"] = "deleting"
             else:
                 incidents.setdefault(actor, incident)
                 connection.execute("UPDATE events SET status='cancelled', request=NULL WHERE status IN ('pending','queued')")
@@ -1313,7 +1507,7 @@ def assess_contact(db, event, actor_id, screen):
 
 
 def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, actor_id=None,
-                   compact=False):
+                   compact=False, character_id=None):
     """Run a host heartbeat. decide(request) returns one JSON-compatible character decision."""
     db = Path(db).resolve()
     if not db.is_file():
@@ -1322,6 +1516,10 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
         raise ValueError("wake_character requires a decision callback and a positive event limit")
     with transaction(db) as connection:
         ensure_activity_schema(connection)
+        owner = runtime_config(connection, character_id).get("character_id")
+        if owner and event is not None and event.get("character_id", owner) != owner:
+            raise ValueError("Event character ID does not match the selected database")
+    tag = {"character_id": owner} if owner else {}
     # flock is released by the VM kernel when the process exits, including after a crash.
     import fcntl
 
@@ -1335,7 +1533,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
         if screen_abuse is not None and config.get("lifecycle") != "deleting":
             boundary = assess_contact(db, event, actor_id, screen_abuse)
             if boundary is not None:
-                return boundary
+                return {**tag, **boundary}
 
     with transaction(db) as connection:
         config = runtime_config(connection)
@@ -1358,7 +1556,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
                 if not handled and event is not None:
                     receipt = completed_event(connection, event["id"])
                     if receipt:
-                        return {"events": [{**receipt, "resolved": False}]}
+                        return {"events": [{**tag, **receipt, "resolved": False}]}
                 request = pending_request(connection)
                 if request is None:
                     result = advance(connection, config, datetime.now(timezone.utc),
@@ -1381,16 +1579,21 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
                 result = resolve(connection, decision, config["history"], datetime.now(timezone.utc))
             if result["resolved"] and "reply" in decision:
                 result["reply"] = decision["reply"]
-            handled.append(result)
+            handled.append({**tag, **result})
     return {"events": handled}
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", type=Path, required=True, help="Persistent SQLite database for one character")
+    paths = parser.add_mutually_exclusive_group(required=True)
+    paths.add_argument("--db", type=Path, help="Existing single-character database path")
+    paths.add_argument("--characters-dir", type=Path, help="Parent of private character directories")
+    parser.add_argument("--character-id", help="Stable character ID from the host route")
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
-    init.add_argument("--card", type=Path, required=True)
+    init_source = init.add_mutually_exclusive_group(required=True)
+    init_source.add_argument("--card", type=Path)
+    init_source.add_argument("--from-db", type=Path, help="Copy an existing quiescent character database into a new profile")
     init.add_argument("--slug")
     init.add_argument("--log", type=Path)
     init.add_argument("--import-history", type=Path)
@@ -1407,6 +1610,8 @@ def main(argv):
     compact.add_argument("--apply", action="store_true", help="Archive completed requests (default is preview)")
     commands.add_parser("timeline").add_argument("--limit", type=int, default=100)
     commands.add_parser("learned").add_argument("topic")
+    commands.add_parser("remember", help="Save an approved memory in this character's log").add_argument(
+        "memory", type=Path, help="Memory JSON file or - for stdin")
     commands.add_parser("enqueue").add_argument("event", type=Path)
     finish = commands.add_parser("resolve")
     finish.add_argument("decision", type=Path)
@@ -1414,9 +1619,19 @@ def main(argv):
     args = parser.parse_args(argv)
     if args.command == "timeline" and args.limit < 1:
         parser.error("--limit must be positive")
-    if args.command != "init" and not args.db.is_file():
-        parser.error("Initialize the character database first")
     try:
+        if args.characters_dir is not None:
+            args.db = character_database(args.characters_dir, args.character_id)
+            if args.command == "init":
+                result = initialize_profile(args.characters_dir, args.character_id, args.card, log=args.log,
+                                            slug=args.slug, idle_seconds=args.idle_seconds,
+                                            import_history=args.import_history, history_at=args.history_at, from_db=args.from_db)
+                print(json.dumps(result))
+                return 0
+        if args.command == "init" and args.from_db:
+            parser.error("--from-db requires --characters-dir and --character-id")
+        if args.command != "init" and not args.db.is_file():
+            parser.error("Initialize the character database first")
         if args.command != "run" or args.once:
             print(json.dumps(execute(args.db, args), ensure_ascii=False), flush=True)
             return 0

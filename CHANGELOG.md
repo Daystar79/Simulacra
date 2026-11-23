@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added per-character directories with private card and log copies, independent SQLite databases, and character-scoped decisions and receipts. Existing character databases can be imported with pending work intact. Relative Golem paths follow the calling host’s working directory.
+
 - Muse can prepare one compact decision and receive the accepted reply directly on resolution. Golem calculates concurrent emotion intensities on the tick. Simulacra receives their values and chooses how to respond.
 
 - Added `deploy --update INSTALL_DIR` for refreshing copied installations in place and `--check` to preview changed runtime files. Existing character state and host files stay in place.

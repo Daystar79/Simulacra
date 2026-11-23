@@ -526,10 +526,21 @@ def recalculate_expectations(connection, config):
         estimates = config.setdefault("expectations", {})
         estimates.update(rebuilt)
         connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
-        connection.execute(
-            """UPDATE events SET request=json_set(request, '$.expectations', json(?))
-               WHERE status='pending'""", (json.dumps(estimates),),
-        )
+        # Refresh only the active event's relevant topics, not the entire map.
+        pending = connection.execute(
+            "SELECT id, input, request FROM events WHERE status='pending'"
+        ).fetchone()
+        if pending and pending["request"]:
+            active_event = json.loads(pending["input"])
+            active_request = json.loads(pending["request"])
+            active_request["expectations"] = relevant_expectations(
+                estimates, active_event, active_request.get("recent", []))
+            active_request["situational_expectations"] = {
+                topic: contextual_forecast(config, topic, expectation_dimensions(active_event))
+                for topic in active_request["expectations"]
+            }
+            connection.execute("UPDATE events SET request=? WHERE id=?",
+                               (json.dumps(active_request, separators=(",", ":")), pending["id"]))
     return {"expectations": config.get("expectations", {})}
 
 

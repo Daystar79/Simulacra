@@ -9,6 +9,7 @@ import re
 import sqlite3
 import sys
 import time
+import zlib
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -509,6 +510,80 @@ def record_contextual_expectation(config, topic, dimensions, observed, at):
     return dict(observed)
 
 
+def relationship_state_at(config, target, at):
+    """Evolve a relationship with time using its own configured drift, never a global decay."""
+    records = config.setdefault("relationships", {})
+    entry = records.get(target)
+    if entry is None:
+        return None
+    current = dict(entry)
+    last = current.get("updated_at")
+    if last and current.get("drift_per_day"):
+        days = max(0.0, (golem.parse_event_time(at) - golem.parse_event_time(last)).total_seconds() / 86400)
+        for dimension, rate in current["drift_per_day"].items():
+            if dimension in current.get("values", {}) and isinstance(rate, (int, float)):
+                baseline = (current.get("baseline") or {}).get(dimension, 50)
+                value = current["values"][dimension]
+                if isinstance(value, (int, float)) and isinstance(baseline, (int, float)):
+                    movement = abs(rate) * days
+                    current["values"][dimension] = round(min(baseline, value + movement) if value < baseline
+                                                         else max(baseline, value - movement), 2)
+    current["updated_at"] = at
+    records[target] = current
+    return current
+
+
+def update_relationship(config, change, at):
+    """Apply explicit observed relational changes; never infer affection or trust from topic."""
+    if not isinstance(change, dict):
+        raise ValueError("relationship_change must be a mapping")
+    target = change.get("target")
+    if not isinstance(target, str) or not target.strip() or len(target) > 160:
+        raise ValueError("relationship_change requires a target identifier")
+    values = change.get("delta", {})
+    if not isinstance(values, dict) or not values or len(values) > 16:
+        raise ValueError("relationship_change.delta must contain 1-16 dimensions")
+    entry = relationship_state_at(config, target, at) or {
+        "values": {}, "baseline": {}, "drift_per_day": {}, "updated_at": at}
+    for dimension, amount in values.items():
+        if not isinstance(dimension, str) or not dimension or len(dimension) > 60 or type(amount) not in (int, float):
+            raise ValueError("relationship dimensions and numeric deltas required")
+        old = entry["values"].get(dimension, 50)
+        entry["values"][dimension] = round(max(0, min(100, old + amount)), 2)
+    drift = change.get("drift_per_day")
+    if drift is not None:
+        if not isinstance(drift, dict) or any(k not in entry["values"] or type(v) not in (int, float)
+                                              or v < 0 or v > 100 for k, v in drift.items()):
+            raise ValueError("drift_per_day must contain nonnegative numeric rates for known dimensions")
+        entry["drift_per_day"].update(drift)
+    entry["updated_at"] = at
+    config.setdefault("relationships", {})[target] = entry
+    return entry
+
+
+def compact_event_requests(connection, *, apply=False):
+    """Losslessly archive resolved/failed requests; never touch active or queued work."""
+    connection.execute("""CREATE TABLE IF NOT EXISTS request_archive (
+        event_id TEXT PRIMARY KEY, compressed BLOB NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES events(id))""")
+    rows = connection.execute(
+        """SELECT id, request FROM events WHERE status IN ('resolved','failed')
+           AND request IS NOT NULL AND id NOT IN (SELECT event_id FROM request_archive)"""
+    ).fetchall()
+    original = sum(len(row["request"].encode("utf-8")) for row in rows)
+    if apply:
+        for row in rows:
+            data = json.loads(row["request"])
+            compressed = zlib.compress(row["request"].encode("utf-8"), level=9)
+            connection.execute("INSERT INTO request_archive VALUES (?, ?)", (row["id"], compressed))
+            # Keep the evidence used by recalculate_expectations and recent_events.
+            slim = {key: data[key] for key in ("at", "assessment", "body_response") if key in data}
+            connection.execute("UPDATE events SET request=? WHERE id=?",
+                               (json.dumps(slim, separators=(",", ":")), row["id"]))
+    return {"eligible": len(rows), "request_bytes": original, "archived": apply,
+            "note": "Run VACUUM separately after making a database backup to reclaim file space"}
+
+
 def recalculate_expectations(connection, config):
     """Replay recorded outcome scores, retaining each topic's original starting forecast."""
     rebuilt = {}
@@ -675,6 +750,11 @@ def apply_appraisal(connection, request, appraisal, experience=None):
             raise ValueError("Experience must refer to the event topic")
         estimates = config.setdefault("expectations", {})
         dimensions = expectation_dimensions(event, experience)
+        target = event.get("relationship_target")
+        if isinstance(target, str) and target:
+            relation = relationship_state_at(config, target, request["at"])
+            if relation:
+                dimensions["relationship"] = {"target": target, **relation.get("values", {})}
         forecast = event.get("expectation", contextual_forecast(config, topic, dimensions, request["at"]))
         # Preserve legacy topic aggregates as broad fallbacks, while learning
         # situation-specific evidence independently from current relationship cues.
@@ -687,6 +767,8 @@ def apply_appraisal(connection, request, appraisal, experience=None):
             "topic": topic, "forecast": forecast, "observed": observed, "before": initial, "after": final,
             "evidence": observed, "next_expectation": estimates[topic],
         }
+    if isinstance(experience, dict) and "relationship_change" in experience:
+        update_relationship(config, experience["relationship_change"], request["at"])
     connection.execute("UPDATE runtime SET data = ? WHERE id = 1", (json.dumps(config),))
     connection.execute("UPDATE events SET request = ? WHERE id = ?", (json.dumps(request), event["id"]))
     return request["body_response"]
@@ -816,7 +898,8 @@ def advance(connection, config, now, allow_idle=True):
     if connection.execute("SELECT 1 FROM events WHERE status = 'pending'").fetchone():
         return {"status": "waiting_for_host"}
     row = connection.execute(
-        "SELECT * FROM events WHERE status = 'queued' AND due <= ? ORDER BY due, rowid LIMIT 1",
+        """SELECT * FROM events WHERE status = 'queued' AND due <= ?
+           ORDER BY due, CASE WHEN json_extract(input, '$.kind') = 'incoming' THEN 0 ELSE 1 END, rowid LIMIT 1""",
         (now.timestamp(),),
     ).fetchone()
     if row:
@@ -850,7 +933,11 @@ def advance(connection, config, now, allow_idle=True):
     # Recalled memories and current goals already appear at top level.
     compact_tick = {key: value for key, value in tick.items()
                     if key not in ("recalled_memories", "current_goals")}
+    target = event.get("relationship_target")
+    relationship = (relationship_state_at(config, target, at.isoformat())
+                    if isinstance(target, str) and target else None)
     request = {
+        **({"relationship_state": relationship} if relationship else {}),
         "identity_anchor": build_identity_anchor(card, state),
         "dialect": config.get("dialect"),
         "event": event, "at": at.isoformat(),

@@ -36,9 +36,9 @@ Adapt executable paths to the target OS and environment. Preserve the host's exi
 - Provision exactly one durable SQLite database per character, with the correct card and optional log.
 - Initialize only when the database does not already exist. For old CLI history, follow the documented `--import-history` migration rather than discarding state.
 - Make the repository importable to the host Python interpreter.
-- Connect incoming messages to `wake_character(db_path, decide, event={"id": stable_message_id, "kind": "incoming", "context": message_text})`.
-- Implement `decide(request)` using the **actual** request tick, card, memory, goals, and Simulacra cognitive pipeline. Return the pending event ID in the decision.
-- Wire a host-owned heartbeat to `wake_character(db_path, decide)`. Configure an explicit idle interval and scheduling cadence.
+- Connect incoming messages to `wake_character(db_path, decide, compact=True, event={"id": stable_message_id, "kind": "incoming", "context": message_text})`.
+- Implement `decide(request)` using the supplied emotion values, identity anchor, memory, goals, and Simulacra cognitive pipeline. Return the pending event ID in the decision.
+- Wire a host-owned heartbeat to `wake_character(db_path, decide, compact=True)`. Configure an explicit idle interval and scheduling cadence.
 - Deliver accepted `reply` values only once. Use event IDs to deduplicate outbound messages and tool side effects.
 - Preserve pending work and resume it on reconnect/restart. Avoid competing independent writers to the same character state.
 

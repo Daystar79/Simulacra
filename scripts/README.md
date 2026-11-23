@@ -116,10 +116,10 @@ from scripts.golem_loop import initialize_character, wake_character
 initialize_character(db_path, card_path, log=log_path, idle_seconds=3600)
 
 # In the host's scheduled handler
-wake_character(db_path, decide)
+wake_character(db_path, decide, compact=True)
 
 # In the host's incoming-message handler
-wake_character(db_path, decide, event={
+wake_character(db_path, decide, compact=True, event={
     "id": message_id, "kind": "incoming", "context": message_text,
 })
 ```
@@ -136,7 +136,7 @@ python3 scripts/run.py golem loop --db character.sqlite3 run
 `--log` is optional. Use `--import-history old-history.json` to seed the database from a previous CLI session. For an untimestamped import, `--history-at` can supply the known last event time. Otherwise the clock starts at initialization. Keep the database in persistent VM storage. `--idle-seconds` sets the quiet interval at initialization and defaults to 900. `run --once` provides the same processing for a host with its own scheduler.
 
 - **Queue an event.** Run `golem loop --db character.sqlite3 enqueue event.json`. An event contains a stable `id`, a `kind` of `incoming`, `world`, or `plan`, optional textual `context`, and optional Golem `stimulus`. For instance, `{"id":"chat-27","kind":"incoming","context":"The guest comes back from work."}`. Use a timezone-aware `at` for scheduled or explicitly timed events. Plans require it. Due events run in timestamp order, with insertion order breaking ties.
-- **Wake the host.** The runner emits an event ID when a new decision is pending. On startup or reconnect the host can also read `golem loop --db character.sqlite3 pending`. The request contains the event, the current Golem tick, goals and motivations, and recent resolved episodes. An idle event supplies no topic or appraisal. The host reads the full character card and applies the cognitive pipeline before choosing an action, a response, or no action. An idle decision can stay private.
+- **Wake the host.** The runner emits an event ID when a new decision is pending. On startup or reconnect the host can also read `golem loop --db character.sqlite3 pending`. The request contains the event, the current Golem tick, goals and motivations, and recent resolved episodes. An idle event supplies no topic or appraisal. The host uses the supplied identity anchor to choose an action, a response, or no action. An idle decision can stay private.
 - **Return the decision.** Run `golem loop --db character.sqlite3 resolve decision.json`. Use the pending event's `id` and optionally give `action`, `outcome`, `experience`, and `plans`. Put newly observed bodily or scene consequences in `experience.stimulus`; for example, `{"id":"meal","experience":{"stimulus":{"food_intake":30}}}` when the character eats. The loop applies this at the resolved event's timestamp and carries the updated state forward. Each plan includes its own stable `id`, timezone-aware `at`, and optional `context` and `stimulus`. The loop persists the decision and new plans together. A pending decision survives restarts and later events wait for it. Resolve with just the ID for no action. Repeating an identical enqueue or resolution is safe. The host should use that same event ID to deduplicate any tool use or outgoing message.
 - **Inspect the experiment.** `status` shows carried state and the pending turn. `timeline --limit 100` shows completed and failed events, including actions initiated during quiet time. The host's recent context includes up to twelve such events. Use the approved-memory command to retain a selected observation beyond that context window.
 
@@ -245,6 +245,12 @@ On any wake the character may include a free-text dialect preference in its deci
 
 
 ### Compact decision context
+
+For a normal turn call `golem loop --db DB prepare --event -` with event JSON on stdin, or `prepare` alone for a scheduled wake. A pending result contains `request.emotions` with the already computed emotion intensities, plus the event, identity, current cues and decision context. Resolve the returned event ID with `resolve --receipt -` and decision JSON on stdin. The receipt contains the accepted reply when present. Serialise host decisions per character and deduplicate delivery by event ID, including on retries. If another event comes first, finish it and retry the original event. Use the screened Python API for incoming messages on deletion-enabled runtimes.
+
+Python callbacks receive the same view with `wake_character(..., compact=True)`. Existing callbacks that read `request["tick"]` can keep the full request. The SQLite record and diagnostic `pending` command retain the complete tick. [Muse host example](../Muse.AI/SKILL.md#prepare-and-resolve-one-turn)
+
+Retrying `wake_character` with the identical event can recover its stored reply after a delivery interruption. For an already accepted event the result includes `status: resolved` and `resolved: false`, indicating that the earlier decision is being returned. Use the stable event ID to check whether delivery is still due.
 
 The pending decision request carries a compact projection of recent episodes (event ID, topic, short context, action, outcome, reply, and learned forecast/observation), rather than full historical body snapshots. Full event records and body assessments remain available through the SQLite timeline. The request includes learned expectations for the current topic and recently encountered topics only; the complete expectation map remains persisted in runtime state. The tick omits recalled memories and current goals already provided as top-level request fields.
 

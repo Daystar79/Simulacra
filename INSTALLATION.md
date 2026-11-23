@@ -59,14 +59,14 @@ Omit `--log` if the character has no durable log.
 
 ## Connect the host loop — mandatory
 
-The host must provide `decide(request)`, which receives the pending event, current Golem tick, motivations/goals, and recent context. The host loads the character card and applies the Simulacra cognitive pipeline to choose the reply, private action, outcome, or plans. It returns a decision mapping **with the same event ID**.
+The host supplies `decide(request)`. Use the pending event, identity anchor, computed emotion values, goals, current cues and recent context to choose a reply, private action, outcome or plan in one decision. Return the same event ID.
 
 ```python
 from scripts.golem_loop import wake_character
 
 def decide(request):
     # Implement in your host: run the Simulacra cognitive pipeline and
-    # render the character's response from the supplied tick and context.
+    # render the character's response from the supplied emotion values and context.
     # This no-action example proves the loop wiring, not character behavior.
     return {"id": request["event"]["id"]}
 
@@ -74,11 +74,11 @@ def decide(request):
 result = wake_character(
     db_path,
     decide,
-    event={"id": message_id, "kind": "incoming", "context": message_text},
+    compact=True, event={"id": message_id, "kind": "incoming", "context": message_text},
 )
 
 # Called from a host-owned scheduled heartbeat:
-result = wake_character(db_path, decide)
+result = wake_character(db_path, decide, compact=True)
 ```
 
 Do not substitute `golem.py` snapshot calls for `wake_character`. Do not hardcode `elapsed_ms: 0` on every event. The loop owns event time and carried history. A first timestamp can legitimately produce zero elapsed time; later events should reflect their actual time difference.

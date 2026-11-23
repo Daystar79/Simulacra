@@ -19,6 +19,8 @@ class TestGolemActivation(unittest.TestCase):
                             "    canon_adult: false\n  b: {name: B}\n")
             before = yaml.safe_load(path.read_text())["characters"]["a"]
             state, _ = golem.overlay_log(before, None)
+            self.assertEqual(golem.load_character(path, "a"), before)
+            golem.migrate_character_card(path, "a")
             card = golem.load_character(path, "a")
             self.assertEqual(golem.overlay_log(card, None)[0], state)
             self.assertEqual(card["physiology_calibration"]["hunger_awake_per_hour"], 0)

@@ -243,6 +243,8 @@ def enqueue(connection, event, history, now):
         if json.loads(existing["input"]) != event:
             raise ValueError(f"Event ID already exists with different contents: {event_id}")
         return {"id": event_id, "queued": False}
+    if "expectation_context" in event:
+        expectation_dimensions(event)
     if event["kind"] == "plan" and "at" not in event:
         raise ValueError("A plan requires an at timestamp")
     due = golem.parse_event_time(event["at"]) if "at" in event else now
@@ -278,6 +280,15 @@ def recent_events(connection, limit=RECENT_LIMIT, since_timestamp=None):
     ]
 
 
+def message_text(event):
+    """Read the utterance from the current transport field or an older alias."""
+    for value in (event.get("text"), event.get("message"), (event.get("stimulus") or {}).get("text"),
+                  event.get("context")):
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 def compact_recent_events(events):
     """Decision-context projection; the complete event ledger remains in SQLite."""
     compact = []
@@ -287,8 +298,12 @@ def compact_recent_events(events):
                 "status": entry.get("status")}
         if event.get("topic"):
             item["topic"] = event["topic"]
-        if event.get("context"):
-            item["context"] = str(event["context"])[:320]
+        utterance = message_text(event)
+        context = event.get("context") or utterance
+        if context:
+            item["context"] = context[:320]
+        if utterance and utterance != context:
+            item["text"] = utterance[:320]
         for key in ("action", "outcome", "reply"):
             if isinstance(decision.get(key), str) and decision[key]:
                 item[key] = decision[key][:320]
@@ -357,13 +372,7 @@ def repeated_reply_pattern(events, window=5):
             count += 1
 
     latest_reply, latest_event = replies[-1]
-    user_text = " ".join(
-        str(val) for val in (
-            latest_event.get("text"),
-            latest_event.get("message"),
-            (latest_event.get("stimulus") or {}).get("text"),
-        ) if isinstance(val, str) and val.strip()
-    )
+    user_text = message_text(latest_event)
     user_words = {w for w in re.findall(r"[a-z0-9']+", user_text.casefold()) if len(w) >= 4}
     reply_head_words = re.findall(r"[a-z0-9']+", latest_reply.casefold())[:16]
     echoing = False
@@ -401,6 +410,59 @@ def pending_request(connection):
     return request
 
 
+def decision_context(request):
+    """Project the saved tick into the values a character needs for one decision."""
+    tick = request["tick"]
+    snapshot = tick["psychosomatic_snapshot"]
+    affect = snapshot["affective_state"]
+    body = snapshot["autonomic_state"]
+    event = request["event"]
+    # Keep transport context, including host-defined scene fields, outside the
+    # physiological inputs. Some older hosts put the utterance in stimulus.text.
+    scene = {key: value for key, value in event.items() if key != "stimulus"}
+    stimulus = event.get("stimulus", {})
+    for key in ("text", "caller_or_target", "conversation"):
+        if key in stimulus:
+            scene.setdefault(key, stimulus[key])
+    recent = request.get("recent", [])
+    if recent and "event" in recent[0]:
+        recent = compact_recent_events(recent)
+    emotions = affect.get("emotions")
+    if emotions is None:  # Pending ticks from before concurrent emotions.
+        emotions = {affect["primary_emotion"]: affect["emotional_intensity"]}
+    context = {
+        "event": scene, "at": request["at"], "emotions": emotions,
+        "body": {key: body[key] for key in (
+            "cognitive_regime", "involuntary_response", "stress", "arousal",
+            "sexual_arousal", "somatic_map", "emotional_distress", "activity",
+        ) if key in body},
+        "current_cues": tick.get("golem_meta", {}).get("emitted_cues", []),
+        "winning_drive": snapshot["priority_arbitration"]["winning_drive"],
+        "arbitration_status": snapshot["priority_arbitration"]["arbitration_status"],
+        "mask": snapshot.get("social_mask", {}),
+        "relational_vectors": snapshot.get("relational_vectors", {}),
+        "recent": recent,
+    }
+    for key in ("initiative", "impulse"):
+        if key in affect:
+            context[key] = affect[key]
+    for key in ("identity_anchor", "dialect", "current_goals", "motivations", "incentives",
+                "recalled_memories", "learned", "activity", "maintenance_needs", "expectations",
+                "situational_expectations", "relationship_state", "reply_guidance"):
+        if request.get(key):
+            context[key] = request[key]
+    if "identity_anchor" not in context:
+        context["character"] = request["character"]
+    if "conversation_intent" in tick:
+        context["conversation_intent"] = tick["conversation_intent"]
+    guidance = request.get("behavior_guidance", {})
+    for key in ("recent_action_pattern", "recent_reply_pattern"):
+        pattern = guidance.get(key, {})
+        if any(pattern.get(flag) for flag in ("repeated", "repeated_opener", "echoing_user")):
+            context[key] = pattern
+    return context
+
+
 def topic_key(topic):
     if not isinstance(topic, str) or not topic.strip():
         raise ValueError("A learning topic must be nonempty text")
@@ -426,7 +488,18 @@ def scores(value):
 
 
 def runtime_config(connection):
-    return json.loads(connection.execute("SELECT data FROM runtime WHERE id = 1").fetchone()["data"])
+    config = json.loads(connection.execute("SELECT data FROM runtime WHERE id = 1").fetchone()["data"])
+    if config.get("lifecycle") == "deleted":
+        # Older tombstones can still have rows in the two newer ledger tables.
+        clear_activity_and_archive(connection)
+    return config
+
+
+def clear_activity_and_archive(connection):
+    connection.execute("PRAGMA secure_delete=ON")
+    connection.execute("DELETE FROM activities")
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='request_archive'").fetchone():
+        connection.execute("DELETE FROM request_archive")
 
 
 def next_expectation(prior, observed):
@@ -666,21 +739,25 @@ def build_identity_anchor(card, state):
 
 def extract_memory_cues(event, stimulus, memories):
     """Match stored memory cues against incoming event text for on-demand recall."""
-    explicit = [str(c).strip() for c in stimulus.get("memory_cues", []) if str(c).strip()]
+    explicit = stimulus.get("memory_cues", [])
+    seen = golem.cue_keys(explicit)
+    conversation = stimulus.get("conversation", {})
+    if not isinstance(conversation, dict):
+        raise ValueError("Conversation must be an object")
     texts = [
-        event.get("text"),
-        event.get("message"),
+        message_text(event),
+        event.get("context"),
         event.get("topic"),
-        stimulus.get("text"),
-        (stimulus.get("conversation") or {}).get("open_topic"),
+        conversation.get("open_topic"),
     ]
     haystack = " ".join(str(t) for t in texts if isinstance(t, str) and t.strip()).casefold()
     if not haystack or not isinstance(memories, dict):
         return explicit
     matched = list(explicit)
-    seen = {c.casefold() for c in matched}
     for bucket in ("detailed", "footnote"):
         for entry in memories.get(bucket) or []:
+            if not isinstance(entry, dict):
+                continue
             for cue in entry.get("cues") or []:
                 cue_text = str(cue).strip()
                 if not cue_text or cue_text.casefold() in seen:
@@ -917,6 +994,7 @@ def advance(connection, config, now, allow_idle=True):
 
     stimulus = {**event.get("stimulus", {}), "event_label": event["id"], "event_at": at.isoformat()}
     try:
+        current_dimensions = expectation_dimensions(event)
         tick, card, durable, state = body_tick(config, stimulus, event=event)
     except (ValueError, TypeError, KeyError) as exc:
         if event["kind"] == "idle":
@@ -936,7 +1014,6 @@ def advance(connection, config, now, allow_idle=True):
     target = event.get("relationship_target")
     relationship = (relationship_state_at(config, target, at.isoformat())
                     if isinstance(target, str) and target else None)
-    current_dimensions = expectation_dimensions(event)
     if relationship:
         current_dimensions["relationship"] = {"target": target, **relationship.get("values", {})}
     request = {
@@ -968,19 +1045,9 @@ def advance(connection, config, now, allow_idle=True):
     else:
         request["activity"] = active_activity(connection)
     request["behavior_guidance"] = {
-        "affect_and_action": (
-            "Read autonomic_state.somatic_map for localized sensations. Choose which are outwardly visible. "
-            "Consider all concurrent feelings in affective_state.emotions. Choose which to show, temper, "
-            "or keep private. To capture feelings you recognize, return experience.stimulus.emotions "
-            "as a map of emotion names to intensities (0–100). "
-            "Weigh initiative alongside current goals and available energy. Express salient emotions "
-            "through this character's choices and voice. Intimacy reflects willingness to be seen "
-            "by this target, including physical ease or anticipation. It does not imply permission. "
-            "An impulse_override brings an urge to mind before deliberation. Decide whether to act, "
-            "redirect or hold back. A felt urge alone does not establish an action or outcome."
-        ),
+        "affect_and_action": "Golem has calculated the emotion values. Choose what, if anything, to do or show.",
         "identity_first_rule": (
-            "Use the card as your starting voice. Choose how to speak or show what the body feels. "
+            "Use identity_anchor as your starting voice. Choose how to speak or show what the body feels. "
             "Your dialect is a current preference. Vary your expression for the listener and moment. "
             "To adopt or revise a lasting dialect, return dialect as a short description in your decision. "
             "Omit it to keep your preference or return null to clear it. "
@@ -1044,6 +1111,15 @@ def advance(connection, config, now, allow_idle=True):
     return {"status": "pending", "id": event["id"]}
 
 
+def completed_event(connection, event_id):
+    row = connection.execute("SELECT status, decision FROM events WHERE id=?", (event_id,)).fetchone()
+    if row is None or row["status"] not in ("resolved", "failed", "cancelled"):
+        return None
+    decision = json.loads(row["decision"] or "{}")
+    return {"id": event_id, "status": row["status"],
+            **{key: decision[key] for key in ("reply", "error") if key in decision}}
+
+
 def execute(db, args):
     with transaction(db) as connection:
         now = datetime.now(timezone.utc)
@@ -1059,13 +1135,29 @@ def execute(db, args):
             return recalculate_expectations(connection, config)
         if args.command == "compact-history":
             return compact_event_requests(connection, apply=args.apply)
-        if args.command == "enqueue":
+        if args.command == "enqueue" or (args.command == "prepare" and args.event is not None):
             event = read_object(args.event)
             if event.get("kind") == "incoming" and config.get("owned_files"):
                 raise ValueError("Send incoming messages through the host boundary assessment")
-            return enqueue(connection, event, config["history"], now)
+            queued = enqueue(connection, event, config["history"], now)
+            if args.command == "enqueue":
+                return queued
+            if not queued["queued"]:
+                receipt = completed_event(connection, event["id"])
+                if receipt:
+                    return receipt
+        if args.command == "prepare":
+            result = advance(connection, config, now)
+            if result["status"] in ("pending", "waiting_for_host"):
+                return {"status": "pending", "request": decision_context(pending_request(connection))}
+            return result
         if args.command == "resolve":
-            return resolve(connection, read_object(args.decision), config["history"], now)
+            decision = read_object(args.decision)
+            result = resolve(connection, decision, config["history"], now)
+            if getattr(args, "receipt", False):
+                return {"id": decision["id"], "status": "resolved",
+                        **({"reply": decision["reply"]} if "reply" in decision else {})}
+            return result
         if args.command == "pending":
             return pending_request(connection)
         if args.command == "timeline":
@@ -1142,6 +1234,9 @@ def initialize_character(db, card, *, log=None, slug=None, idle_seconds=3600,
 
 
 def _finish_deletion(db, connection, config):
+    clear_activity_and_archive(connection)
+    connection.execute("DELETE FROM observations")
+    connection.execute("DELETE FROM events")
     # Only names validated at provisioning enter this manifest. Never traverse directories.
     for name in config["owned_files"]:
         path = db.parent / name
@@ -1170,8 +1265,6 @@ def report_abuse(db, *, actor_id, event_id):
             config["lifecycle"] = "ended"
             if previous and previous != incident and config.get("owned_files"):
                 connection.execute("PRAGMA secure_delete=ON")
-                connection.execute("DELETE FROM observations")
-                connection.execute("DELETE FROM events")
                 config = {"lifecycle": "deleting", "owned_files": config["owned_files"]}
             else:
                 incidents.setdefault(actor, incident)
@@ -1219,7 +1312,8 @@ def assess_contact(db, event, actor_id, screen):
     return {"status": "boundary", **previous}
 
 
-def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, actor_id=None):
+def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, actor_id=None,
+                   compact=False):
     """Run a host heartbeat. decide(request) returns one JSON-compatible character decision."""
     db = Path(db).resolve()
     if not db.is_file():
@@ -1261,6 +1355,10 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
                 config = runtime_config(connection)
                 if config.get("lifecycle"):
                     return {"status": config["lifecycle"]}
+                if not handled and event is not None:
+                    receipt = completed_event(connection, event["id"])
+                    if receipt:
+                        return {"events": [{**receipt, "resolved": False}]}
                 request = pending_request(connection)
                 if request is None:
                     result = advance(connection, config, datetime.now(timezone.utc),
@@ -1273,7 +1371,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
                     request = pending_request(connection)
             # The event and body tick are durable before host work starts.
             event_id = request["event"]["id"]
-            decision = decide(request)
+            decision = decide(decision_context(request) if compact else request)
             if not isinstance(decision, dict) or decision.get("id") != event_id:
                 raise ValueError("Host must return a decision matching the pending event ID")
             with transaction(db) as connection:
@@ -1300,6 +1398,8 @@ def main(argv):
     init.add_argument("--idle-seconds", type=int, default=900)
     run = commands.add_parser("run")
     run.add_argument("--once", action="store_true", help="Process at most one ready event")
+    prepare = commands.add_parser("prepare", help="Prepare or resume one compact host decision")
+    prepare.add_argument("--event", type=Path, help="Queue this event first (use - for stdin)")
     commands.add_parser("pending")
     commands.add_parser("status")
     commands.add_parser("recalculate-expectations", help="Refresh current estimates from recorded outcomes")
@@ -1308,7 +1408,9 @@ def main(argv):
     commands.add_parser("timeline").add_argument("--limit", type=int, default=100)
     commands.add_parser("learned").add_argument("topic")
     commands.add_parser("enqueue").add_argument("event", type=Path)
-    commands.add_parser("resolve").add_argument("decision", type=Path)
+    finish = commands.add_parser("resolve")
+    finish.add_argument("decision", type=Path)
+    finish.add_argument("--receipt", action="store_true", help="Return only the accepted event ID, status and reply")
     args = parser.parse_args(argv)
     if args.command == "timeline" and args.limit < 1:
         parser.error("--limit must be positive")

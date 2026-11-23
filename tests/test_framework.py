@@ -197,6 +197,9 @@ class TestDeploymentDecoupling(unittest.TestCase):
             pipeline = target / "Framework/CognitivePipeline.md"
             pipeline.parent.mkdir(parents=True)
             pipeline.write_text("Previous release")
+            muse_skill = target / "Muse.AI/SKILL.md"
+            muse_skill.parent.mkdir()
+            muse_skill.write_text("Previous host procedure")
             private = ["Characters/_template.yaml", "Characters/guest_log.yaml",
                        "Simulator/guest.sqlite3", "scripts/host.py", "HOST.md"]
             for name in private:
@@ -209,6 +212,7 @@ class TestDeploymentDecoupling(unittest.TestCase):
             self.assertEqual(pipeline.read_text(), "Previous release")
             subprocess.run(cmd, check=True, capture_output=True)
             self.assertEqual(pipeline.read_bytes(), (ROOT / "Framework/CognitivePipeline.md").read_bytes())
+            self.assertEqual(muse_skill.read_bytes(), (ROOT / "Muse.AI/SKILL.md").read_bytes())
             self.assertIn("Updated 0 files", subprocess.check_output(cmd, text=True))
             for name in private:
                 self.assertEqual((target / name).read_bytes(), b"host-owned")

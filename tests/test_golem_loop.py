@@ -1,6 +1,8 @@
 """Exercise the persistent loop with an injected clock and no live host."""
 
 import json
+import subprocess
+import sys
 import unittest
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
@@ -12,6 +14,119 @@ from scripts import golem_loop
 
 
 class TestGolemLoop(unittest.TestCase):
+    def test_transport_message_fields_survive_recall_echo_check_and_recent_history(self):
+        words = "Remember the harbor before sunrise?"
+        memories = {"footnote": ["older authored note", {"cues": ["harbor"]}, {"cues": ["violin"]}]}
+        for data in ({"context": words}, {"text": words}, {"message": words}, {"stimulus": {"text": words}}):
+            with self.subTest(data=data):
+                event = {"id": "message", "kind": "incoming", "host_notes": "violin", **data}
+                recent = [{"event": event, "decision": {"reply": words}}]
+                self.assertEqual(golem_loop.extract_memory_cues(event, event.get("stimulus", {}), memories),
+                                 ["harbor"])
+                self.assertEqual(golem_loop.compact_recent_events(recent)[0]["context"], words)
+                self.assertTrue(golem_loop.repeated_reply_pattern(recent)["echoing_user"])
+
+    def test_python_retry_retrieves_exact_accepted_reply(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "runtime.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            first = {"id": "a", "kind": "incoming", "context": "Tea?"}
+            for event, reply in ((first, "Yes please."), ({**first, "id": "b"}, "Later.")):
+                golem_loop.wake_character(db, lambda r: {"id": r["event"]["id"], "reply": reply}, event=event)
+            retry = golem_loop.wake_character(db, self.fail, event=first)
+            self.assertEqual(retry["events"], [{"id": "a", "status": "resolved", "resolved": False,
+                                                "reply": "Yes please."}])
+            with golem_loop.transaction(db) as c:
+                self.assertEqual(golem_loop.runtime_config(c)["history"]["event_sequence"], 2)
+
+    def test_malformed_queued_event_cannot_block_following_message(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "runtime.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            bad = {"id": "old-bad", "kind": "world", "expectation_context": []}
+            with self.assertRaisesRegex(ValueError, "expectation_context"):
+                golem_loop.wake_character(db, self.fail, event=bad)
+            with golem_loop.transaction(db) as c:
+                # Simulate a row queued by a version that accepted this input.
+                c.execute("INSERT INTO events(id, due, input) VALUES (?, ?, ?)",
+                          (bad["id"], datetime.now(timezone.utc).timestamp(), json.dumps(bad)))
+            result = golem_loop.wake_character(db, lambda r: {"id": r["event"]["id"], "reply": "Hello."},
+                                               event={"id": "valid", "kind": "incoming"})
+            failed, accepted = result["events"]
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(accepted["reply"], "Hello.")
+            with golem_loop.transaction(db) as c:
+                self.assertEqual(golem_loop.runtime_config(c)["history"]["event_sequence"], 1)
+
+    def test_compact_cli_delivers_computed_values_and_resumes_by_id(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "character.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            loop = [sys.executable, str(golem.ROOT / "scripts/run.py"), "golem", "loop", "--db", str(db)]
+
+            def run(args, data=None):
+                result = subprocess.run(loop + args, text=True, input=json.dumps(data), capture_output=True, check=True)
+                return json.loads(result.stdout)
+
+            first = {"id": "one", "kind": "incoming", "context": "Good morning.",
+                     "stimulus": {"appraisal": {"delight": 71}, "emotions": {"pride": 24}}}
+            second = {"id": "two", "kind": "incoming", "context": "Going out?"}
+            prepared = run(["prepare", "--event", "-"], first)
+            request = prepared["request"]
+            self.assertEqual(prepared["status"], "pending")
+            self.assertNotIn("tick", request)
+            self.assertNotIn("stimulus", request["event"])
+            self.assertIn("identity_anchor", request)
+            full = run(["pending"])
+            affect = full["tick"]["psychosomatic_snapshot"]["affective_state"]
+            self.assertEqual(request["emotions"], affect["emotions"])
+            self.assertEqual(request["emotions"]["joy"], 71)
+            self.assertEqual(request["emotions"]["pride"], 24)
+            del affect["emotions"]
+            legacy = golem_loop.decision_context(full)
+            self.assertEqual(legacy["emotions"], {affect["primary_emotion"]: affect["emotional_intensity"]})
+            self.assertEqual(run(["prepare", "--event", "-"], second), prepared)
+            self.assertEqual(run(["prepare"]), prepared)
+            decision = {"id": "one", "reply": "Coffee?"}
+            receipt = run(["resolve", "--receipt", "-"], decision)
+            self.assertEqual(receipt, {"status": "resolved", **decision})
+            self.assertEqual(run(["resolve", "--receipt", "-"], decision), receipt)
+            self.assertEqual(run(["prepare", "--event", "-"], first), receipt)
+            second_request = run(["prepare", "--event", "-"], second)["request"]
+            self.assertEqual(second_request["event"]["id"], "two")
+            self.assertIn("pride", second_request["emotions"])
+            self.assertNotIn("reply", run(["resolve", "--receipt", "-"], {"id": "two"}))
+            self.assertEqual(run(["prepare"]), {"status": "sleeping"})
+
+    def test_prepare_preserves_incoming_boundary_screen(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "character.sqlite3"
+            card = Path(directory) / "character.yaml"
+            card.write_bytes((golem.ROOT / "Characters/_template.yaml").read_bytes())
+            golem_loop.initialize_character(db, card, owned_files=[card])
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps({"id": "incoming", "kind": "incoming"}))
+            with self.assertRaisesRegex(ValueError, "boundary assessment"):
+                golem_loop.execute(db, Namespace(command="prepare", event=event))
+            with golem_loop.transaction(db) as connection:
+                self.assertEqual(connection.execute("SELECT count(*) FROM events").fetchone()[0], 0)
+
+    def test_compact_python_callback_keeps_character_choice(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "character.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            seen = []
+
+            def decide(request):
+                seen.append(request["emotions"]["anger"])
+                self.assertNotIn("tick", request)
+                return {"id": request["event"]["id"]}
+
+            event = {"kind": "incoming", "id": "news", "stimulus": {"appraisal": {"frustration": 84}}}
+            result = golem_loop.wake_character(db, decide, compact=True, event=event)
+            self.assertEqual(seen, [84])
+            self.assertNotIn("reply", result["events"][0])
+
     def test_character_can_adopt_revise_and_clear_dialect(self):
         with TemporaryDirectory() as directory:
             db = Path(directory) / "character.sqlite3"
@@ -93,7 +208,7 @@ class TestGolemLoop(unittest.TestCase):
                 self.assertEqual(golem_loop.advance(connection, config, start + timedelta(minutes=3))["id"],
                                  "practice")
                 request = golem_loop.pending_request(connection)
-                self.assertEqual(request["recent"][0]["decision"]["action"], decision["action"])
+                self.assertEqual(request["recent"][0]["action"], decision["action"])
                 self.assertEqual(request["learned"], [{**decision["learning"], "event_id": first["id"]}])
                 self.assertEqual(request["tick"]["next_history"]["event_sequence"], 2)
                 golem_loop.resolve(connection, {"id": "practice"}, request["tick"]["next_history"], start)
@@ -299,12 +414,12 @@ class TestGolemLoop(unittest.TestCase):
             self.assertEqual([r["event"]["id"] for r in requests], ["attempt", "retry"])
             estimates = requests[1]["expectations"]["performing"]
             self.assertEqual(estimates, {"benefit": 48.75, "cost": 37.5})
-            assessment = requests[1]["recent"][-1]["assessment"]
-            self.assertEqual(assessment["forecast"], event["expectation"])
-            self.assertGreater(assessment["after"]["stress"], assessment["before"]["stress"])
-            self.assertEqual(assessment["before"]["stress"],
-                             original["tick"]["psychosomatic_snapshot"]["autonomic_state"]["stress"])
+            self.assertEqual(requests[1]["recent"][-1]["forecast"], event["expectation"])
             with golem_loop.transaction(db) as connection:
+                assessment = golem_loop.recent_events(connection)[0]["assessment"]
+                self.assertGreater(assessment["after"]["stress"], assessment["before"]["stress"])
+                self.assertEqual(assessment["before"]["stress"],
+                                 original["tick"]["psychosomatic_snapshot"]["autonomic_state"]["stress"])
                 config = golem_loop.runtime_config(connection)
                 self.assertEqual(config["expectations"]["performing"], estimates)
                 self.assertEqual(config["history"]["event_sequence"], 2)
@@ -409,8 +524,12 @@ class TestGolemLoop(unittest.TestCase):
             self.assertEqual(send("a", "1", boundary)["status"], "boundary")
             allowed = golem_loop.wake_character(db, lambda req: {
                 "id": req["event"]["id"], "learning": {"topic": "music", "observation": "a private lesson"},
+                "activity": {"op": "start", "id": "practice", "kind": "practice",
+                             "state": "awake", "duration_seconds": 3600},
             }, event={"kind": "incoming", "id": "normal"}, actor_id="a", screen_abuse=lambda *_: None)
             self.assertTrue(allowed["events"][0]["resolved"])
+            with golem_loop.transaction(db) as connection:
+                self.assertEqual(golem_loop.compact_event_requests(connection, apply=True)["eligible"], 1)
 
             def end(event, context):
                 self.assertEqual(context["previous_boundary"]["reply"], "Leave that subject alone.")
@@ -427,8 +546,13 @@ class TestGolemLoop(unittest.TestCase):
             self.assertEqual(golem_loop.wake_character(db, self.fail)["status"], "deleted")
             with golem_loop.transaction(db) as connection:
                 self.assertEqual(golem_loop.runtime_config(connection), {"lifecycle": "deleted"})
-                for table in ("events", "observations"):
+                for table in ("events", "observations", "activities", "request_archive"):
                     self.assertEqual(connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0], 0)
+                # Old versions could already have marked an installation deleted.
+                connection.execute("INSERT INTO request_archive VALUES ('old-private', X'00')")
+            self.assertEqual(golem_loop.wake_character(db, self.fail)["status"], "deleted")
+            with golem_loop.transaction(db) as connection:
+                self.assertEqual(connection.execute("SELECT count(*) FROM request_archive").fetchone()[0], 0)
 
     def test_repeated_reports_cannot_delete_unregistered_files(self):
         with TemporaryDirectory() as directory:
@@ -522,7 +646,7 @@ class TestGolemLoop(unittest.TestCase):
 
             latest = seen_requests[-1]
             self.assertEqual(latest["active_memory_window_seconds"], 7200)
-            recent_ids = [entry["event"]["id"] for entry in latest["recent"]]
+            recent_ids = [entry["id"] for entry in latest["recent"]]
             self.assertEqual(recent_ids, ["e2"])
             recalled_ids = [m["id"] for m in latest.get("recalled_memories", [])]
             self.assertEqual(recalled_ids, ["mem_harbor"])

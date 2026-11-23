@@ -178,7 +178,10 @@ def update_installation(source: Path, target: Path, *, check: bool = False) -> N
         raise ValueError(f"Existing Simulacra installation not found at {target}")
 
     changes = []
-    for name in UPDATE_FILES:
+    release_files = UPDATE_FILES
+    if (target / "Muse.AI/SKILL.md").is_file():
+        release_files = [*release_files, "Muse.AI/SKILL.md", "Muse.AI/INSTALLATION.md"]
+    for name in release_files:
         src, dst = source / name, target / name
         if not src.is_file():
             raise ValueError(f"Release file is missing: {src}")

@@ -45,46 +45,17 @@ Do not run `init` against an existing DB. Omit `--log` only if no durable charac
 
 ## 3. Configure scheduled agent jobs
 
-Create a Muse scheduled agent job using the LLM-enabled agent, with a 1-hour cadence to match the example `--idle-seconds 3600` (or set both values to the desired cadence). Set the job's instructions to follow `Muse.AI/SKILL.md` and this execution sequence:
+Schedule the host job at the desired cadence. It prepares one due event and follows the decision and receipt contract in the [Muse host guide](SKILL.md#prepare-and-resolve-one-turn).
 
 ```bash
-SIMULACRA_DIR="${SIMULACRA_DIR:-$HOME/workspace/repos/Simulacra}"
-DB="$HOME/workspace/simulacra/characters/rowan/runtime.sqlite3"
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" run --once
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" pending
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" prepare
 ```
-
-The scheduled agent should then:
-
-1. If the first JSON result is `status: sleeping`, finish this job with no action.
-2. If pending work exists, read the pending request. Use its event ID, deterministic `tick`, active activity, needs, goals, card/log context, and recent history as inputs to the Simulacra cognitive decision.
-3. Check real Muse/host capabilities and resources. If an action can't be done, report that limitation in the decision so the character can respond to it.
-4. Select `Thinks`, `Says`, and `Does` from the character's cognition. Let materially relevant current `Feels` affect delivery, pace, posture, or an observable tell, then render the result naturally. Keep thought private unless intentionally expressed; do not render raw numbers, framework labels, every cue, or old `recent_cues` as current behavior. Keep involuntary reflexes distinct from deliberate actions. A response can be dialogue-only when body state does not materially affect it. For duration activities, use the structured `activity` contract in the skill file. Do not calculate physiology in the LLM.
-5. Resolve exactly the pending event via stdin:
-
-```bash
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" resolve - <<'JSON'
-{"id":"EVENT_ID_FROM_PENDING","action":"Character-selected action or no action."}
-JSON
-```
-
-6. If a `reply` was included, fetch the just-resolved event using `timeline --limit 1` and deliver its stored `decision.reply` exactly as accepted. Do not regenerate or paraphrase it after resolution; omit delivery when no reply was accepted.
-
-The scheduled LLM job is the cognitive wake. `run --once` advances Golem deterministically and stores a pending request before cognitive work. `resolve` persists the selected result. Do not launch an always-running process; scheduled jobs can resume the DB after a VM replacement.
 
 ## 4. Incoming messages
 
-The Muse messaging integration should pass messages to the same persistent loop using `wake_character` if a Python callback is available, or enqueue an event with a stable transport message ID and run the same scheduled cognitive resolution workflow. For CLI enqueue, write a JSON object under a persistent character directory and call:
+Have the messaging adapter call `prepare --event -` with the stable transport ID and message as event JSON on stdin. Feed the returned decision context to Simulacra once. Resolve its decision with `resolve --receipt -` and deliver the accepted reply, deduplicated by character and event ID. Follow the same guide for retries and earlier pending work. Replace any older per-message job instructions that request a full tick, separate snapshot files, or a written emotional rationale.
 
-```bash
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" enqueue "$CHARACTER_DIR/incoming.json"
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" run --once
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" pending
-```
-
-Example incoming object: `{"id":"transport-message-123","kind":"incoming","context":"Message text"}`. Deliver a reply or execute an external side effect only after resolution; deduplicate it by character and event ID. If the host uses boundary screening or any existing message policy, preserve it in this path.
-
-For runtimes configured with registered owned files and boundary screening, do not use raw CLI `enqueue` for incoming events: the existing guard requires the host's `wake_character(..., screen_abuse=...)` callback. Keep that screening in the Muse integration or use the host's established incoming-message adapter.
+For a Python adapter, use `wake_character(db, decide, event=incoming, compact=True)`. Preserve the host's boundary screening and trusted actor ID. Runtimes with registered owned files require the screened Python adapter for incoming events.
 
 ## 5. VM replacement recovery
 
@@ -106,4 +77,4 @@ For command details, activity operations, JSON fields, calibration, and limitati
 
 ## Reload after this update
 
-After installing the revised Muse skill, reload or reselect `Muse.AI/SKILL.md` in Muse and restart the active hosting session so its renderer instructions are refreshed. Update the scheduled job's instruction reference if it copied an older prompt. This is an instruction-only change: it requires no character DB migration, no Golem restart, and no edits to cards or logs.
+Install the updated runtime and Muse guide together. Reload or reselect `Muse.AI/SKILL.md` and refresh any saved job prompt that copied the older procedure. Restart any long-running Python adapter so it loads the new runtime. Resume using the existing database, card and log paths.

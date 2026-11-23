@@ -30,7 +30,7 @@ class TestGolemConversation(unittest.TestCase):
             ],
             cwd=ROOT, check=True, capture_output=True, text=True,
         )
-        return json.loads(result.stdout.split("\n", 1)[1])
+        return json.loads(result.stdout)
 
     def test_spontaneous_urge_and_deliberate_restraint(self):
         stimulus = {

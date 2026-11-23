@@ -136,7 +136,7 @@ def run_python_core(tool: str, args: list[str]) -> int:
         return 2
     py = find_python()
     cmd = [*py, str(core), *args]
-    print(f"[run] python core → {core.relative_to(ROOT)}", flush=True)
+    print(f"[run] python core → {core.relative_to(ROOT)}", file=sys.stderr, flush=True)
     return subprocess.call(cmd, cwd=str(ROOT))
 
 

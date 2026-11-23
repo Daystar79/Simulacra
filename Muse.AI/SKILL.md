@@ -26,47 +26,27 @@ python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" init \
 
 Omit `--log` if no durable log exists. The card and log must themselves live under persistent storage. Do not overwrite an existing database; `init` is for first provisioning only.
 
-## Scheduled cognitive wake
+## Prepare and resolve one turn
 
-Create a Muse scheduled agent job at the desired cadence. Each job runs the following sequence and uses its LLM reasoning to decide the pending character turn:
-
-```bash
-SIMULACRA_DIR="${SIMULACRA_DIR:-$HOME/workspace/repos/Simulacra}"
-DB="$HOME/workspace/simulacra/characters/CHARACTER_ID/runtime.sqlite3"
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" run --once
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" pending
-```
-
-If `run --once` returns `{"status":"sleeping"}`, there is no due work. If it returns a pending event, read the `pending` request and start from `identity_anchor` (voice, `hard_bans`, `conversational_stance`, bias/gift) so the character is always themselves first. Active working memory (`recent`) is gated to the last 2 hours; use only `recalled_memories` surfaced for this turn rather than loading the full YAML log or long chat history into context. Return a JSON decision with the exact pending event ID. Do not invent bodily values: Golem's `tick` is the deterministic source of physiological state. Strictly obey `behavior_guidance` (including `enforcement_rules` and `recent_reply_pattern` to prevent therapy-speak, user-echoing, or repeated body-cue openers), goals, commitments, and actual host capabilities/resources.
-
-## Render the character, not the diagnostics
-
-Build the response through the four Simulacra channels, then render them as natural behavior:
-
-- **Feels:** use materially relevant current bodily state and current-event somatic cues to shape delivery, pacing, posture, or an observable bodily tell. Translate diagnostic values into behavior; never print raw scales or engine labels to the user.
-- **Thinks:** use the character's private appraisal and reasoning to decide what matters. Keep it private unless the established format or character intentionally expresses it.
-- **Says:** preserve the character's selected spoken intent and voice in `decision.reply`.
-- **Does:** include deliberate physical action when the character chooses one. Keep this distinct from an involuntary reflex already underway.
-
-Use only bodily state that materially affects this beat. A dialogue-only response is correct when the body adds nothing relevant; do not force a cue into every reply. `tick.golem_meta.emitted_cues` are the current tick's cues for interpretation, not mandatory text to reproduce. Carried `recent_cues`/recent event history prevents stale cues from being mistaken for actions happening now. A historical cue is not evidence that the character moved or spoke in the current event.
-
-Keep `triggered_rules`, numerical scales, arbitration scores, and internal labels as framework diagnostics. Read them to guide the cognitive decision; do not expose them as observable acts or quote them in character prose. Use `tick.output_vector.feels`, current snapshot fields, and current `golem_meta.emitted_cues` as inputs to interpretation. Muse supplies the character-specific `Thinks`, `Says`, and `Does`; do not claim Golem generated those channels.
-
-For `autonomic_state.involuntary_response`, distinguish an already-started reflex (such as bracing or freezing) from a deliberate `Does` choice. Render the reflex as bodily behavior without attributing conscious intent to it; Simulacra may still select a separate deliberate action afterward.
-
-See [rendering regression examples](rendering-regressions.md) for dialogue-only, fatigue, hunger, and involuntary-response cases.
-
-Resolve the decision through the same CLI. Stdin is accepted as `-`, so no transient decision file is required:
+Use the same decision path for incoming messages and scheduled wakes. On an incoming message, the transport supplies its stable event ID and actual text to `prepare --event -` as JSON on stdin. A scheduled wake calls `prepare` with no event. Preparation queues the input, advances the next due event or resumes its saved tick, and returns the character's decision context in one tool call. Use the established screened Python adapter for runtimes with registered owned files.
 
 ```bash
-python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" resolve - <<'JSON'
-{"id":"PENDING_EVENT_ID","action":"Chooses to continue working for now."}
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" prepare --event - <<'JSON'
+{"id":"transport-id","kind":"incoming","context":"Did you hear the news?"}
 JSON
 ```
 
-Use the same event ID for retries. A pending request survives VM replacement; inspect it with `pending` and resolve that request before invoking another wake. A repeated identical resolution is idempotent. Do not deliver messages or repeat external tool effects unless the event is resolved, and deduplicate those effects by character plus event ID.
+On `status: pending`, make **one character decision** from `request`. Golem has already calculated the concurrent `emotions` as independent 0–100 values. The character chooses whether any feeling matters enough to affect their speech or action. Ground the voice in `identity_anchor`, its hard bans, and the chosen `dialect`. Use `recent` for continuity and `recalled_memories` for private recall. Respect the character's own stance and what they would disclose to this listener. A current cue or involuntary reflex may shape delivery. The character can answer normally, act, or stay silent.
 
-After CLI resolution, preserve the accepted reply exactly. `resolve` stores the approved text in the event decision; retrieve it with `timeline --limit 1` and deliver that `decision.reply` byte-for-byte. Do not draft, paraphrase, or re-render a second reply after resolution. If the decision omitted `reply`, deliver no character message.
+Return the event ID and the reply in the character's voice. Include a brief `action` when something happens and any substantive learning, appraisal, or activity change when it occurs. Ordinary dialogue needs only `id` and `reply`. The runtime persists the tick. Routine turns require no snapshot files, grounding essay, separate emotion analysis, or timeline read.
+
+```bash
+python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --db "$DB" resolve --receipt - <<'JSON'
+{"id":"transport-id","reply":"What happened?"}
+JSON
+```
+
+Deliver the receipt's exact `reply` once per character and event ID when present. On retry, use the same event and ID. A resolved event returns its receipt directly from preparation. A different pending ID means older work came first. Resolve that event and retry the original input to reach its turn. A sleeping, failed, or closed status requires no character generation. Serialize decision and delivery work per character. Use `pending` when inspecting the full saved tick for diagnostics.
 
 ## Duration-based maintenance activity
 

@@ -4,9 +4,15 @@
 
 ### Added
 
+- Muse can prepare one compact decision and receive the accepted reply directly on resolution. Golem calculates concurrent emotion intensities on the tick. Simulacra receives their values and chooses how to respond.
+
 - Added `deploy --update INSTALL_DIR` for refreshing copied installations in place and `--check` to preview changed runtime files. Existing character state and host files stay in place.
 
 ### Fixed
+
+- Incoming message text now reaches memory recall, echo detection, and recent conversation context across supported transport fields. Older free-text memory entries can coexist with cue-linked records.
+- Malformed expectation context can no longer stall later turns. Python retries recover the accepted reply by event ID, and Golem CLI results can be parsed directly as JSON.
+- Character deletion clears activity records and archived requests. Opening an older deleted runtime also clears residual rows in those tables.
 
 - Incoming host requests now carry guidance for deciding what a character believes and what they will disclose to the current listener. Hosts can pass a private memory cue separately from the visitor's words in `event.host_notes`.
 

@@ -34,12 +34,12 @@ The Golem and loop commands return JSON objects on stdout. Errors go to stderr a
 
 ## Persistent host loop
 
-Initialize one database per character. On incoming turns and scheduled heartbeats, invoke `scripts.golem_loop.wake_character(db_path, decide, event=optional_event)`. `decide(request)` must run the Simulacra cognitive decision process and return the same event ID. The request carries `tick`, motivations, goals, recent events, and `maintenance_needs` (hunger, fatigue, sleep debt, activity, and an evaluation hint).
+Initialize one database per character. On incoming turns and scheduled heartbeats, invoke `scripts.golem_loop.wake_character(db_path, decide, compact=True, event=optional_event)`. `decide(request)` must run the Simulacra cognitive decision process and return the same event ID. The compact request carries computed `emotions`, current bodily cues, motivations, goals, recent events, and `maintenance_needs` (hunger, fatigue, sleep debt, activity, and an evaluation hint).
 
 Maintenance handoff:
 
 1. Treat the request's bodily numbers as needs and consequences, not a command. Decide whether to eat, drink if the host models hydration, rest, sleep, wake, continue work, or do something else.
-   High hunger, fatigue, or stress does not direct the character to repeat an action or mirror the user's wording or behavior. The request includes `behavior_guidance` and a `recent_action_pattern`; use those to notice stuck behavior while preserving any intentional, character-authored mannerism.
+   When repetition is detected, use the recent pattern and the character's own motives to decide whether to repeat the behavior. Choose the voice from the supplied identity anchor and dialect.
 2. Check actual host-provided resources and constraints before representing an action as executable. Never claim food or water exists based on Golem state.
 3. Record the chosen action in `decision.action` and the bodily result in `decision.experience.stimulus`. For a completed meal, for example, `{"food_intake": 30}` reduces hunger by 30 points. If the character postpones food, omit intake; elapsed time continues to affect hunger.
 4. Represent a duration with the structured `decision.activity` operation: `start` stores its ID, kind, state, start time, duration, and optional completion effects in SQLite and schedules one due event. At the due event, Simulacra chooses `complete`, `extend`, or (when interrupted before due) `interrupt`; a later decision may `resume` an interrupted activity. Activity state transitions and Golem consequences commit in the same transaction. Each tick calculates recovery over elapsed time, so sleep does not need repeated LLM calls. See [Muse.AI/SKILL.md](Muse.AI/SKILL.md) for JSON examples.
@@ -63,7 +63,7 @@ def decide(request):
     # come from the host environment, not from Golem.
     return {"id": request["event"]["id"]}
 
-result = wake_character(db_path, decide)
+result = wake_character(db_path, decide, compact=True)
 ```
 
 This no-action callback demonstrates transport only. A host must supply the actual cognitive pipeline for autonomous behavior.

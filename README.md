@@ -47,10 +47,10 @@ from scripts.golem_loop import initialize_character, wake_character
 initialize_character(db_path, card_path, log=log_path)
 
 # In the host's scheduled handler
-wake_character(db_path, decide)
+wake_character(db_path, decide, compact=True)
 
 # In the host's incoming-message handler
-wake_character(db_path, decide, event={
+wake_character(db_path, decide, compact=True, event={
     "id": message_id, "kind": "incoming", "context": message_text,
 })
 ```

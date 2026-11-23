@@ -79,6 +79,13 @@
         "emotional_distress": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Emotional distress intensity." },
         "physical_pain_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for physical pain. Higher scores reduce its contribution to stress." },
         "emotional_distress_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for emotional distress. Higher scores reduce its contribution to stress." },
+        "somatic_map": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        },
         "primary_somatic_zones": {
           "type": "array",
           "items": {

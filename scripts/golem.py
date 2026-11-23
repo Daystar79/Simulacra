@@ -359,6 +359,43 @@ def select_somatic_cues(
     return chosen
 
 
+# Regions refine the six coarse zones used by existing cards and snapshots.
+SOMATIC_ZONES = {
+    "Z1_Cranial_Ocular": "scalp head face forehead brow eye ear nose cheek jaw mouth lip tongue teeth",
+    "Z2_Vocal_Cervical": "neck throat larynx",
+    "Z3_Thoracic_Respiratory": "chest breast ribs lungs heart diaphragm upper_back",
+    "Z4_Abdominal_Visceral": "abdomen stomach gut flank lower_back",
+    "Z5_Pelvic_Kinesthetic": "pelvis hip groin genitals pelvic_floor bladder buttock",
+    "Z6_Peripheral_Grounding": "shoulder upper_arm elbow forearm wrist hand palm finger thumb thigh knee shin calf ankle foot heel sole toe",
+}
+REGION_ZONE = {region: zone for zone, regions in SOMATIC_ZONES.items() for region in regions.split()}
+
+
+def somatic_map(stimulus, body_signals):
+    """Merge inferred and scene-local sensations without losing coexisting sensations."""
+    regions = {}
+    for region, sensation, intensity in body_signals:
+        if intensity:
+            regions.setdefault(region, {})[sensation] = intensity
+    observations = stimulus.get("somatic_map", {})
+    if not isinstance(observations, dict):
+        raise ValueError("somatic_map must map body regions to sensations")
+    for location, sensations in observations.items():
+        region = re.sub(r"^(left|right)_", "", location) if isinstance(location, str) else ""
+        if region not in REGION_ZONE and location not in ("skin", "whole_body"):
+            raise ValueError(f"Unknown somatic region: {location}")
+        if not isinstance(sensations, dict):
+            raise ValueError("Each somatic region must map sensation names to intensities")
+        for name, value in sensations.items():
+            if not isinstance(name, str) or not name.strip() or type(value) is not int or not 0 <= value <= 100:
+                raise ValueError("A sensation requires a name and integer intensity from 0 to 100")
+            if value:
+                regions.setdefault(location, {})[name] = value
+            elif location in regions:
+                regions[location].pop(name, None)
+    return {location: sensations for location, sensations in regions.items() if sensations}
+
+
 def run_golem(
     state: dict[str, Any],
     stimulus: dict[str, Any],
@@ -718,6 +755,20 @@ def run_golem(
     commit_eligible = pressure_tier in ("Medium", "High")
     rules.append(f"COMMIT_GATE:{'ELIGIBLE' if commit_eligible else 'EPHEMERAL_ONLY'}")
 
+    mapped_body = somatic_map(stimulus, (
+        ("stomach", "hunger", hunger), ("gut", "queasiness", visceral_revulsion),
+        ("eye", "light discomfort", exposure_state["bright_light_discomfort"]),
+        ("ear", "noise discomfort", exposure_state["noise_discomfort"]),
+        ("skin", "cold discomfort", exposure_state["cold_discomfort"]),
+        ("skin", "heat discomfort", exposure_state["heat_discomfort"]),
+        ("whole_body", "fatigue", fatigue), ("whole_body", "pain", physical_pain),
+        ("chest", "breathing effort", exertion), ("pelvis", "arousal", sexual_arousal),
+    ))
+    for location in mapped_body:
+        zone = REGION_ZONE.get(re.sub(r"^(left|right)_", "", location))
+        if zone and zone not in zones:
+            zones.append(zone)
+
     cue_text = "; ".join(somatic_cues)
     zone_text = ", ".join(zones)
     feels = f"{cue_text} ({zone_text})." if cue_text else f"Active zones: {zone_text}."
@@ -764,6 +815,7 @@ def run_golem(
             "physical_pain_tolerance": physical_pain_tolerance,
             "emotional_distress_tolerance": emotional_distress_tolerance,
             "primary_somatic_zones": zones,
+            "somatic_map": mapped_body,
             "autonomic_surge": autonomic_surge,
             "involuntary_response": involuntary_response,
         },

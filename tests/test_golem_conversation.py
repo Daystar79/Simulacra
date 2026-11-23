@@ -60,6 +60,20 @@ class TestGolemConversation(unittest.TestCase):
         self.assertNotIn("pride", emotions)
         self.assertEqual([emotions[k] for k in ("grief", "gratitude", "envy")], [34, 27, 3])
 
+    def test_full_body_localization_and_diffuse_discomfort(self):
+        sites = {"scalp": {"tingle": 8}, "throat": {"tightness": 10}, "upper_back": {"ache": 11},
+                 "abdomen": {"pressure": 14}, "left_hip": {"stiffness": 22},
+                 "left_palm": {"warmth": 45, "pressure": 25}, "right_toe": {"cold": 12}}
+        stimulus = {"somatic_map": sites, "noise_exposure": 70}
+        body = self.tick(stimulus)["psychosomatic_snapshot"]["autonomic_state"]
+        for site, sensations in sites.items():
+            self.assertEqual(body["somatic_map"][site], sensations)
+        self.assertEqual(body["somatic_map"]["ear"]["noise discomfort"], 70)
+        self.assertEqual(len(body["primary_somatic_zones"]), 6)
+        later = self.tick({})["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"]
+        self.assertNotIn("left_palm", later)
+        self.assertIn("ear", later)
+
     def test_approved_low_pressure_memory_survives_reload_without_pressure_commit(self):
         memory = self.directory / "memory.json"
         memory.write_text(json.dumps({

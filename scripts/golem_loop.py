@@ -541,6 +541,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         body = tick["psychosomatic_snapshot"]["autonomic_state"]
         fields = ("stress", "arousal", "sexual_drive", "sexual_excitation", "sexual_inhibition", "sexual_arousal")
         return {**{key: body[key] for key in fields if key in body},
+                "somatic_map": body.get("somatic_map", {}),
                 "emotions": tick["psychosomatic_snapshot"]["affective_state"].get("emotions", {}),
                 "interest": tick["next_history"]["appraisal_effects"]["interest"]}
 
@@ -742,6 +743,7 @@ def advance(connection, config, now, allow_idle=True):
         request["activity"] = active_activity(connection)
     request["behavior_guidance"] = {
         "affect_and_action": (
+            "Read autonomic_state.somatic_map for localized sensations. Choose which are outwardly visible. "
             "Consider all concurrent feelings in affective_state.emotions. Choose which to show, temper, "
             "or keep private. To capture feelings you recognize, return experience.stimulus.emotions "
             "as a map of emotion names to intensities (0–100). "

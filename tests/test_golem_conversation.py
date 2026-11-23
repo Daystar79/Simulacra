@@ -32,6 +32,48 @@ class TestGolemConversation(unittest.TestCase):
         )
         return json.loads(result.stdout.split("\n", 1)[1])
 
+    def test_spontaneous_urge_and_deliberate_restraint(self):
+        stimulus = {
+            "urge": {"action": "reach for a hug", "strength": 100},
+            "caller_or_target": "friend", "willingness_to_be_seen": 80,
+            "willingness_to_pursue": 85, "appraisal": {"delight": 90},
+        }
+        snapshot = self.tick(stimulus)["psychosomatic_snapshot"]
+        self.assertEqual(snapshot["priority_arbitration"]["arbitration_status"], "impulse_override")
+        self.assertEqual(snapshot["affective_state"]["primary_emotion"], "joy")
+        self.assertEqual(snapshot["affective_state"]["initiative"], 85)
+        self.assertEqual(snapshot["relational_vectors"]["friend"]["intimacy"], 80)
+        deliberate = self.tick({**stimulus, "time_pressure": "deliberate"})["psychosomatic_snapshot"]
+        self.assertEqual(deliberate["affective_state"]["impulse"], "reach for a hug")
+        self.assertEqual(deliberate["priority_arbitration"]["arbitration_status"], "arbitrated")
+        later = self.tick({"caller_or_target": "stranger"})["psychosomatic_snapshot"]
+        self.assertNotEqual(later["affective_state"]["impulse"], "reach for a hug")
+        self.assertEqual(later["relational_vectors"]["stranger"]["intimacy"], 0)
+
+    def test_concurrent_feelings_survive_decay_and_selective_revision(self):
+        mix = {"pride": 80, "grief": 68, "gratitude": 54, "envy": 12}
+        first = self.tick({"emotions": mix, "elapsed_ms": 0})
+        emotions = first["psychosomatic_snapshot"]["affective_state"]["emotions"]
+        self.assertEqual({name: emotions[name] for name in mix}, mix)
+        later = self.tick({"emotions": {"pride": 0, "envy": 3}, "elapsed_ms": 10000})
+        emotions = later["psychosomatic_snapshot"]["affective_state"]["emotions"]
+        self.assertNotIn("pride", emotions)
+        self.assertEqual([emotions[k] for k in ("grief", "gratitude", "envy")], [34, 27, 3])
+
+    def test_full_body_localization_and_diffuse_discomfort(self):
+        sites = {"scalp": {"tingle": 8}, "throat": {"tightness": 10}, "upper_back": {"ache": 11},
+                 "abdomen": {"pressure": 14}, "left_hip": {"stiffness": 22},
+                 "left_palm": {"warmth": 45, "pressure": 25}, "right_toe": {"cold": 12}}
+        stimulus = {"somatic_map": sites, "noise_exposure": 70}
+        body = self.tick(stimulus)["psychosomatic_snapshot"]["autonomic_state"]
+        for site, sensations in sites.items():
+            self.assertEqual(body["somatic_map"][site], sensations)
+        self.assertEqual(body["somatic_map"]["ear"]["noise discomfort"], 70)
+        self.assertEqual(len(body["primary_somatic_zones"]), 6)
+        later = self.tick({})["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"]
+        self.assertNotIn("left_palm", later)
+        self.assertIn("ear", later)
+
     def test_approved_low_pressure_memory_survives_reload_without_pressure_commit(self):
         memory = self.directory / "memory.json"
         memory.write_text(json.dumps({

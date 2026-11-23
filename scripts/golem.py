@@ -11,6 +11,7 @@ plus triggered rules and somatic cues for downstream LLM rendering.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -65,7 +66,8 @@ EXPOSURE_RESPONSES = {
     "noise": ("Noise discomfort", 2, 0.20, True),
     "bright_light": ("Bright light discomfort", 5, 0.15, True),
 }
-APPRAISAL_SIGNALS = ("interest", "attraction", "disgust", "unease", "uncertainty")
+APPRAISAL_SIGNALS = ("interest", "attraction", "disgust", "unease", "uncertainty",
+                     "anticipation", "loss", "frustration", "delight", "relief")
 APPRAISAL_HALF_LIFE_SECONDS = 10
 ACTIVATION_RECOVERY_MINUTES = 1
 SEXUAL_AROUSAL_RECOVERY_MINUTES = 2
@@ -111,14 +113,106 @@ def parse_realm_num(focus_str: str) -> str:
     return m.group(1) if m else "X"
 
 
+# Only persist defaults that are character-neutral or already used by the runtime.
+CARD_DEFAULTS = {
+    "age": 0, "canon_adult": False, "physical_pain_baseline": 0,
+    "emotional_distress_baseline": 0, "physical_pain_tolerance": 50,
+    "emotional_distress_tolerance": 50, "sexual_drive_baseline": 50,
+    "physiology_calibration": DEFAULT_PHYSIOLOGY_CALIBRATION,
+    "active_focus": "Realm X — The Return", "defense_posture_default": "none",
+    "social_facade_default": "cool_politeness", "default_somatic_alignment": "",
+    "cognitive_bias": "", "cognitive_gift": "", "excluded_cues": [],
+    "transformation_weights": {"latent_anchors": {}, "bias_strength": 60, "somatic_flexibility": 40},
+    "voice": {"conversational_stance": ""}, "skills": [], "relationships": [],
+    "motivations": {}, "incentives": {}, "goals": {},
+}
+
+
+def missing_card_fields(card, defaults=CARD_DEFAULTS, path=()):
+    for key, default in defaults.items():
+        if key not in card:
+            yield path, key, default
+        elif isinstance(default, dict) and isinstance(card[key], dict):
+            yield from missing_card_fields(card[key], default, (*path, key))
+
+
+def selected_card(data, slug):
+    if not isinstance(data, dict):
+        raise ValueError("Character card must be a YAML mapping")
+    if isinstance(data.get("characters"), dict):
+        cards = data["characters"]
+        key = slug or next(iter(cards), None)
+        if key not in cards:
+            raise KeyError(f"Slug '{key}' not found; available: {list(cards)}")
+        if not isinstance(cards[key], dict):
+            raise ValueError("Selected character card must be a YAML mapping")
+        return cards[key], ("characters", key)
+    return data, ()
+
+
+def insert_card_defaults(source, data, card_path, changes):
+    # Insert into the original mappings so comments, quoting and untouched cards survive.
+    root = yaml.compose(source)
+    additions = {}
+    for path, key, value in changes:
+        additions.setdefault(card_path + path, {})[key] = value
+    edits = []
+    for path, fields in additions.items():
+        node = root
+        for part in path:
+            node = next((v for k, v in node.value if k.value == part), None)
+            if node is None:  # A mapping inherited through a YAML merge.
+                break
+        if node is None:
+            break
+        if node.flow_style:
+            pos = node.end_mark.index - 1
+            fragment = (", " if node.value else "") + json.dumps(fields, ensure_ascii=False)[1:-1]
+            if node.value and source[node.value[-1][1].end_mark.index:pos].strip() == ",":
+                fragment = fragment[1:]
+        else:
+            first = node.value[0][0].start_mark
+            pos = first.index
+            indent = " " * first.column
+            lines = yaml.safe_dump(fields, sort_keys=False, allow_unicode=True).rstrip().splitlines()
+            fragment = ("\n" + indent).join(lines) + "\n" + indent
+        edits.append((pos, fragment))
+    else:
+        candidate = source
+        for pos, fragment in sorted(edits, reverse=True):
+            candidate = candidate[:pos] + fragment + candidate[pos:]
+        try:
+            if yaml.safe_load(candidate) == data:
+                return candidate
+        except yaml.YAMLError:
+            pass
+    # Shared aliases and inherited mappings may require materializing a separate card.
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+
+
 def load_character(card_path: Path, slug: str | None) -> dict[str, Any]:
-    data = yaml.safe_load(card_path.read_text(encoding="utf-8"))
-    if "characters" in data and isinstance(data["characters"], dict):
-        key = slug or next(iter(data["characters"]))
-        if key not in data["characters"]:
-            raise KeyError(f"Slug '{key}' not found in {card_path}; available: {list(data['characters'])}")
-        return dict(data["characters"][key])
-    return dict(data)
+    card_path = card_path.resolve()
+    source = card_path.read_text(encoding="utf-8")
+    card, _ = selected_card(yaml.safe_load(source), slug)
+    if not any(missing_card_fields(card)):
+        return card
+    with locked_file(card_path):
+        source = card_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(source)
+        card, path = selected_card(data, slug)
+        changes = list(missing_card_fields(card))
+        if changes:
+            # Copy mappings along the edit path to isolate YAML anchors shared by other cards.
+            for parents, key, default in changes:
+                current = data
+                for part in path + parents:
+                    current[part] = dict(current[part])
+                    current = current[part]
+                current[key] = copy.deepcopy(default)
+            card, _ = selected_card(data, slug)
+            overlay_log(card, None)  # Validate operational values before updating the file.
+            replace_text(card_path, insert_card_defaults(source, data, path, changes))
+        return card
 
 
 def overlay_log(
@@ -358,6 +452,43 @@ def select_somatic_cues(
     return chosen
 
 
+# Regions refine the six coarse zones used by existing cards and snapshots.
+SOMATIC_ZONES = {
+    "Z1_Cranial_Ocular": "scalp head face forehead brow eye ear nose cheek jaw mouth lip tongue teeth",
+    "Z2_Vocal_Cervical": "neck throat larynx",
+    "Z3_Thoracic_Respiratory": "chest breast ribs lungs heart diaphragm upper_back",
+    "Z4_Abdominal_Visceral": "abdomen stomach gut flank lower_back",
+    "Z5_Pelvic_Kinesthetic": "pelvis hip groin genitals pelvic_floor bladder buttock",
+    "Z6_Peripheral_Grounding": "shoulder upper_arm elbow forearm wrist hand palm finger thumb thigh knee shin calf ankle foot heel sole toe",
+}
+REGION_ZONE = {region: zone for zone, regions in SOMATIC_ZONES.items() for region in regions.split()}
+
+
+def somatic_map(stimulus, body_signals):
+    """Merge inferred and scene-local sensations without losing coexisting sensations."""
+    regions = {}
+    for region, sensation, intensity in body_signals:
+        if intensity:
+            regions.setdefault(region, {})[sensation] = intensity
+    observations = stimulus.get("somatic_map", {})
+    if not isinstance(observations, dict):
+        raise ValueError("somatic_map must map body regions to sensations")
+    for location, sensations in observations.items():
+        region = re.sub(r"^(left|right)_", "", location) if isinstance(location, str) else ""
+        if region not in REGION_ZONE and location not in ("skin", "whole_body"):
+            raise ValueError(f"Unknown somatic region: {location}")
+        if not isinstance(sensations, dict):
+            raise ValueError("Each somatic region must map sensation names to intensities")
+        for name, value in sensations.items():
+            if not isinstance(name, str) or not name.strip() or type(value) is not int or not 0 <= value <= 100:
+                raise ValueError("A sensation requires a name and integer intensity from 0 to 100")
+            if value:
+                regions.setdefault(location, {})[name] = value
+            elif location in regions:
+                regions[location].pop(name, None)
+    return {location: sensations for location, sensations in regions.items() if sensations}
+
+
 def run_golem(
     state: dict[str, Any],
     stimulus: dict[str, Any],
@@ -555,6 +686,68 @@ def run_golem(
         primary_emotion, secondary_emotion = "warm_amusement", "poised_curiosity"
         impulse = "lean_in_and_steer"
 
+    # Relative activation, with separate body and appraisal inputs.
+    # These are simulation scales rather than measured hormone concentrations.
+    release = {
+        "alarm": max(physical_load, threat, unease),
+        "reward": max(appraisal_effects["delight"], interest * 0.5),
+        "settling": appraisal_effects["relief"],
+    }
+    prior_release = history.get("release_state", {})
+    release = {key: min(100, max(value, prior_release.get(key, 0) * remaining_appraisal))
+               for key, value in release.items()}
+    emotional_pressures = {
+        "fear": release["alarm"], "joy": release["reward"], "relief": release["settling"],
+        "sadness": appraisal_effects["loss"], "anger": appraisal_effects["frustration"],
+        "anticipation": appraisal_effects["anticipation"], "disgust": disgust,
+    }
+    emotional_pressures.update(interest=interest, unease=unease, uncertainty=uncertainty)
+    # The host can recognize feelings whose meaning depends on the character's interpretation.
+    # Keep fractional carryover so that repeated short ticks equal one longer interval.
+    felt = {
+        name: intensity * remaining_appraisal
+        for name, intensity in history.get("felt_emotions", {}).items()
+        if intensity * remaining_appraisal >= 0.5
+    }
+    updates = stimulus.get("emotions", {})
+    if not isinstance(updates, dict):
+        raise ValueError("emotions must map names to intensity scores")
+    for name, intensity in updates.items():
+        if not isinstance(name, str) or not name.strip() or name != name.strip():
+            raise ValueError("emotion names must be nonempty text without surrounding whitespace")
+        if type(intensity) is not int or not 0 <= intensity <= 100:
+            raise ValueError("emotion intensity must be an integer from 0 to 100")
+        if intensity:
+            felt[name] = intensity
+        else:
+            felt.pop(name, None)
+    for name, intensity in felt.items():
+        emotional_pressures[name] = max(emotional_pressures.get(name, 0), intensity)
+    emotions = {name: clamp(value) for name, value in emotional_pressures.items() if clamp(value)}
+    salient = sorted((name for name in emotional_pressures if emotional_pressures[name] >= 40),
+                     key=emotional_pressures.get, reverse=True)
+    if salient:
+        if cognitive_regime == "reactive":
+            secondary_emotion = salient[0]
+        else:
+            primary_emotion = salient[0]
+            if len(salient) > 1:
+                secondary_emotion = salient[1]
+        emotional_intensity = max(emotional_intensity, clamp(emotional_pressures[salient[0]]))
+
+    for key in ("willingness_to_pursue", "willingness_to_be_seen"):
+        if key in stimulus and (type(stimulus[key]) is not int or not 0 <= stimulus[key] <= 100):
+            raise ValueError(f"{key} must be an integer from 0 to 100")
+    pursuit = stimulus.get("willingness_to_pursue", max(interest, release["reward"], hunger * 0.5))
+    urge = stimulus.get("urge")
+    if urge is not None:
+        if (not isinstance(urge, dict) or not isinstance(urge.get("action"), str)
+                or not urge["action"].strip() or type(urge.get("strength")) is not int
+                or not 0 <= urge["strength"] <= 100):
+            raise ValueError("urge requires an action and an integer strength from 0 to 100")
+        if cognitive_regime != "reactive" and urge["strength"]:
+            impulse = urge["action"].strip()
+
     # 3. Subconscious Bias & Defense Posture
     if threat >= 30 or latent_hit_bonus >= 12:
         bias_state = "DEFENSIVE_ACTIVE"
@@ -600,6 +793,10 @@ def run_golem(
     internal_friction = clamp(abs(drives[0]["salience"] - drives[1]["salience"]) if len(drives) > 1 else 0)
     internal_friction = clamp(100 - internal_friction) if len(drives) > 1 and drives[1]["salience"] >= 60 else clamp(int(0.4 * stress) + int(0.3 * latent_hit_bonus))
     arbitration_status = "bypassed_reactive" if cognitive_regime == "reactive" else "arbitrated"
+    if (urge and cognitive_regime != "reactive" and urge["strength"] >= 75
+            and urge["strength"] > salience_score and time_pressure != "deliberate"):
+        arbitration_status = "impulse_override"
+        winning_drive, salience_score = impulse, urge["strength"]
     rules.append(f"ARBITRATION:{arbitration_status}:{winning_drive}")
 
     # 6. Adult eligibility and background state (CognitivePipeline §2)
@@ -651,6 +848,20 @@ def run_golem(
     commit_eligible = pressure_tier in ("Medium", "High")
     rules.append(f"COMMIT_GATE:{'ELIGIBLE' if commit_eligible else 'EPHEMERAL_ONLY'}")
 
+    mapped_body = somatic_map(stimulus, (
+        ("stomach", "hunger", hunger), ("gut", "queasiness", visceral_revulsion),
+        ("eye", "light discomfort", exposure_state["bright_light_discomfort"]),
+        ("ear", "noise discomfort", exposure_state["noise_discomfort"]),
+        ("skin", "cold discomfort", exposure_state["cold_discomfort"]),
+        ("skin", "heat discomfort", exposure_state["heat_discomfort"]),
+        ("whole_body", "fatigue", fatigue), ("whole_body", "pain", physical_pain),
+        ("chest", "breathing effort", exertion), ("pelvis", "arousal", sexual_arousal),
+    ))
+    for location in mapped_body:
+        zone = REGION_ZONE.get(re.sub(r"^(left|right)_", "", location))
+        if zone and zone not in zones:
+            zones.append(zone)
+
     cue_text = "; ".join(somatic_cues)
     zone_text = ", ".join(zones)
     feels = f"{cue_text} ({zone_text})." if cue_text else f"Active zones: {zone_text}."
@@ -697,15 +908,18 @@ def run_golem(
             "physical_pain_tolerance": physical_pain_tolerance,
             "emotional_distress_tolerance": emotional_distress_tolerance,
             "primary_somatic_zones": zones,
+            "somatic_map": mapped_body,
             "autonomic_surge": autonomic_surge,
             "involuntary_response": involuntary_response,
         },
         "affective_state": {
+            "initiative": clamp(pursuit - exhaustion * 0.25),
+            "release_state": {key: clamp(value) for key, value in release.items()},
+            "emotions": emotions,
             "primary_emotion": primary_emotion,
             "secondary_emotion": secondary_emotion,
             "emotional_intensity": emotional_intensity,
             "impulse": impulse,
-            "ambivalence": "enjoys conversational control while keeping closed accounts untouched",
         },
         "subconscious_bias": {
             "active_wound": state["cognitive_bias"],
@@ -724,6 +938,9 @@ def run_golem(
         },
         "relational_vectors": {
             target: {
+                "intimacy": clamp(stimulus.get("willingness_to_be_seen",
+                                      bond.get("emotional_safety", 0) - threat * 0.5
+                                      - unease * 0.25 - bond.get("resentment_friction", 0) * 0.25)),
                 "emotional_safety": clamp(bond.get("emotional_safety", 60)),
                 "attraction_physical": phys_attr,
                 "attraction_emotional": emot_attr,
@@ -771,6 +988,8 @@ def run_golem(
         },
         "next_history": {
             **clock_state,
+            "release_state": release,
+            "felt_emotions": felt,
             "last_fatigue": fatigue_level,
             "sleep_debt": sleep_debt_level,
             "activity": activity,
@@ -828,17 +1047,23 @@ def replace_text(path: Path, text: str) -> None:
 
 
 @contextmanager
-def locked_log(log_path: Path):
-    log_path = log_path.resolve()
-    lock = log_path.with_name(log_path.name + ".lock")
+def locked_file(path: Path):
+    path = path.resolve()
+    lock = path.with_name(path.name + ".lock")
     try:
         lock.mkdir()
     except FileExistsError as exc:
-        raise ValueError(f"Log is locked: {lock}") from exc
+        raise ValueError(f"File is locked: {lock}") from exc
     try:
-        yield yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
+        yield
     finally:
         lock.rmdir()
+
+
+@contextmanager
+def locked_log(log_path: Path):
+    with locked_file(log_path):
+        yield yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
 
 
 def update_log(

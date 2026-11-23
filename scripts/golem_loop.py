@@ -433,6 +433,7 @@ def load_cached_character(config):
     cached = config.get("cached_character")
     if (
         isinstance(cached, dict)
+        and not any(golem.missing_card_fields(cached.get("card", {})))
         and cached.get("card_mtime") == card_mtime
         and cached.get("log_mtime") == log_mtime
         and cached.get("goal_changes") == goal_changes
@@ -511,7 +512,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
     config = runtime_config(connection)
     # Appraise at the same instant, retaining the scene without replaying one-time effects.
     stimulus = dict(event.get("stimulus", {}))
-    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal"):
+    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal", "urge", "emotions"):
         stimulus.pop(field, None)
     stimulus.update(event_label=event["id"], event_at=request["at"], appraisal=appraisal)
     if isinstance(experience, dict):
@@ -541,6 +542,8 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         body = tick["psychosomatic_snapshot"]["autonomic_state"]
         fields = ("stress", "arousal", "sexual_drive", "sexual_excitation", "sexual_inhibition", "sexual_arousal")
         return {**{key: body[key] for key in fields if key in body},
+                "somatic_map": body.get("somatic_map", {}),
+                "emotions": tick["psychosomatic_snapshot"]["affective_state"].get("emotions", {}),
                 "interest": tick["next_history"]["appraisal_effects"]["interest"]}
 
     initial, final = measurements(before), measurements(after)
@@ -659,9 +662,15 @@ def resolve(connection, decision, history, now):
         result["body_response"] = apply_appraisal(
             connection, json.loads(row["request"]), appraisal, experience,
         )
-    if "goal_events" in decision:
+    if "goal_events" in decision or "dialect" in decision:
         config = runtime_config(connection)
-        goal_evolution.record_goal_events(config, json.loads(row["request"]), decision["goal_events"])
+        if "goal_events" in decision:
+            goal_evolution.record_goal_events(config, json.loads(row["request"]), decision["goal_events"])
+        if "dialect" in decision:
+            dialect = decision["dialect"]
+            if dialect is not None and (not isinstance(dialect, str) or not dialect.strip()):
+                raise ValueError("Decision dialect must be descriptive text or null")
+            config["dialect"] = dialect.strip() if dialect is not None else None
         connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     for plan in plans:
         enqueue(connection, {**plan, "kind": "plan"}, history, now)
@@ -712,6 +721,7 @@ def advance(connection, config, now, allow_idle=True):
 
     request = {
         "identity_anchor": build_identity_anchor(card, state),
+        "dialect": config.get("dialect"),
         "event": event, "at": at.isoformat(),
         **({"recalled_memories": tick["recalled_memories"]} if tick.get("recalled_memories") else {}),
         "tick": tick,
@@ -733,8 +743,22 @@ def advance(connection, config, now, allow_idle=True):
     else:
         request["activity"] = active_activity(connection)
     request["behavior_guidance"] = {
+        "affect_and_action": (
+            "Read autonomic_state.somatic_map for localized sensations. Choose which are outwardly visible. "
+            "Consider all concurrent feelings in affective_state.emotions. Choose which to show, temper, "
+            "or keep private. To capture feelings you recognize, return experience.stimulus.emotions "
+            "as a map of emotion names to intensities (0–100). "
+            "Weigh initiative alongside current goals and available energy. Express salient emotions "
+            "through this character's choices and voice. Intimacy reflects willingness to be seen "
+            "by this target, including physical ease or anticipation. It does not imply permission. "
+            "An impulse_override brings an urge to mind before deliberation. Decide whether to act, "
+            "redirect or hold back. A felt urge alone does not establish an action or outcome."
+        ),
         "identity_first_rule": (
-            "Render from identity_anchor (voice, hard_bans, conversational_stance) first. "
+            "Use the card as your starting voice. Choose how to speak or show what the body feels. "
+            "Your dialect is a current preference. Vary your expression for the listener and moment. "
+            "To adopt or revise a lasting dialect, return dialect as a short description in your decision. "
+            "Omit it to keep your preference or return null to clear it. "
             "Access only recalled_memories surfaced for this turn; do not load full log history into context. "
             "Avoid therapist-style paraphrasing, validation fillers, or repeating ambient somatic cues."
         ),

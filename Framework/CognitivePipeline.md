@@ -184,3 +184,13 @@ Never dump routine autonomic noise into `history[]`. After commit, regenerate `C
 - **Competence gating:** `skills.active` = clean execution; `latent` = fumble/brace; unlisted = helplessness.
 - **Age invariant:** `canon_adult` and age are hard ToS/identity invariants (minors are never sexual subjects).
 - **Module subordination:** `ENABLED` modules inject only at declared hooks; core pipeline and `Rules_Index` always win ([Modules.md](Modules.md)).
+
+### Initiative, impulse and intimacy during a tick
+
+Golem accepts optional scene scores (integers 0–100). Supply `willingness_to_pursue` for the present opportunity or goal. Exhaustion affects the available energy. Supply `willingness_to_be_seen` for the current `caller_or_target` when the character's choice is known. Otherwise Golem estimates openness from the bond and immediate pressure. A racing heart can accompany welcome closeness. Read the relationship, boundaries and situation before rendering physical contact.
+
+An event can carry `"urge": {"action": "reach for a hug", "strength": 90}`. A sufficiently strong urge can interrupt ordinary arbitration when it outranks the leading drive and time pressure permits it. The host chooses what the character actually does. Acute reactive responses keep priority. An urge expires with the event.
+
+Body load and appraisal produce transient alarm, reward and settling signals on relative simulation scales. Anticipation, loss, frustration, delight and relief can be supplied through the existing appraisal interface. Render the resulting mix through the character's expression, speech or restraint.
+
+The full concurrent mix is available in `affective_state.emotions`. Read every relevant entry, including quieter feelings. Primary and secondary labels remain available as summaries. The host may recognize additional feelings from identity, memory and context through `stimulus.emotions` on an event or `experience.stimulus.emotions` on a decision. For example, `{"pride": 80, "grief": 68, "gratitude": 55, "envy": 12}` can describe a single moment. Scores are independent. A new score replaces that contextual feeling's carried intensity. Zero clears its contextual contribution. Body and appraisal contributions continue independently. Unrefreshed contextual feelings decay on the existing appraisal clock. The character decides what an observer sees.

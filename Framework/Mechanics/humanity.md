@@ -98,3 +98,7 @@ When Active Focus is set to Realm I–X, somatic output MUST warp through the re
 1. **Log Snapshot Precedence:** Character runtime MUST load card build defaults, then overlay `Characters/[slug]_log.yaml` snapshot when present.
 2. **Somatic Tell Decay:** Temporary somatic changes MUST decay over 1–3 movements (recorded on `Continuity_Ledger` close only). Permanent shifts record in `_log.yaml`.
 3. **Flexibility Invariant:** High `flexibility` (70+) MUST rotate tells across body zones rapidly; low `flexibility` (20) MUST lock posture and repeat baseline tells.
+
+### Localized sensations in Golem
+
+The six zones summarize a tick. Within them, `autonomic_state.somatic_map` records simultaneous sensations at named sites from scalp to toes. Skin and whole-body entries describe diffuse sensations. A scene can supply, for example, `"somatic_map": {"left_palm": {"warmth": 45, "pressure": 25}, "right_ankle": {"ache": 60}}` in the stimulus. Use singular region names from `SOMATIC_ZONES` in scripts/golem.py, optionally prefixed with left_ or right_. A zero removes that sensation at that exact site for the tick. Local observations last one event. Recurring body signals such as hunger and environmental discomfort follow their existing history. These are felt sensations. The character chooses what to show.

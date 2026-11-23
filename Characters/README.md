@@ -38,6 +38,8 @@ incentives:
 
 Record approved changes in `goal_updates` in the durable log, keyed by goal ID. An update may revise the objective, motivation, horizon, commitment, progress, or status. Supported statuses are active, blocked, dormant, completed, and abandoned. A new goal ID with an objective records an ambition formed during play. A new goal may share an existing motivation.
 
+Golem fills missing runtime defaults when it loads a card, including missing keys in partial physiology and transformation settings. Give the host write access to older cards and their directory for the first load. For a multi-character file it updates the selected character. Authored values take precedence. Age defaults to 0 (unknown to the runtime) and adult eligibility defaults to false. Per-turn emotions, sensations, impulses and learned dialect remain runtime state.
+
 ## Drafting flow
 
 1. Author names on-scene characters.

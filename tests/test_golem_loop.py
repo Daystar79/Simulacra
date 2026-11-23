@@ -12,6 +12,19 @@ from scripts import golem_loop
 
 
 class TestGolemLoop(unittest.TestCase):
+    def test_character_can_adopt_revise_and_clear_dialect(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "character.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            turns = [(None, {"dialect": "Scots at home"}), ("Scots at home", {}),
+                     ("Scots at home", {"dialect": "Mostly Glaswegian"}),
+                     ("Mostly Glaswegian", {"dialect": None}), (None, {})]
+            for i, (expected, change) in enumerate(turns):
+                def decide(request):
+                    self.assertEqual(request["dialect"], expected)
+                    return {"id": request["event"]["id"], **change}
+                golem_loop.wake_character(db, decide, event={"kind": "incoming", "id": str(i)})
+
     def test_incoming_host_receives_private_context_separately_on_retry(self):
         with TemporaryDirectory() as directory:
             db = Path(directory) / "character.sqlite3"

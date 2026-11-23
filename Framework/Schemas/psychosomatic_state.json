@@ -79,6 +79,13 @@
         "emotional_distress": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Emotional distress intensity." },
         "physical_pain_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for physical pain. Higher scores reduce its contribution to stress." },
         "emotional_distress_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for emotional distress. Higher scores reduce its contribution to stress." },
+        "somatic_map": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        },
         "primary_somatic_zones": {
           "type": "array",
           "items": {
@@ -114,6 +121,12 @@
         "impulse"
       ],
       "properties": {
+        "emotions": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 100 }
+        },
+        "initiative": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "release_state": { "type": "object" },
         "primary_emotion": { "type": "string" },
         "secondary_emotion": { "type": "string" },
         "emotional_intensity": { "type": "integer", "minimum": 0, "maximum": 100 },
@@ -208,6 +221,7 @@
           "resentment_friction"
         ],
         "properties": {
+          "intimacy": { "type": "integer", "minimum": 0, "maximum": 100 },
           "emotional_safety": { "type": "integer", "minimum": 0, "maximum": 100 },
           "attraction_physical": { "type": "integer", "minimum": 0, "maximum": 100 },
           "attraction_emotional": { "type": "integer", "minimum": 0, "maximum": 100 },
@@ -259,7 +273,7 @@
         "salience_score": { "type": "integer", "minimum": 0, "maximum": 100 },
         "arbitration_status": {
           "type": "string",
-          "enum": ["arbitrated", "bypassed_reactive"],
+          "enum": ["arbitrated", "bypassed_reactive", "impulse_override"],
           "description": "Whether drives were deliberated across weights ('arbitrated') or preempted by limbic emergency lock ('bypassed_reactive')"
         },
         "internal_friction": {

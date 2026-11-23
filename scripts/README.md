@@ -242,3 +242,10 @@ scripts\windows\deploy.cmd
 ### Character-chosen dialect
 
 On any wake the character may include a free-text dialect preference in its decision, for example `"dialect": "When I'm home I use the Scots words I grew up with."` The loop stores it in that character's SQLite database and supplies the current value as `request["dialect"]` on subsequent wakes. Omit the field to keep it or send `null` to clear it. The character chooses their wording, rhythm, silence and gestures for each situation.
+
+
+### Character-card migration during release updates
+
+Run `python3 scripts/run.py deploy --update /path/to/installation --check` to preview framework changes **and** missing character-card defaults. Run without `--check` to apply. Deployment migrates named YAML cards under `Characters/` using Golem's neutral defaults, retaining existing values, logs, and SQLite state. Modified cards receive timestamped `.predeploy-*.bak` backups. Repeated updates do not add fields again.
+
+Normal `golem.load_character()` calls are read-only: incoming messages never rewrite character cards. Cards stored outside the installation's `Characters/` directory are not discovered automatically; migrate them explicitly with `golem.migrate_character_card(path, slug)` before starting the host. Stop character wakes during deployment.

@@ -89,3 +89,62 @@ class TestPhysiologyFidelity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStressAndEnduranceFidelity(unittest.TestCase):
+    def setUp(self):
+        self.realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        self.state, _ = golem.overlay_log({"age": 32, "canon_adult": True}, None)
+
+    def history(self, **stimulus):
+        result = golem.run_golem(self.state, stimulus, self.realms, stimulus.pop("history", {}) or {})
+        return result["next_history"], result["psychosomatic_snapshot"]["autonomic_state"]
+
+    def test_cortisol_clears_over_roughly_an_hour(self):
+        # A strong stressor raises cortisol well above baseline.
+        crisis = {"elapsed_minutes": 20, "threat_level": 80}
+        peak, _ = self.history(**dict(crisis))
+        self.assertGreater(peak["cortisol"], 35)
+        # From an identical raised level, an hour of calm closes about three
+        # quarters of the gap to the calm target and another 45 minutes
+        # halves it again: a 45-minute decay half-life, not the pre-fidelity
+        # 20-minute constant.
+        calm_45 = golem.run_golem(self.state, {"elapsed_minutes": 45},
+                                  self.realms, {"cortisol": 60.0})["next_history"]
+        calm_90 = golem.run_golem(self.state, {"elapsed_minutes": 90},
+                                  self.realms, {"cortisol": 60.0})["next_history"]
+        self.assertLess(calm_45["cortisol"], 50)
+        self.assertLess(calm_90["cortisol"], calm_45["cortisol"])
+        # Each 45 calm minutes halves the remaining distance to the calm
+        # target: 2 ** (elapsed / half_life) with half_life 45.
+        self.assertAlmostEqual(3 * (60 - calm_45["cortisol"]),
+                               2 * (60 - calm_90["cortisol"]), delta=3)
+        card = dict(self.state)
+        card["physiology_calibration"] = {"cortisol_decay_half_life_minutes": 0}
+        self.assertRaises(ValueError, golem.overlay_log, card, None)
+
+    def test_a_full_day_without_sleep_is_exhausting(self):
+        clock = golem.run_golem(self.state, {"elapsed_minutes": 24 * 60}, self.realms, {})
+        day = clock["next_history"]
+        body = clock["psychosomatic_snapshot"]["autonomic_state"]
+        self.assertGreaterEqual(day["sleep_debt"], 60)
+        # Exhaustion registers well before collapse: a 24-hour stretch is
+        # already substantially impairing.
+        self.assertGreater(body["exhaustion"], 30)
+        # A normal active day leaves exhaustion alone.
+        usual = golem.run_golem(self.state, {"elapsed_minutes": 16 * 60}, self.realms, {})
+        self.assertEqual(usual["psychosomatic_snapshot"]["autonomic_state"]["exhaustion"], 0)
+
+    def test_moderate_threat_clips_excitation_below_ceiling(self):
+        resting = golem.run_golem(self.state, {"elapsed_ms": 0, "sexual_arousal": 80},
+                                  self.realms, {})
+        self.assertEqual(resting["psychosomatic_snapshot"]["autonomic_state"]["sexual_arousal"], 80)
+        # The same carried arousal under a moderate threat (50) is clipped by
+        # the shock ceiling (default multiplier 1.5) instead of passing 100.
+        wary = golem.run_golem(self.state, {"elapsed_ms": 0, "threat_level": 50},
+                               self.realms, resting["next_history"])
+        response = wary["psychosomatic_snapshot"]["autonomic_state"]
+        carried = wary["next_history"]["sexual_excitation"]
+        self.assertLess(carried, 80)
+        self.assertLessEqual(carried, 1.5 * (100 - 50))
+        self.assertLess(response["sexual_arousal"], resting["psychosomatic_snapshot"]["autonomic_state"]["sexual_arousal"])

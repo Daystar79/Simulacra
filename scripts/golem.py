@@ -55,7 +55,7 @@ DEFAULT_PHYSIOLOGY_CALIBRATION = {
     "fatigue_exertion_per_hour": 0.04,
     "fatigue_resting_recovery_per_hour": 2.0,
     "fatigue_sleep_recovery_per_hour": 5.0,
-    "sleep_debt_awake_per_hour": 1.5,
+    "sleep_debt_awake_per_hour": 2.5,
     "sleep_debt_resting_per_hour": 0.5,
     "sleep_debt_sleep_recovery_per_hour": 12.0,
     "max_elapsed_hours_per_tick": 24.0,
@@ -66,6 +66,13 @@ DEFAULT_PHYSIOLOGY_CALIBRATION = {
     "excitation_transfer_gain": 0.35,
     "tactile_excitation_gain": 0.5,
     "resolution_half_life_divisor": 4.0,
+    # Stress and endurance fidelity: plasma cortisol clears in roughly an hour,
+    # moderate threat suppresses genital response well before it becomes acute,
+    # and a full day without sleep is already exhausting.
+    "cortisol_rise_half_life_minutes": 15.0,
+    "cortisol_decay_half_life_minutes": 45.0,
+    "shock_ceiling_multiplier": 1.5,
+    "exhaustion_onset_load": 45.0,
 }
 # Half-lives are in seconds. Sensory loads can rise immediately.
 EXPOSURE_RESPONSES = {
@@ -206,11 +213,19 @@ def physiology_calibration(card: dict[str, Any]) -> dict[str, float]:
         if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
             raise ValueError(f"physiology_calibration.{key} must be a finite nonnegative number")
     for key in ("max_elapsed_hours_per_tick", "sexual_arousal_half_life_minutes", "orgasm_recovery_minutes",
-                "resolution_half_life_divisor"):
+                "resolution_half_life_divisor", "cortisol_rise_half_life_minutes",
+                "cortisol_decay_half_life_minutes"):
         if values[key] <= 0:
             raise ValueError(f"physiology_calibration.{key} must be positive")
     if values["resolution_half_life_divisor"] < 1:
         raise ValueError("physiology_calibration.resolution_half_life_divisor must be at least 1")
+    if values["cortisol_decay_half_life_minutes"] < values["cortisol_rise_half_life_minutes"]:
+        raise ValueError("physiology_calibration.cortisol_decay_half_life_minutes must be at "
+                         "least cortisol_rise_half_life_minutes")
+    if values["shock_ceiling_multiplier"] <= 0 or values["shock_ceiling_multiplier"] > 10:
+        raise ValueError("physiology_calibration.shock_ceiling_multiplier must be between 0 and 10")
+    if not 0 <= values["exhaustion_onset_load"] <= 100:
+        raise ValueError("physiology_calibration.exhaustion_onset_load must be between 0 and 100")
     for key in ("excitation_transfer_gain", "tactile_excitation_gain"):
         if values[key] > 1:
             raise ValueError(f"physiology_calibration.{key} must be between 0 and 1")
@@ -819,7 +834,9 @@ def run_golem(
     fatigue = clamp(fatigue_level)
     sleep_debt = clamp(sleep_debt_level)
     fatigue_load = max(fatigue_level, sleep_debt_level)
-    exhaustion = clamp((fatigue_load - 60) * 2.5)
+    # Exhaustion sets in well before collapse: a full day without sleep is
+    # already exhausting, so the onset is card-tunable at a lower load.
+    exhaustion = clamp((fatigue_load - calibration["exhaustion_onset_load"]) * 2.5)
     recent_cues: list[str] = list(history.get("recent_cues", []))
 
     # 1. Autonomic & Polyvagal calculation (CognitivePipeline §4.1)
@@ -863,7 +880,10 @@ def run_golem(
     # Fractional history survives short ticks. Same-instant appraisals cost no time.
     cortisol_target = clamp(15 + adrenergic_gain * 0.75 * stress)
     previous_cortisol = history.get("cortisol", 15.0)
-    half_life = (8 if cortisol_target > previous_cortisol else 20) * recovery_scale
+    # Plasma cortisol peaks tens of minutes after a stressor and clears over
+    # roughly an hour, so sustained stress outlasts the immediate surge.
+    half_life = (calibration["cortisol_rise_half_life_minutes"] if cortisol_target > previous_cortisol
+                 else calibration["cortisol_decay_half_life_minutes"]) * recovery_scale
     cortisol = cortisol_target + (previous_cortisol - cortisol_target) * 2 ** (-elapsed_minutes / half_life)
     autonomic_surge = stress >= 75 or threat >= 80
 
@@ -1064,7 +1084,9 @@ def run_golem(
         # A strong shock can interrupt the carried response even at zero elapsed
         # time. A ceiling is idempotent when the host re-appraises that instant.
         shock = max(threat, physical_pain, disgust)
-        excitation_ceiling = min(100, 3 * (100 - shock))
+        # Moderate threat already suppresses genital response; the ceiling clips
+        # proportionally to the shock level instead of only biting when acute.
+        excitation_ceiling = min(100, calibration["shock_ceiling_multiplier"] * (100 - shock))
         # Direct tactile/genital stimulation raises excitation without requiring
         # an interpersonal attraction appraisal. An explicit host-supplied
         # sexual_arousal reading is already the measured body level, so the

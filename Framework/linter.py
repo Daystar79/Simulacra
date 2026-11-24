@@ -168,7 +168,6 @@ DOC_FILES = {
     "README.md",
     "CHANGELOG.md",
     "PROJECT_SCOPE.md",
-    "OPTIMIZATION_SUMMARY.md",
     "DISCLAIMER.md",
     "LICENSE",
 }

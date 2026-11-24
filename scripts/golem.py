@@ -1126,11 +1126,6 @@ def update_log(
         return commit_pressure, saved_memory
 
 
-def apply_commit(log_path: Path, output: dict[str, Any], force: bool = False) -> bool:
-    committed, _ = update_log(log_path, output, commit=True, force=force)
-    return committed
-
-
 def main() -> int:
     if sys.argv[1:2] == ["loop"]:
         import golem_loop

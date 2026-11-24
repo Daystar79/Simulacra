@@ -9,7 +9,6 @@ Usage:
   python scripts/run.py deploy [target]
   python scripts/run.py lint <path> [--ext .md,.txt]
   python scripts/run.py golem --card <card.yaml> --stimulus <json_or_path>
-  python scripts/run.py migrate
 
 Environment:
   CM_FORCE_OS=windows|unix   Override auto-detection (for testing).
@@ -27,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
 
-TOOLS: tuple[str, ...] = ("deploy", "lint", "validate", "validate_state", "validate-state", "migrate", "golem")
+TOOLS: tuple[str, ...] = ("deploy", "lint", "validate", "validate_state", "validate-state", "golem")
 
 
 def detect_family() -> str:
@@ -84,8 +83,6 @@ def python_core(tool: str) -> Path:
         return ROOT / "Framework" / "linter.py"
     if tool in ("validate", "validate_state", "validate-state"):
         return ROOT / "scripts" / "validate_state.py"
-    if tool == "migrate":
-        return ROOT / "migrate_optimized.py"
     if tool == "golem":
         return ROOT / "scripts" / "golem.py"
     raise KeyError(tool)
@@ -127,9 +124,6 @@ def run_unix_wrapper(sh: Path, args: list[str]) -> int:
 
 def run_python_core(tool: str, args: list[str]) -> int:
     """Run a Python core script directly."""
-    if tool == "migrate":
-        print("Notice: 'migrate' is retired; framework optimization is complete and active.", file=sys.stderr)
-        return 0
     core = python_core(tool)
     if not core.is_file():
         if tool == "deploy":
@@ -182,9 +176,6 @@ def main(argv: list[str] | None = None) -> int:
         usage()
         return 2
 
-    if tool == "migrate":
-        print("Notice: 'migrate' is retired; framework optimization is complete and active.")
-        return 0
 
     family = detect_family()
     wrapper = wrapper_path(family, tool)

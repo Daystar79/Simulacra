@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Removed
+- Retired the legacy `migrate` launcher tool and its stale `migrate_optimized.py` mapping; the one-shot framework optimization finished in 2026 and the entry points only printed a retirement notice.
+- Removed the unused `apply_commit()` helper from `golem.py`; the CLI and loop call `update_log` directly.
+- Deleted `OPTIMIZATION_SUMMARY.md`, the historical record of the 2026 optimization sprint. It referenced files deleted in that migration (`realm_index.md`, `Simulator/CharacterRuntime.md`, `Main_optimized.md`, `migrate_optimized.py`) and superseded policy, and the same history lives in this changelog. Also removed its exemption from the prose linter.
+- Updated the deployer docstring: the repository ships the framework only; the simulator lives in downstream projects.
+
 ### Added
 
 - Added per-character directories with private card and log copies, independent SQLite databases, and character-scoped decisions and receipts. Existing character databases can be imported with pending work intact. Relative Golem paths follow the calling host’s working directory.

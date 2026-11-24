@@ -215,6 +215,8 @@ class TestDeploymentDecoupling(unittest.TestCase):
             subprocess.run(cmd, check=True, capture_output=True)
             self.assertEqual(pipeline.read_bytes(), (ROOT / "Framework/CognitivePipeline.md").read_bytes())
             self.assertEqual(muse_skill.read_bytes(), (ROOT / "Muse.AI/SKILL.md").read_bytes())
+            guide = Path("Framework/Mechanics/erotica.md")
+            self.assertEqual((target / guide).read_bytes(), (ROOT / guide).read_bytes())
             self.assertIn("Updated 0 files", subprocess.check_output(cmd, text=True))
             for name in private:
                 self.assertEqual((target / name).read_bytes(), b"host-owned")
@@ -248,6 +250,10 @@ class TestDeploymentDecoupling(unittest.TestCase):
             self.assertFalse(list(root.rglob("*.bak")))
             subprocess.run(cmd, check=True, capture_output=True)
             guest = yaml.safe_load(installed.read_text())
+            self.assertEqual(guest["physiology_calibration"]["orgasm_threshold"], 85)
+            self.assertEqual(guest["physiology_calibration"]["orgasm_recovery_minutes"], 10)
+            for key in ("pleasure_sources", "physical_pleasure_sources", "sexual_pleasure_sources"):
+                self.assertEqual(guest[key], [])
             self.assertEqual((guest["biological_sex"], guest["somatic_baselines"], guest["arousal_regions"]),
                              ("unspecified", {}, None))
             rowan = yaml.safe_load(private.read_text())

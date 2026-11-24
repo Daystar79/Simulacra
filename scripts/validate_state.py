@@ -72,6 +72,8 @@ def validate(state: dict, schema: dict) -> list[str]:
         for key, field_schema in auto_schema["properties"].items():
             if field_schema.get("type") == "integer" and key in auto:
                 check_scale(auto[key], f"autonomic_state.{key}", errors)
+            if field_schema.get("type") == "boolean" and key in auto and not isinstance(auto[key], bool):
+                errors.append(f"autonomic_state.{key}: expected boolean")
         for key in ("endocrine_state", "somatic_telemetry"):
             if key not in auto:
                 continue

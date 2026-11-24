@@ -31,6 +31,23 @@ class TestCharacterProfiles(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         return result.stderr
 
+    def test_scene_render_rechecks_profile_cards_on_resume(self):
+        self.pack.write_text("characters:\n  talia: {name: Talia, age: 30, canon_adult: true}\n"
+                             "  selene: {name: Selene, age: 27, canon_adult: true, cognitive_bias: PRIVATE_TEST_VALUE}\n")
+        for who in ("talia", "selene"):
+            self.cli(who, "init", "--card", "both.yaml")
+        event = {"id": "scene", "kind": "incoming", "relationship_target": "selene",
+                 "scene_characters": ["talia", "selene"], "depiction": "explicit"}
+        request = self.cli("talia", "prepare", "--event", "-", payload=event)["request"]
+        self.assertEqual(request["app_render"]["depiction"], "explicit")
+        self.assertIn("Recovery", request["app_render"]["guide"])
+        self.assertNotIn("PRIVATE_TEST_VALUE", json.dumps(request))
+        partner = self.profiles / "selene" / "character.yaml"
+        partner.write_text("character_id: selene\nage: 17\ncanon_adult: true\n")
+        resumed = self.cli("talia", "prepare")["request"]
+        self.assertEqual(resumed["app_render"], {"depiction": "sfw"})
+        self.assertEqual(request["body"], resumed["body"])
+
     def test_parallel_cli_same_event_id_and_restart(self):
         def provision(who):
             log = self.root / (who + ".yaml")

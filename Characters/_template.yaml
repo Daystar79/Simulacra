@@ -7,6 +7,9 @@ emotional_distress_tolerance: 50
 biological_sex: unspecified  # female, male, intersex, or unspecified
 arousal_regions: null  # Optional list of genital sites. [] uses shared regions only.
 somatic_baselines: {}  # Optional independent 0–100 estradiol, testosterone, resting_register indices
+pleasure_sources: []  # General enjoyment, e.g. solving a puzzle with a friend
+physical_pleasure_sources: []  # Bodily comfort, e.g. warm water on tired hands
+sexual_pleasure_sources: []  # Optional private preferences for a confirmed adult
 sexual_drive_baseline: 50
 physiology_calibration:
   hunger_awake_per_hour: 4.0
@@ -19,6 +22,9 @@ physiology_calibration:
   sleep_debt_resting_per_hour: 0.5
   sleep_debt_sleep_recovery_per_hour: 12.0
   max_elapsed_hours_per_tick: 24.0
+  sexual_arousal_half_life_minutes: 12.0
+  orgasm_threshold: 85
+  orgasm_recovery_minutes: 10.0  # Reference interval before endocrine profile adjustment
 excluded_cues: []
 name: "[Full Name]"
 call_name: null

@@ -95,7 +95,7 @@ Sex is **not a special subsystem or operational mode**. It is a standard class o
 5. **4-Channel Vector:** Emits character **stance and intent** (`Feels`, `Thinks`, `Says`, `Does`).
 
 ### The One-Line North Star Rule for Sex
-> **The pipeline may conclude how a person relates to sex. Nothing in this repo should teach the model how to stage sex.**
+> **The pipeline determines how the person responds. The optional adult guide supports depiction at the host’s rendering stage.**
 
 - **Emulation (Core):** Did they want it? How do they interpret it? Continuous and switchless. Always runs for adult characters when stimulus exists.
 - **Depiction Policy (Host / Downstream):** May we print explicit sex in this session/book? Optional renderer ceiling (SFW / fade-to-black / explicit). Must **never** rewrite whether the human wanted it.
@@ -112,7 +112,7 @@ Sex is **not a special subsystem or operational mode**. It is a standard class o
 - **Loop Hooks:** Subordinate injectors at fixed points (`pre_somatic`, `affect_filter`, `pre_arbitration`, `post_vector`, `app_render`, `on_commit`).
 - **Core Supremacy:** `Rules_Index.md`, pipeline sequence, card/log identity, and age invariants always win. Conflicting module instructions are silently ignored.
 - **Empty Registry:** An empty active module list is completely valid. The core engine runs fully with zero `ENABLED` modules.
-- **Downstream Ownership:** Downstream books register local modules in their copy of `Modules.md`. No genre erotica craft is shipped as core framework surface.
+- **Downstream Ownership:** Downstream books register local modules in their copy of `Modules.md`. The distribution includes an optional adult expression guide at the host-owned `app_render` hook.
 
 ---
 

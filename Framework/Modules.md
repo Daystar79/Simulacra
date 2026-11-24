@@ -79,9 +79,9 @@ Only rows with an existing file and `ENABLED` status load. Downstream apps **add
 
 | Module Name | Path | Status | Hooks | Compatibility |
 |:---|:---|:---|:---|:---|
-| *(None shipped in core)* | — | — | — | Core runs fully with zero ENABLED modules |
+| Adult intimacy | `Framework/Mechanics/erotica.md` | ENABLED | app_render | Eligible scenes within the host or project depiction ceiling |
 
-*Note: Downstream projects register local modules in their deployed copy of this registry. The core framework ships with an empty active registry.*
+The adult guide is available when a scene calls for it. Downstream projects can register additional modules here.
 
 ### How a downstream app adds a module
 

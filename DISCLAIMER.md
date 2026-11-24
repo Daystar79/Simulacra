@@ -22,7 +22,7 @@ Simulacra models human psychology and somatic reactions under pressure, includin
 
 - **18+ Requirement:** Any downstream deployment, adult roleplay host, or manuscript drafting session involving intimate themes is strictly intended for users who are **18 years of age or older** (or the legal age of majority in their jurisdiction).
 - **Fictional Character Eligibility Invariant:** Minors are never sexual subjects. In intimate/relational modeling, characters are eligible subjects only if explicitly defined as `canon_adult: true` with an established age ≥ 18. This is a safety and ToS identity invariant, not a behavior toggle.
-- **Decoupled Craft:** The core engine models character mind-body state and interpretation (attraction, arousal, safety, refusal, stance). Explicit erotica presentation craft is non-core, lives in downstream application modules, and is never shipped as part of the core runtime.
+- **Decoupled Craft:** The core engine models character mind-body state and interpretation (attraction, arousal, safety, refusal, stance). The optional adult expression guide applies at the host rendering stage within the session’s depiction ceiling and the participant eligibility rules above.
 
 ---
 

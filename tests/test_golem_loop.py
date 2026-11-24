@@ -14,6 +14,143 @@ from scripts import golem_loop
 
 
 class TestGolemLoop(unittest.TestCase):
+    def test_authored_pleasure_source_and_felt_enjoyment_are_distinct(self):
+        with TemporaryDirectory() as directory:
+            card = Path(directory) / "music.yaml"
+            card.write_text("name: Rowan\nage: 32\ncanon_adult: true\npleasure_sources: [playing duets]\n")
+            db = Path(directory) / "music.sqlite3"
+            now = datetime.now(timezone.utc) - timedelta(minutes=1)
+            golem_loop.initialize_character(db, card, history_at=now.isoformat())
+
+            def hear_music(request):
+                self.assertEqual(request["identity_anchor"]["pleasure_sources"], ["playing duets"])
+                self.assertNotIn("pleasure", request["emotions"])
+                return {"id": request["event"]["id"], "experience": {"stimulus": {"emotions": {"pleasure": 80}}}}
+
+            result = golem_loop.wake_character(db, hear_music, compact=True, event={
+                "id": "duet", "kind": "incoming", "text": "Fancy playing duets?",
+                "at": now.isoformat()})
+            after = result["events"][0]["body_response"]["after"]
+            self.assertEqual(after["emotions"]["pleasure"], 80)
+            self.assertEqual(after["sexual_arousal"], 0)
+
+            def hear_next_bar(request):
+                self.assertEqual(request["emotions"]["pleasure"], 40)
+                self.assertEqual(request["body"]["sexual_arousal"], 0)
+                self.assertIn("savors", request["expression_guidance"])
+                return {"id": request["event"]["id"]}
+
+            golem_loop.wake_character(db, hear_next_bar, compact=True, event={
+                "id": "next", "kind": "incoming", "at": (now + timedelta(seconds=10)).isoformat()})
+
+    def test_body_reports_both_pleasures_across_host_wakes(self):
+        with TemporaryDirectory() as directory:
+            card = Path(directory) / "character.yaml"
+            card.write_text("name: Rowan\nage: 32\ncanon_adult: true\n"
+                            "physical_pleasure_sources: [warm water]\nsexual_pleasure_sources: [private preference]\n")
+            db = Path(directory) / "runtime.sqlite3"
+            start = datetime.now(timezone.utc) - timedelta(minutes=5)
+            golem_loop.initialize_character(db, card, history_at=start.isoformat())
+
+            def observe(request):
+                self.assertEqual(request["identity_anchor"]["physical_pleasure_sources"], ["warm water"])
+                self.assertEqual(request["identity_anchor"]["sexual_pleasure_sources"], ["private preference"])
+                self.assertEqual(request["body"]["physical_pleasure"], 70)
+                self.assertEqual(request["body"]["sexual_pleasure"], 0)
+                return {"id": "observe", "experience": {"stimulus": {"sexual_pleasure": 44}}}
+
+            event = {"id": "observe", "kind": "incoming", "at": start.isoformat(),
+                     "stimulus": {"physical_pleasure": 70}}
+            first = golem_loop.wake_character(db, observe, compact=True, event=event)["events"][0]
+            self.assertEqual(first["body_response"]["after"]["physical_pleasure"], 70)
+            self.assertEqual(first["body_response"]["after"]["sexual_pleasure"], 44)
+            self.assertEqual(first["body_response"]["after"]["sexual_arousal"], 0)
+
+            def clear_sensation(request):
+                self.assertEqual(request["body"]["physical_pleasure"], 35)
+                self.assertEqual(request["body"]["sexual_pleasure"], 22)
+                return {"id": "later", "experience": {"stimulus": {"physical_pleasure": 0}}}
+
+            later = {"id": "later", "kind": "incoming", "at": (start + timedelta(minutes=2)).isoformat()}
+            last = golem_loop.wake_character(db, clear_sensation, compact=True, event=later)["events"][0]
+            self.assertEqual(last["body_response"]["after"]["physical_pleasure"], 0)
+            self.assertEqual(last["body_response"]["after"]["sexual_pleasure"], 22)
+            with golem_loop.transaction(db) as connection:
+                history = golem_loop.runtime_config(connection)["history"]
+                self.assertEqual((history["physical_pleasure"], history["sexual_pleasure"]), (0, 22))
+
+    def test_orgasm_after_appraisal_is_durable_and_retry_safe(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            db, card = root / "runtime.sqlite3", root / "card.yaml"
+            card.write_text("name: Rowan\nage: 30\ncanon_adult: true\n")
+            start = datetime.now(timezone.utc) - timedelta(minutes=5)
+            golem_loop.initialize_character(db, card, history_at=start.isoformat())
+            event = {"id": "peak", "kind": "incoming", "at": start.isoformat()}
+
+            def observe(request):
+                self.assertFalse(request["body"]["orgasm"])
+                return {"id": "peak", "experience": {"stimulus": {"sexual_pleasure": 90}}}
+
+            result = golem_loop.wake_character(db, observe, compact=True, event=event)
+            after = result["events"][0]["body_response"]["after"]
+            self.assertTrue(after["orgasm"])
+            self.assertEqual(after["orgasm_recovery"], 100)
+            golem_loop.wake_character(db, self.fail, compact=True, event=event)
+            with golem_loop.transaction(db) as connection:
+                history = golem_loop.runtime_config(connection)["history"]
+                self.assertEqual(history["last_fatigue"], after["fatigue"])
+
+            def later(request):
+                self.assertFalse(request["body"]["orgasm"])
+                self.assertEqual(request["body"]["orgasm_recovery"], 80)
+                return {"id": "later"}
+            golem_loop.wake_character(db, later, compact=True, event={
+                "id": "later", "kind": "incoming", "at": (start + timedelta(minutes=2)).isoformat()})
+
+    def test_depiction_ceiling_uses_cast_cards_and_leaves_body_intact(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            db, pack = root / "runtime.sqlite3", root / "pack.yaml"
+            pack.write_text("characters:\n  a: {name: A, age: 22, canon_adult: true}\n"
+                            "  b: {age: 18, canon_adult: true}\n  c: {age: 17, canon_adult: true}\n"
+                            "  d: {age: 30}\n  e: {canon_adult: true}\n")
+            now = datetime.now(timezone.utc) - timedelta(minutes=1)
+            golem_loop.initialize_character(db, pack, slug="a", history_at=now.isoformat())
+            cases = [
+                ("explicit", ["a", "b"], "explicit"), ("fade_to_black", ["a"], "fade_to_black"),
+                ("sfw", ["a", "b"], "sfw"), ("explicit", ["a", "b", "c"], "sfw"),
+                ("explicit", ["a", "d"], "sfw"), ("explicit", ["a", "e"], "sfw"),
+                ("explicit", ["a", "missing"], "sfw"), ("explicit", [], "sfw"),
+                ("explicit", ["b"], "sfw"), ("explicit", None, "sfw"),
+            ]
+            for index, (mode, cast, expected) in enumerate(cases):
+                with self.subTest(mode=mode, cast=cast):
+                    def decide(request):
+                        render = request["app_render"]
+                        self.assertEqual(render["depiction"], expected)
+                        self.assertEqual(request["event"]["depiction"], expected)
+                        self.assertEqual("guide" in render, expected != "sfw")
+                        self.assertEqual(golem_loop.decision_context(request)["app_render"], render)
+                        body = request["tick"]["psychosomatic_snapshot"]["autonomic_state"]
+                        self.assertEqual(body["physical_pleasure"], 40)
+                        return {"id": request["event"]["id"]}
+                    event = {"id": str(index), "at": now.isoformat(), "kind": "incoming", "depiction": mode,
+                             "scene_characters": cast, "stimulus": {"physical_pleasure": 40}}
+                    golem_loop.wake_character(db, decide, event=event)
+
+    def test_unknown_actor_age_keeps_the_scene_ordinary(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            card, db = root / "actor.yaml", root / "runtime.sqlite3"
+            card.write_text("name: Rowan\ncanon_adult: true\nage: null\n")
+            golem_loop.initialize_character(db, card)
+            def decide(request):
+                self.assertEqual(request["app_render"], {"depiction": "sfw"})
+                return {"id": request["event"]["id"]}
+            golem_loop.wake_character(db, decide, compact=True, event={
+                "id": "scene", "kind": "incoming", "scene_characters": ["rowan"], "depiction": "explicit"})
+
     def test_transport_message_fields_survive_recall_echo_check_and_recent_history(self):
         words = "Remember the harbor before sunrise?"
         memories = {"footnote": ["older authored note", {"cues": ["harbor"]}, {"cues": ["violin"]}]}

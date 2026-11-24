@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+- Characters are now resident between wakes: the hydrated character is memoized per host process (keyed by card/log mtimes, character id, slug, and pending goal changes) and shared read-only with Golem ticks, eliminating the per-tick deep copy and the per-reply card re-parse.
+- The hydrated character snapshot moved from the `runtime` row into a `character_cache` table written only when hydration changes. The `runtime` row, rewritten on every event, no longer carries the full character state. Legacy databases migrate transparently on first read.
+- `wake_character` uses one SQLite connection per heartbeat with per-stage committed transactions (event/tick, resolve) instead of one connection per stage; durability guarantees are unchanged.
+- Character databases now use WAL journal mode with `synchronous=NORMAL`, removing the rollback-journal fsync from every commit. Multi-host file locking is unaffected.
+- `ensure_activity_schema` runs its idempotent migration once per database per process instead of on every transaction.
+
+### Added
+- `benchmarks/bench_runtime.py`, a deterministic runtime benchmark (initialization, prepare, resolve, resident wake, request size, SQLite statement counts, memory), and `benchmarks/RESULTS.md` with measured before/after results. Resident wake processing ~37% faster, resolve ~88% faster, runtime row ~59% smaller on the benchmark character, request packet byte-identical.
+
+### Tests
+- `tests/test_runtime_cache.py`: resident-instance sharing, card-edit rehydration, tick-immutability of the shared state, legacy-row migration, runtime-row size bounds, WAL conversion, and cross-process hydrate reuse.
+
 ### Removed
 - Retired the legacy `migrate` launcher tool and its stale `migrate_optimized.py` mapping; the one-shot framework optimization finished in 2026 and the entry points only printed a retirement notice.
 - Removed the unused `apply_commit()` helper from `golem.py`; the CLI and loop call `update_log` directly.

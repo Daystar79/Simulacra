@@ -69,6 +69,40 @@ Core implementations (cross-platform Python):
 - `scripts/validate_state.py`
 - `scripts/golem.py`
 
+
+## Resident runtime and database layout
+
+A character is hydrated once per host process and stays resident between
+wakes: the parsed card, overlaid durable state, and hydrated identity live in
+a process-level cache keyed by the card and log file mtimes, character id,
+slug, and pending goal changes. Editing a card or log rehydrates
+automatically. The resident instance is shared and read-only; Golem ticks
+never write into it. Hosts using `wake_character` get this for free; every
+`prepare`/`resolve` CLI call in a long-lived host process reuses the same
+instance after the first op.
+
+Persisted layout per character database:
+
+- `runtime` (row 1): small mutable configuration only (paths, history,
+  idle timer, goals, relationships, expectations).
+- `character_cache` (row 1): the hydrated character snapshot for
+  cross-process reuse, rewritten only when the hydration changes.
+- `events`, `observations`, `activities`, `request_archive`: the durable
+  evidence ledger (unchanged).
+
+Databases created before this layout kept the hydrate embedded in the
+`runtime` row; the loop moves it to `character_cache` transparently on first
+read and rewrites the `runtime` row once. No host action is required.
+
+Databases run in WAL journal mode with `synchronous=NORMAL`: durable commits,
+no rollback-journal fsync on the hot path, and unchanged multi-host file-lock
+behavior. `wake_character` uses one connection per heartbeat with a committed
+transaction per stage, so the event and body tick are durable before any host
+inference work begins.
+
+Reproducible runtime measurements: `benchmarks/bench_runtime.py`; results and
+interpretation in [benchmarks/RESULTS.md](../benchmarks/RESULTS.md).
+
 ## Golem memory and conversation
 
 For each tick, pass the existing `--log` for durable memory and reuse `--history-file` for carried state. Put both files in persistent project storage. The optional stimulus fields can be used together:

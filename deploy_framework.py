@@ -2,7 +2,7 @@
 """
 Simulacra Framework Deployment & Scaffolding Script
 -------------------------------------------------------------
-Distributes the Cognitive Pipeline, book-writing layer, simulator, and craft
+Distributes the Cognitive Pipeline, book-writing layer, and craft
 mechanics to other book folders in the same parent directory as this repo.
 
 Launch (OS-aware):
@@ -41,7 +41,7 @@ DEPLOY_ALLOWLIST = frozenset({
 # NOT deployed (author-local only):
 #   - Named character cards under Characters/
 #   - Characters/Relations.md / filled logs
-# Simulator/ is public — drop-in CharacterRuntime.
+# Downstream projects own their host runtime; this repo ships the framework only.
 FRAMEWORK_FILES = [
     "Framework/Main.md",
     "Framework/CognitivePipeline.md",

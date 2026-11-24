@@ -483,7 +483,7 @@ def repeated_reply_pattern(events, window=5):
     }
 
 
-def expression_guidance(snapshot):
+def expression_guidance(snapshot, medium=None):
     """Translate measured body constraints into options for the host's rendering."""
     body = snapshot["autonomic_state"]
     telemetry = body.get("somatic_telemetry")
@@ -501,18 +501,100 @@ def expression_guidance(snapshot):
         cue = "Consider where breath interrupts a phrase or effort shifts the speaker’s usual register."
     elif bond.get("emotional_safety", 50) < 35:
         cue = "Consider preserving distance, looking back to the task, or letting a question go unanswered."
+    elif body.get("lingering_arousal"):
+        cue = "Residual warmth can stay private while attention returns to the current topic or task."
     elif telemetry["peripheral_perfusion"] >= 62 and bond.get("intimacy", 0) >= 50:
         cue = "If closeness is welcome in this scene, consider staying within reach or letting eye contact linger."
     elif telemetry["peripheral_perfusion"] >= 62:
         cue = "Consider whether warmth is felt privately or becomes visible in the scene."
     else:
         cue = "An ordinary pause or an unremarked movement can be enough."
+    if medium == "text":
+        if body.get("involuntary_response") == "freeze" or telemetry["postural_bracing"] >= 40:
+            cue = "In text, pressure might shorten an answer or leave the message unanswered."
+        elif bond.get("emotional_safety", 50) < 35:
+            cue = "Keep private details off the page if the character would answer only the practical question."
+        else:
+            cue = "In text, a specific remembered detail or a second question can carry interest when it fits."
+    elif medium == "voice":
+        if telemetry["energy_expenditure"] >= 40 or telemetry["register_shift"] >= 56:
+            cue = "On a voice call, breath may break a phrase early or shift its pitch."
+        else:
+            cue = "On a voice call, use a pause, a change of subject, or an unhurried reply if it fits."
+    if snapshot.get("affective_state", {}).get("emotions", {}).get("pleasure", 0) >= 40:
+        cue += " If enjoyment matters here, let it show in what the character savors or returns to."
+    if body.get("physical_pleasure", 0) >= 40:
+        cue += " Bodily comfort may show in how the character settles into the current activity."
+    if body.get("sexual_pleasure", 0) >= 40:
+        cue += " Sexual enjoyment is private. The character chooses whether to communicate it."
+    if body.get("orgasm"):
+        cue += " A brief involuntary peak may interrupt a movement or breath. Choose what is perceptible here."
+    elif body.get("orgasm_recovery"):
+        cue += " Let the recovery affect pacing only as far as the character and scene warrant."
+    if body.get("lingering_arousal"):
+        cue += " Carryover can outlast its original cue or listener. Let the current relationship and purpose guide the reply."
     return (cue + " Choose at most one salient beat, or leave it private. Use only cues the listener "
-            "could perceive. Use the relationship, scene, and character’s purpose to decide proximity, "
-            "gaze, dialogue pace, and what stays "
+            "could perceive. Decide what the character would say or leave "
             "unsaid. For welcome flirting or affection, let a particular action carry the subtext. "
             "Use a pet name only when established for this speaker and listener. "
             "A bodily response alone establishes neither intent nor consent.")
+
+
+def intimacy_render(request, profile):
+    """Resolve a host's depiction ceiling using only card identities and ages."""
+    fallback = {"depiction": "sfw"}
+    event = request["event"]
+    mode = event.get("depiction")
+    if mode not in ("fade_to_black", "explicit"):
+        return fallback
+    roster = event.get("scene_characters")
+    tick = request["tick"]
+    if "ADULT_GATE:ELIGIBLE" not in tick.get("golem_meta", {}).get("triggered_rules", []):
+        return fallback
+    snapshot = tick["psychosomatic_snapshot"]
+    source = request["character"]
+    actor = source.get("slug") or snapshot["character_id"]
+    if not isinstance(roster, list) or actor not in roster or not all(isinstance(key, str) for key in roster):
+        return fallback
+    target = resolve_relationship_target(event)
+    if target and target not in roster:
+        return fallback
+    try:
+        card_path = Path(source["card"])
+        pack = yaml.safe_load(card_path.read_text(encoding="utf-8"))
+        actor_card, location = golem.selected_card(pack, source.get("slug"))
+        if location and location[-1] != actor:
+            return fallback
+        card_id = actor_card.get("character_id")
+        if (profile or card_id is not None) and card_id != snapshot["character_id"]:
+            return fallback
+        if not golem.canon_adult(actor_card):
+            return fallback
+        for key in set(roster):
+            if key == actor:
+                continue
+            if profile:
+                path = character_database(card_path.parent.parent, key).with_name("character.yaml")
+                if path.resolve() != path or path.stat().st_nlink != 1:
+                    return fallback
+                card = golem.load_character(path, None)
+                if card.get("character_id") != key:
+                    return fallback
+            else:
+                if not location:
+                    return fallback
+                card = pack["characters"].get(key)
+            if not isinstance(card, dict) or not golem.canon_adult(card):
+                return fallback
+        module = "Framework/Mechanics/erotica.md"
+        registry = (golem.ROOT / "Framework/Modules.md").read_text(encoding="utf-8")
+        for row in registry.splitlines():
+            cells = [cell.strip().strip("`") for cell in row.strip("|").split("|")]
+            if len(cells) == 5 and cells[1:4] == [module, "ENABLED", "app_render"]:
+                return {"depiction": mode, "guide": (golem.ROOT / module).read_text(encoding="utf-8")}
+    except (OSError, ValueError, yaml.YAMLError):
+        pass
+    return fallback
 
 
 def pending_request(connection):
@@ -546,7 +628,10 @@ def pending_request(connection):
                 "affect the reply while every identifying detail stays private."
             ),
         }
-    guidance = expression_guidance(request["tick"]["psychosomatic_snapshot"])
+    if "depiction" in request["event"]:
+        request["app_render"] = intimacy_render(request, profile)
+        request["event"]["depiction"] = request["app_render"]["depiction"]
+    guidance = expression_guidance(request["tick"]["psychosomatic_snapshot"], request["event"].get("medium"))
     if guidance:
         request["expression_guidance"] = guidance
     return request
@@ -576,7 +661,8 @@ def decision_context(request):
         "event": scene, "at": request["at"], "emotions": emotions,
         "body": {key: body[key] for key in (
             "cognitive_regime", "involuntary_response", "stress", "arousal",
-            "sexual_arousal", "somatic_map", "somatic_telemetry", "emotional_distress", "activity",
+            "sexual_arousal", "lingering_arousal", "physical_pleasure", "sexual_pleasure",
+            "orgasm", "orgasm_recovery", "somatic_map", "somatic_telemetry", "emotional_distress", "activity",
         ) if key in body},
         "current_cues": tick.get("golem_meta", {}).get("emitted_cues", []),
         "winning_drive": snapshot["priority_arbitration"]["winning_drive"],
@@ -590,7 +676,7 @@ def decision_context(request):
             context[key] = affect[key]
     for key in ("character_id", "identity_anchor", "dialect", "current_goals", "motivations", "incentives",
                 "recalled_memories", "learned", "activity", "maintenance_needs", "expectations",
-                "situational_expectations", "relationship_state", "reply_guidance", "expression_guidance"):
+                "situational_expectations", "relationship_state", "reply_guidance", "expression_guidance", "app_render"):
         if request.get(key):
             context[key] = request[key]
     if "identity_anchor" not in context:
@@ -1009,9 +1095,12 @@ def build_identity_anchor(card, state):
     """Extract core identity and voice constraints without dumping full memories or history."""
     anchor = {
         key: card[key]
-        for key in ("name", "call_name", "character_id", "cognitive_bias", "cognitive_gift", "voice")
+        for key in ("name", "call_name", "character_id", "cognitive_bias", "cognitive_gift", "voice",
+                    "pleasure_sources", "physical_pleasure_sources")
         if key in card
     }
+    if golem.canon_adult(state) and card.get("sexual_pleasure_sources"):
+        anchor["sexual_pleasure_sources"] = card["sexual_pleasure_sources"]
     for key in ("active_focus", "defense_posture", "social_facade"):
         if key in state:
             anchor[key] = state[key]
@@ -1093,7 +1182,8 @@ def apply_appraisal(connection, request, appraisal, experience=None):
     config = runtime_config(connection)
     # Appraise at the same instant, retaining the scene without replaying one-time effects.
     stimulus = dict(event.get("stimulus", {}))
-    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal", "urge", "emotions"):
+    for field in ("food_intake", "conversation", "memory_cues", "sexual_arousal", "urge", "emotions",
+                  "physical_pleasure", "sexual_pleasure"):
         stimulus.pop(field, None)
     stimulus.update(event_label=event["id"], event_at=request["at"], appraisal=appraisal)
     if isinstance(experience, dict):
@@ -1125,6 +1215,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
     def measurements(tick):
         body = tick["psychosomatic_snapshot"]["autonomic_state"]
         fields = ("stress", "arousal", "sexual_drive", "sexual_excitation", "sexual_inhibition", "sexual_arousal",
+                  "physical_pleasure", "sexual_pleasure", "orgasm", "orgasm_recovery", "fatigue",
                   "somatic_telemetry", "endocrine_state")
         return {**{key: body[key] for key in fields if key in body},
                 "somatic_map": body.get("somatic_map", {}),
@@ -1187,7 +1278,8 @@ def copied_card_field(card, reply):
     if spoken:
         for field in ("physical", "voice", "voice_archetype", "default_somatic_alignment",
                       "cognitive_bias", "cognitive_gift", "goals", "motivations", "incentives",
-                      "history_anchors", "relationships", "depth_of_knowledge"):
+                      "history_anchors", "relationships", "depth_of_knowledge", "pleasure_sources",
+                      "physical_pleasure_sources", "sexual_pleasure_sources"):
             for path, description in descriptions(card.get(field), field):
                 if spoken.intersection(phrases(description)):
                     return path

@@ -89,7 +89,7 @@ Pipeline owns live ticks and commit mapping. Full protocol: [CognitivePipeline.m
 - Style = `llm` disables natural-prose constraints.
 
 ### Intimacy & desire handling
-Character attraction and desire are output states of the core pipeline ([CognitivePipeline.md](CognitivePipeline.md) §7.1)—never gated by switches or modes. Explicit erotica craft (if any) is non-core, lives in downstream projects, and registers via [Modules.md](Modules.md). The core pipeline outputs character stance and intent without explicit sexual choreography.
+Character attraction and desire are output states of the core pipeline ([CognitivePipeline.md](CognitivePipeline.md) §7.1)—never gated by switches or modes. For an intimate movement, verify every participant’s card, then render the character’s chosen stance and intent within the project depiction ceiling using the [adult expression guide](Mechanics/erotica.md).
 
 ---
 

@@ -43,6 +43,7 @@ ZONE_MAP = {
     "Z6": "Z6_Peripheral_Grounding",
 }
 
+PLEASURE_HALF_LIFE_MINUTES = 2
 PHYSICAL_PAIN_HALF_LIFE_MINUTES = 2
 EMOTIONAL_DISTRESS_HALF_LIFE_MINUTES = 20
 # Physiological rates are per simulated hour. Cards may override these under
@@ -58,6 +59,9 @@ DEFAULT_PHYSIOLOGY_CALIBRATION = {
     "sleep_debt_resting_per_hour": 0.5,
     "sleep_debt_sleep_recovery_per_hour": 12.0,
     "max_elapsed_hours_per_tick": 24.0,
+    "sexual_arousal_half_life_minutes": 12.0,
+    "orgasm_threshold": 85,
+    "orgasm_recovery_minutes": 10.0,
 }
 # Half-lives are in seconds. Sensory loads can rise immediately.
 EXPOSURE_RESPONSES = {
@@ -70,7 +74,7 @@ APPRAISAL_SIGNALS = ("interest", "attraction", "disgust", "unease", "uncertainty
                      "anticipation", "loss", "frustration", "delight", "relief")
 APPRAISAL_HALF_LIFE_SECONDS = 10
 ACTIVATION_RECOVERY_MINUTES = 1
-SEXUAL_AROUSAL_RECOVERY_MINUTES = 2
+SLEEP_PULSE_HALF_LIFE_MINUTES = 2
 
 
 # Fictional adult reference points on independent 0–100 scales. Each axis
@@ -118,10 +122,22 @@ def arousal_regions(card):
     return list(dict.fromkeys(sites))
 
 
+def card_age(card):
+    """Unknown or unparseable ages use the existing unknown-age default."""
+    try:
+        return int(card.get("age", 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def canon_adult(card):
+    return card.get("canon_adult") is True and card_age(card) >= 18
+
+
 def somatic_profile(card):
     sex = biological_sex(card)
     baselines = SOMATIC_BASELINES.copy()
-    if int(card.get("age", 0)) >= 18:
+    if card_age(card) >= 18:
         baselines.update(ADULT_SEX_PROFILES[sex])
     custom = card.get("somatic_baselines", {})
     if not isinstance(custom, dict) or custom.keys() - baselines.keys():
@@ -154,7 +170,7 @@ def sleep_excitation(minutes_asleep: float) -> float:
     phase = minutes_asleep % 90
     rising = max(0.0, (phase - 55) / 20) if phase <= 75 else 0.0
     since_peak = (minutes_asleep - 75) % 90
-    falling = 2 ** (-since_peak / SEXUAL_AROUSAL_RECOVERY_MINUTES) if minutes_asleep >= 75 else 0.0
+    falling = 2 ** (-since_peak / SLEEP_PULSE_HALF_LIFE_MINUTES) if minutes_asleep >= 75 else 0.0
     return 24 * max(rising, falling)
 
 
@@ -170,9 +186,22 @@ def physiology_calibration(card: dict[str, Any]) -> dict[str, float]:
     for key, value in values.items():
         if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
             raise ValueError(f"physiology_calibration.{key} must be a finite nonnegative number")
-    if values["max_elapsed_hours_per_tick"] <= 0:
-        raise ValueError("physiology_calibration.max_elapsed_hours_per_tick must be positive")
+    for key in ("max_elapsed_hours_per_tick", "sexual_arousal_half_life_minutes", "orgasm_recovery_minutes"):
+        if values[key] <= 0:
+            raise ValueError(f"physiology_calibration.{key} must be positive")
+    if not 1 <= values["orgasm_threshold"] <= 100:
+        raise ValueError("physiology_calibration.orgasm_threshold must be between 1 and 100")
     return {key: float(value) for key, value in values.items()}
+
+
+def felt_pleasure(stimulus, history, key, remaining):
+    """A current observation replaces the carried level, including an explicit zero."""
+    if key in stimulus:
+        value = stimulus[key]
+        if type(value) is not int or not 0 <= value <= 100:
+            raise ValueError(f"{key} must be an integer from 0 to 100")
+        return value
+    return history.get(key, 0) * remaining
 
 
 def recover_distress(
@@ -191,6 +220,7 @@ def parse_realm_num(focus_str: str) -> str:
 # Only persist defaults that are character-neutral or already used by the runtime.
 CARD_DEFAULTS = {
     "biological_sex": "unspecified", "somatic_baselines": {}, "arousal_regions": None,
+    "pleasure_sources": [], "physical_pleasure_sources": [], "sexual_pleasure_sources": [],
     "age": 0, "canon_adult": False, "physical_pain_baseline": 0,
     "emotional_distress_baseline": 0, "physical_pain_tolerance": 50,
     "emotional_distress_tolerance": 50, "sexual_drive_baseline": 50,
@@ -302,7 +332,7 @@ def overlay_log(
     state = {
         "character_id": card.get("character_id") or (card.get("call_name") or card.get("name") or "unknown").lower(),
         "canon_adult": card.get("canon_adult") is True,
-        "age": int(card.get("age", 0)),
+        "age": card_age(card),
         "sexual_drive_baseline": clamp(card.get("sexual_drive_baseline", 50)),
         "physical_pain_tolerance": clamp(card.get("physical_pain_tolerance", 50)),
         "emotional_distress_tolerance": clamp(card.get("emotional_distress_tolerance", 50)),
@@ -716,6 +746,31 @@ def run_golem(
     # the meaning of the event independently of the endocrine profile.
     adrenergic_gain = 1 + (profile["testosterone"] - profile["estradiol"]) / 500
     recovery_scale = 1 + (profile["estradiol"] - 50) / 250
+    adult_eligible = canon_adult(state)
+    remaining_pleasure = 2 ** (-elapsed_minutes / PLEASURE_HALF_LIFE_MINUTES)
+    physical_pleasure = felt_pleasure(stimulus, history, "physical_pleasure", remaining_pleasure)
+    sexual_pleasure = (felt_pleasure(stimulus, history, "sexual_pleasure", remaining_pleasure)
+                       if adult_eligible else 0)
+    orgasm = False
+    recovery_minutes_left = recovery_fraction = peak_pulse = 0.0
+    recovery_duration = history.get("orgasm_recovery_duration", 0)
+    if adult_eligible:
+        # Apply individual calibration to the profile's simulated recovery time.
+        recovery_minutes_left = max(0.0, history.get("orgasm_recovery_minutes_left", 0) - elapsed_minutes)
+        threshold = calibration["orgasm_threshold"]
+        orgasm = (recovery_minutes_left == 0 and "sexual_pleasure" in stimulus
+                  and history.get("sexual_pleasure", 0) < threshold <= sexual_pleasure)
+        if orgasm:
+            recovery_duration = calibration["orgasm_recovery_minutes"] * (
+                1 + (profile["testosterone"] - profile["estradiol"]) / 125
+            )
+            if not math.isfinite(recovery_duration) or recovery_duration <= 0:
+                raise ValueError("Effective orgasm recovery interval must be finite and positive")
+            recovery_minutes_left = recovery_duration
+            rules.append("ORGASM_THRESHOLD_CROSSED")
+        if recovery_minutes_left > 0:
+            recovery_fraction = recovery_minutes_left / recovery_duration
+            peak_pulse = max(0.0, 1 - (recovery_duration - recovery_minutes_left) / 0.5)
     exertion = 0
     if activity == "sleeping":
         fatigue_rate = -float(calibration["fatigue_sleep_recovery_per_hour"])
@@ -732,6 +787,8 @@ def run_golem(
     previous_sleep_debt = history.get("sleep_debt", 0)
     fatigue_level = min(100.0, max(0.0, previous_fatigue + fatigue_rate * elapsed_hours))
     sleep_debt_level = min(100.0, max(0.0, previous_sleep_debt + sleep_debt_rate * elapsed_hours))
+    if orgasm:
+        fatigue_level = min(100.0, fatigue_level + 4 * adrenergic_gain)
     fatigue = clamp(fatigue_level)
     sleep_debt = clamp(sleep_debt_level)
     fatigue_load = max(fatigue_level, sleep_debt_level)
@@ -760,6 +817,7 @@ def run_golem(
     activation = activation_target + max(0, prior_activation - activation_target) * 2 ** (
         -elapsed_minutes / (ACTIVATION_RECOVERY_MINUTES * recovery_scale)
     )
+    activation = max(activation, 70 * peak_pulse)
     arousal = clamp(activation)
     baseline_stress = (
         10 + int(0.55 * threat) + int(0.2 * social_p) + int(0.35 * latent_hit_bonus)
@@ -942,11 +1000,11 @@ def run_golem(
     rules.append(f"ARBITRATION:{arbitration_status}:{winning_drive}")
 
     # 6. Adult eligibility and background state (CognitivePipeline §2)
-    adult_eligible = state["canon_adult"] is True and state["age"] >= 18
     drive_level = 0.0
     sexual_response = 0.0
     excitation = inhibition = minutes_asleep = 0.0
     sexual_arousal = 0
+    lingering_arousal = False
     if adult_eligible:
         baseline_drive = state.get("sexual_drive_baseline", 50)
         previous_drive = history.get("sexual_drive", baseline_drive)
@@ -955,20 +1013,33 @@ def run_golem(
         # Keep the fractional state in history so short ticks can accumulate.
         remaining = 2 ** (-elapsed_minutes / 30)
         drive_level = target_drive + (previous_drive - target_drive) * remaining
-        cue_excitation = min(100, attraction * (0.5 + 0.5 * drive_level / 100) * adrenergic_gain)
+        if recovery_fraction:
+            drive_level = min(drive_level, baseline_drive * (1 - 0.6 * recovery_fraction))
+        # The body already carries earlier cues. Reusing the decaying appraisal
+        # here could recreate excitation immediately after a shock cut it.
+        new_attraction = appraisal.get("attraction", 0)
+        cue_excitation = min(100, new_attraction * (0.5 + 0.5 * drive_level / 100) * adrenergic_gain)
         if activity == "sleeping":
             minutes_asleep = history.get("minutes_asleep", 0) + elapsed_minutes
         # Older histories saved only the resulting response.
         prior_excitation = history.get("sexual_excitation", history.get("sexual_arousal", 0))
-        recovery = 2 ** (-elapsed_minutes / (SEXUAL_AROUSAL_RECOVERY_MINUTES * recovery_scale))
+        half_life = calibration["sexual_arousal_half_life_minutes"] * recovery_scale
+        recovery = 2 ** (-elapsed_minutes / half_life)
         residual = prior_excitation * recovery
         if "sexual_arousal" in stimulus:
             residual = clamp(stimulus["sexual_arousal"])
-        excitation = max(residual, cue_excitation, sleep_excitation(minutes_asleep))
+        sleep_pulse = sleep_excitation(minutes_asleep)
+        # A strong shock can interrupt the carried response even at zero elapsed
+        # time. A ceiling is idempotent when the host re-appraises that instant.
+        shock = max(threat, physical_pain, disgust)
+        excitation_ceiling = min(100, 3 * (100 - shock))
+        excitation = min(excitation_ceiling, max(residual, cue_excitation, sleep_pulse))
         inhibition = min(100, max(disgust, unease, 0.75 * physical_load, 0.75 * emotional_load,
-                                  stress - 25, 0.5 * exhaustion))
+                                  stress - 25, 0.5 * exhaustion, 70 * recovery_fraction * (1 - peak_pulse)))
         sexual_response = excitation * (1 - inhibition / 100)
         sexual_arousal = clamp(sexual_response)
+        lingering_arousal = (sexual_arousal > 0 and residual > max(cue_excitation, sleep_pulse)
+                             and "sexual_arousal" not in stimulus and not new_attraction)
     else:
         appraisal_effects["attraction"] = 0
     # A bodily response can have no interpersonal target (sleep, memory, or touch).
@@ -998,6 +1069,7 @@ def run_golem(
         ("skin", "heat discomfort", exposure_state["heat_discomfort"]),
         ("whole_body", "fatigue", fatigue), ("whole_body", "pain", physical_pain),
         ("chest", "breathing effort", exertion),
+        ("pelvic_floor", "involuntary contractions", clamp(85 * peak_pulse)),
         *arousal_sensations(arousal, sexual_arousal, state.get("arousal_regions", ())),
     ))
     for location in mapped_body:
@@ -1054,6 +1126,11 @@ def run_golem(
             "sexual_excitation": clamp(excitation),
             "sexual_inhibition": clamp(inhibition),
             "sexual_arousal": sexual_arousal,
+            "lingering_arousal": lingering_arousal,
+            "physical_pleasure": clamp(physical_pleasure),
+            "sexual_pleasure": clamp(sexual_pleasure),
+            "orgasm": orgasm,
+            "orgasm_recovery": clamp(100 * recovery_fraction),
             "visceral_revulsion": visceral_revulsion,
             "stress": stress,
             "fatigue": fatigue,
@@ -1167,6 +1244,10 @@ def run_golem(
             "minutes_asleep": minutes_asleep,
             "arousal": activation,
             "sexual_arousal": sexual_response,
+            "physical_pleasure": physical_pleasure,
+            "sexual_pleasure": sexual_pleasure,
+            "orgasm_recovery_minutes_left": recovery_minutes_left,
+            **({"orgasm_recovery_duration": recovery_duration} if recovery_minutes_left > 0 else {}),
             "appraisal_effects": appraisal_effects,
             **({"recent_inquiries": recent_inquiries} if recent_inquiries else {}),
         },

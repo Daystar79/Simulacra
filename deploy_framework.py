@@ -90,6 +90,7 @@ FRAMEWORK_DIRS = [
 # their own modules, SQLite databases and generated snapshots alongside them.
 UPDATE_FILES = [
     *(path for path in FRAMEWORK_FILES if not path.startswith("Characters/")),
+    "Framework/Mechanics/erotica.md",
     "Framework/Mechanics/humanity.md",
     "Framework/Mechanics/prose.md",
     "Framework/Mechanics/voices.md",
@@ -430,7 +431,6 @@ def deploy_to_path(source_dir: str, target_dir: str, *, force: bool = False) -> 
 
     # Remove core-retired files and directories that must not linger in downstream trees
     retired = [
-        "Framework/Mechanics/erotica.md",
         "Framework/Psychology/realm_index.md",
         "migrate_optimized.py",
         "scripts/unix/migrate.sh",

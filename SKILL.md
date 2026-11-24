@@ -55,6 +55,10 @@ Loop time is timezone-aware elapsed wall-clock time between persisted event time
 
 Time is advanced by the loop once per persisted event. Post-decision appraisal and consequences are applied at that same timestamp and do not advance the event clock again. Do not pass explicit elapsed time into a timestamped loop event.
 
+## Rendering an intimate scene
+
+The host sets the scene’s `depiction` ceiling and lists the portrayed character IDs in `scene_characters`. Use the effective `app_render` from the prepared turn. For eligible scenes it carries the guide and the permitted depiction. Ordinary scenes continue through the standard expression rules. Drafting hosts use the same card checks and the [adult expression guide](Framework/Mechanics/erotica.md).
+
 ## Example host decision
 
 ```python

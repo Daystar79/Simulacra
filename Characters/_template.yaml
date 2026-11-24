@@ -4,6 +4,9 @@ physical_pain_baseline: 0
 emotional_distress_baseline: 0
 physical_pain_tolerance: 50
 emotional_distress_tolerance: 50
+biological_sex: unspecified  # female, male, intersex, or unspecified
+arousal_regions: null  # Optional list of genital sites. [] uses shared regions only.
+somatic_baselines: {}  # Optional independent 0–100 estradiol, testosterone, resting_register indices
 sexual_drive_baseline: 50
 physiology_calibration:
   hunger_awake_per_hour: 4.0
@@ -53,7 +56,7 @@ voice:
   verbal_defense: "[verbal action under pressure — e.g. 'insulates with technical jargon', 'deflects with questions', 'over-explains', 'silences self', 'smothers with care']"
   generative_stance: "[verbal action under safety/trust — e.g. 'unhurried, expansive explanations', 'invites collaborative discovery', 'grounds with direct, gentle clarity']"
   hard_bans: ["[what this character never says — e.g. 'Intellectual jargon', 'cold precision']"]
-  signature_tics: ["[repeated words/gestures — e.g. 'Darling...', breathy laughter, hair-tuck]"]
+  signature_tics: ["[repeated words/gestures — e.g. a clipped aside or a pause before answering]"]
   relational_verbal_shifts:
     "[Target Character Name]": "[specific verbal posture towards this character — e.g. 'short directive bursts, cuts off emotional preambles']"
 

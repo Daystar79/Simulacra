@@ -190,6 +190,7 @@ def parse_realm_num(focus_str: str) -> str:
 
 # Only persist defaults that are character-neutral or already used by the runtime.
 CARD_DEFAULTS = {
+    "biological_sex": "unspecified", "somatic_baselines": {}, "arousal_regions": None,
     "age": 0, "canon_adult": False, "physical_pain_baseline": 0,
     "emotional_distress_baseline": 0, "physical_pain_tolerance": 50,
     "emotional_distress_tolerance": 50, "sexual_drive_baseline": 50,

@@ -150,7 +150,7 @@ Detected OS family: {family}
 
 Usage:
   python scripts/run.py deploy [book_name_or_path]
-  python scripts/run.py deploy --update /path/to/installation [--check]
+  python scripts/run.py deploy --update /path/to/installation [--characters-dir /path/to/profiles] [--check]
   python scripts/run.py lint <path> [linter args...]
   python scripts/run.py validate [state_file_or_dir]
   python scripts/run.py golem --card <card.yaml> --stimulus <json_or_path>

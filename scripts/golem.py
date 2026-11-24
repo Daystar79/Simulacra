@@ -55,13 +55,24 @@ DEFAULT_PHYSIOLOGY_CALIBRATION = {
     "fatigue_exertion_per_hour": 0.04,
     "fatigue_resting_recovery_per_hour": 2.0,
     "fatigue_sleep_recovery_per_hour": 5.0,
-    "sleep_debt_awake_per_hour": 1.5,
+    "sleep_debt_awake_per_hour": 2.5,
     "sleep_debt_resting_per_hour": 0.5,
     "sleep_debt_sleep_recovery_per_hour": 12.0,
     "max_elapsed_hours_per_tick": 24.0,
     "sexual_arousal_half_life_minutes": 12.0,
     "orgasm_threshold": 85,
     "orgasm_recovery_minutes": 10.0,
+    # Adult response fidelity defaults (see run_golem section 6 and SKILL.md).
+    "excitation_transfer_gain": 0.35,
+    "tactile_excitation_gain": 0.5,
+    "resolution_half_life_divisor": 4.0,
+    # Stress and endurance fidelity: plasma cortisol clears in roughly an hour,
+    # moderate threat suppresses genital response well before it becomes acute,
+    # and a full day without sleep is already exhausting.
+    "cortisol_rise_half_life_minutes": 15.0,
+    "cortisol_decay_half_life_minutes": 45.0,
+    "shock_ceiling_multiplier": 1.5,
+    "exhaustion_onset_load": 45.0,
 }
 # Half-lives are in seconds. Sensory loads can rise immediately.
 EXPOSURE_RESPONSES = {
@@ -174,6 +185,21 @@ def sleep_excitation(minutes_asleep: float) -> float:
     return 24 * max(rising, falling)
 
 
+def combine_levels(*levels):
+    """Sub-additive summation of parallel 0-100 inputs.
+
+    Real dual-control inputs (excitatory or inhibitory signals) summate:
+    several moderate signals outweigh any single one, combined signals
+    saturate instead of stacking linearly. A single input keeps its exact
+    value, so single-channel behavior is unchanged.
+    """
+    retained = 1.0
+    for level in levels:
+        retained *= 1.0 - min(100.0, max(0.0, float(level))) / 100.0
+    # Round away sub-ULP accumulator drift so repeat ticks stay idempotent.
+    return round(100.0 * (1.0 - retained), 9)
+
+
 def clamp(val: int, lo: int = 0, hi: int = 100) -> int:
     return max(lo, min(hi, int(round(val))))
 
@@ -186,9 +212,23 @@ def physiology_calibration(card: dict[str, Any]) -> dict[str, float]:
     for key, value in values.items():
         if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
             raise ValueError(f"physiology_calibration.{key} must be a finite nonnegative number")
-    for key in ("max_elapsed_hours_per_tick", "sexual_arousal_half_life_minutes", "orgasm_recovery_minutes"):
+    for key in ("max_elapsed_hours_per_tick", "sexual_arousal_half_life_minutes", "orgasm_recovery_minutes",
+                "resolution_half_life_divisor", "cortisol_rise_half_life_minutes",
+                "cortisol_decay_half_life_minutes"):
         if values[key] <= 0:
             raise ValueError(f"physiology_calibration.{key} must be positive")
+    if values["resolution_half_life_divisor"] < 1:
+        raise ValueError("physiology_calibration.resolution_half_life_divisor must be at least 1")
+    if values["cortisol_decay_half_life_minutes"] < values["cortisol_rise_half_life_minutes"]:
+        raise ValueError("physiology_calibration.cortisol_decay_half_life_minutes must be at "
+                         "least cortisol_rise_half_life_minutes")
+    if values["shock_ceiling_multiplier"] <= 0 or values["shock_ceiling_multiplier"] > 10:
+        raise ValueError("physiology_calibration.shock_ceiling_multiplier must be between 0 and 10")
+    if not 0 <= values["exhaustion_onset_load"] <= 100:
+        raise ValueError("physiology_calibration.exhaustion_onset_load must be between 0 and 100")
+    for key in ("excitation_transfer_gain", "tactile_excitation_gain"):
+        if values[key] > 1:
+            raise ValueError(f"physiology_calibration.{key} must be between 0 and 1")
     if not 1 <= values["orgasm_threshold"] <= 100:
         raise ValueError("physiology_calibration.orgasm_threshold must be between 1 and 100")
     return {key: float(value) for key, value in values.items()}
@@ -788,11 +828,15 @@ def run_golem(
     fatigue_level = min(100.0, max(0.0, previous_fatigue + fatigue_rate * elapsed_hours))
     sleep_debt_level = min(100.0, max(0.0, previous_sleep_debt + sleep_debt_rate * elapsed_hours))
     if orgasm:
-        fatigue_level = min(100.0, fatigue_level + 4 * adrenergic_gain)
+        # Post-coital somnolence scales with the intensity of the peak.
+        fatigue_level = min(100.0, fatigue_level + round(
+            (4 + 8 * clamp(sexual_pleasure) / 100) * adrenergic_gain))
     fatigue = clamp(fatigue_level)
     sleep_debt = clamp(sleep_debt_level)
     fatigue_load = max(fatigue_level, sleep_debt_level)
-    exhaustion = clamp((fatigue_load - 60) * 2.5)
+    # Exhaustion sets in well before collapse: a full day without sleep is
+    # already exhausting, so the onset is card-tunable at a lower load.
+    exhaustion = clamp((fatigue_load - calibration["exhaustion_onset_load"]) * 2.5)
     recent_cues: list[str] = list(history.get("recent_cues", []))
 
     # 1. Autonomic & Polyvagal calculation (CognitivePipeline §4.1)
@@ -836,7 +880,10 @@ def run_golem(
     # Fractional history survives short ticks. Same-instant appraisals cost no time.
     cortisol_target = clamp(15 + adrenergic_gain * 0.75 * stress)
     previous_cortisol = history.get("cortisol", 15.0)
-    half_life = (8 if cortisol_target > previous_cortisol else 20) * recovery_scale
+    # Plasma cortisol peaks tens of minutes after a stressor and clears over
+    # roughly an hour, so sustained stress outlasts the immediate surge.
+    half_life = (calibration["cortisol_rise_half_life_minutes"] if cortisol_target > previous_cortisol
+                 else calibration["cortisol_decay_half_life_minutes"]) * recovery_scale
     cortisol = cortisol_target + (previous_cortisol - cortisol_target) * 2 ** (-elapsed_minutes / half_life)
     autonomic_surge = stress >= 75 or threat >= 80
 
@@ -1024,21 +1071,48 @@ def run_golem(
         # Older histories saved only the resulting response.
         prior_excitation = history.get("sexual_excitation", history.get("sexual_arousal", 0))
         half_life = calibration["sexual_arousal_half_life_minutes"] * recovery_scale
+        # The resolution phase clears excitation several times faster than it rose.
+        # the divisor eases back to 1 as recovery completes.
+        if recovery_fraction:
+            half_life /= 1 + (calibration["resolution_half_life_divisor"] - 1) * recovery_fraction
         recovery = 2 ** (-elapsed_minutes / half_life)
         residual = prior_excitation * recovery
         if "sexual_arousal" in stimulus:
             residual = clamp(stimulus["sexual_arousal"])
-        sleep_pulse = sleep_excitation(minutes_asleep)
+        # Sleep-related excitation tracks the resting drive, not a fixed amplitude.
+        sleep_pulse = sleep_excitation(minutes_asleep) * (0.5 + drive_level / 200)
         # A strong shock can interrupt the carried response even at zero elapsed
         # time. A ceiling is idempotent when the host re-appraises that instant.
         shock = max(threat, physical_pain, disgust)
-        excitation_ceiling = min(100, 3 * (100 - shock))
-        excitation = min(excitation_ceiling, max(residual, cue_excitation, sleep_pulse))
-        inhibition = min(100, max(disgust, unease, 0.75 * physical_load, 0.75 * emotional_load,
-                                  stress - 25, 0.5 * exhaustion, 70 * recovery_fraction * (1 - peak_pulse)))
+        # Moderate threat already suppresses genital response; the ceiling clips
+        # proportionally to the shock level instead of only biting when acute.
+        excitation_ceiling = min(100, calibration["shock_ceiling_multiplier"] * (100 - shock))
+        # Direct tactile/genital stimulation raises excitation without requiring
+        # an interpersonal attraction appraisal. An explicit host-supplied
+        # sexual_arousal reading is already the measured body level, so the
+        # tactile path only fills in when the host does not supply one.
+        tactile_excitation = (0.0 if "sexual_arousal" in stimulus
+                              else calibration["tactile_excitation_gain"] * sexual_pleasure)
+        # Residual sympathetic activation (exertion, alarm, excitement) transfers
+        # into excitation only in an appetitive context: the character is drawn
+        # to who or what is present. Interest alone stays cognitive; threat
+        # remains purely inhibitory through the shock ceiling.
+        positive_appraisal = min(1.0, appraisal.get("attraction", 0) / 60)
+        transfer_excitation = (calibration["excitation_transfer_gain"]
+                               * max(0.0, arousal - 40) * positive_appraisal)
+        # Parallel dual-control inputs summate sub-additively rather than being
+        # max-gated: moderate signals add up, combined signals saturate.
+        excitation = min(excitation_ceiling, combine_levels(
+            residual, cue_excitation, sleep_pulse, tactile_excitation, transfer_excitation))
+        inhibition = min(100, combine_levels(
+            disgust, unease, 0.75 * physical_load, 0.75 * emotional_load,
+            stress - 25, 0.5 * exhaustion, 70 * recovery_fraction * (1 - peak_pulse)))
         sexual_response = excitation * (1 - inhibition / 100)
         sexual_arousal = clamp(sexual_response)
-        lingering_arousal = (sexual_arousal > 0 and residual > max(cue_excitation, sleep_pulse)
+        lingering_arousal = (sexual_arousal > 0
+                             and all(residual > source for source in
+                                     (cue_excitation, sleep_pulse, tactile_excitation,
+                                      transfer_excitation))
                              and "sexual_arousal" not in stimulus and not new_attraction)
     else:
         appraisal_effects["attraction"] = 0

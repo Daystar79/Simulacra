@@ -258,7 +258,8 @@ class TestGolemActivation(unittest.TestCase):
         self.assertAlmostEqual(one_day["hunger"], 96)
         working = golem.run_golem(state, {"elapsed_minutes": 8 * 60, "exertion": 50}, realms, {})["next_history"]
         self.assertAlmostEqual(working["last_fatigue"], 37.4)
-        self.assertAlmostEqual(working["sleep_debt"], 12)
+        # Sleep debt accrues at the fidelity default of 2.5/hour awake.
+        self.assertAlmostEqual(working["sleep_debt"], 20)
         slept = golem.run_golem(state, {"elapsed_minutes": 480, "activity": "sleeping"}, realms,
                                 {"last_fatigue": 40, "sleep_debt": 40})["next_history"]
         self.assertEqual(slept["last_fatigue"], 0)

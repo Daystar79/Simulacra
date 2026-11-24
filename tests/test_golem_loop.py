@@ -64,7 +64,10 @@ class TestGolemLoop(unittest.TestCase):
             first = golem_loop.wake_character(db, observe, compact=True, event=event)["events"][0]
             self.assertEqual(first["body_response"]["after"]["physical_pleasure"], 70)
             self.assertEqual(first["body_response"]["after"]["sexual_pleasure"], 44)
-            self.assertEqual(first["body_response"]["after"]["sexual_arousal"], 0)
+            # Direct stimulation of a private preference raises a modest genital
+            # response on its own (tactile_excitation, default gain 0.5): the body
+            # responds to touch without an interpersonal attraction appraisal.
+            self.assertEqual(first["body_response"]["after"]["sexual_arousal"], 22)
 
             def clear_sensation(request):
                 self.assertEqual(request["body"]["physical_pleasure"], 35)

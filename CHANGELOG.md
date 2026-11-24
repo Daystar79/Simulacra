@@ -8,6 +8,14 @@
 - `wake_character` uses one SQLite connection per heartbeat with per-stage committed transactions (event/tick, resolve) instead of one connection per stage; durability guarantees are unchanged.
 - Character databases now use WAL journal mode with `synchronous=NORMAL`, removing the rollback-journal fsync from every commit. Multi-host file locking is unaffected.
 - `ensure_activity_schema` runs its idempotent migration once per database per process instead of on every transaction.
+- Adult dual-control inputs now summate sub-additively instead of being max-gated (`golem.combine_levels`): several moderate excitatory or inhibitory signals add up with saturation, and a single input keeps its exact value. Concurrent moderate stressors therefore inhibit more than the strongest single one, and combined cues excite more than the strongest single cue.
+- Residual sympathetic activation now transfers into sexual excitation in appetitive contexts (excitation transfer, default gain `excitation_transfer_gain` 0.35, gated on an attraction appraisal). Threat remains purely inhibitory through the shock ceiling, and interest alone stays cognitive.
+- Direct tactile/genital stimulation (`sexual_pleasure`) now raises excitation on its own (default gain `tactile_excitation_gain` 0.5) without requiring an interpersonal attraction appraisal. An explicit host-supplied `sexual_arousal` reading remains authoritative and is not inflated on top of the tactile estimate.
+- During post-orgasm recovery, carried excitation now clears several times faster (`resolution_half_life_divisor`, default 4) instead of following the ordinary arousal half-life.
+- Sleep-related excitation now scales with the resting drive (`0.5 + drive/200`) instead of a fixed amplitude, and post-coital fatigue now scales with the intensity of the peak instead of a flat +4.
+- Cortisol now follows realistic timing (`cortisol_rise_half_life_minutes`, default 15; `cortisol_decay_half_life_minutes`, default 45) instead of hardcoded 8/20-minute half-lives: a stressor peaks tens of minutes in and the hormonal aftermath can outlast the scene.
+- The excitation shock ceiling now clips proportionally (`shock_ceiling_multiplier`, default 1.5) instead of only biting above shock 67, so a moderate threat already suppresses the adult response before acute threat cuts it completely.
+- Sleep debt now accrues at 2.5/hour awake (was 1.5) and exhaustion sets in at `exhaustion_onset_load` (default 45) instead of a fixed 60: a full day without sleep is now substantially exhausting, while a normal active day stays clear of it.
 
 ### Added
 - `benchmarks/bench_runtime.py`, a deterministic runtime benchmark (initialization, prepare, resolve, resident wake, request size, SQLite statement counts, memory), and `benchmarks/RESULTS.md` with measured before/after results. Resident wake processing ~37% faster, resolve ~88% faster, runtime row ~59% smaller on the benchmark character, request packet byte-identical.

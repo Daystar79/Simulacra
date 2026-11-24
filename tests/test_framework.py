@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 # Setup paths
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -216,6 +218,53 @@ class TestDeploymentDecoupling(unittest.TestCase):
             self.assertIn("Updated 0 files", subprocess.check_output(cmd, text=True))
             for name in private:
                 self.assertEqual((target / name).read_bytes(), b"host-owned")
+
+    def test_update_migrates_somatic_defaults_in_installed_and_private_cards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "installed"
+            pipeline = target / "Framework/CognitivePipeline.md"
+            pipeline.parent.mkdir(parents=True)
+            pipeline.write_text("old release")
+            installed = target / "Characters/guest.yaml"
+            installed.parent.mkdir()
+            installed.write_text("name: Guest # retained\n")
+            profiles = root / "profiles"
+            private = profiles / "rowan/character.yaml"
+            private.parent.mkdir(parents=True)
+            private.write_text("name: Rowan\nbiological_sex: female\narousal_regions: []\n")
+            grouped = installed.with_name("ensemble.yaml")
+            grouped.write_text("characters:\n  a: {name: A, somatic_baselines: {estradiol: 28}}\n"
+                               "  b: {name: B, arousal_regions: [clitoris]}\n")
+            log = private.with_name("character_log.yaml")
+            log.write_text("character_id: rowan\n")
+            cards = (installed, private, grouped)
+            originals = {p: p.read_bytes() for p in cards}
+            cmd = [sys.executable, str(ROOT / "scripts/run.py"), "deploy", "--update", str(target),
+                   "--characters-dir", str(profiles)]
+            preview = subprocess.check_output([*cmd, "--check"], text=True)
+            self.assertIn("4 character-card entries", preview)
+            self.assertEqual(originals, {p: p.read_bytes() for p in cards})
+            self.assertFalse(list(root.rglob("*.bak")))
+            subprocess.run(cmd, check=True, capture_output=True)
+            guest = yaml.safe_load(installed.read_text())
+            self.assertEqual((guest["biological_sex"], guest["somatic_baselines"], guest["arousal_regions"]),
+                             ("unspecified", {}, None))
+            rowan = yaml.safe_load(private.read_text())
+            self.assertEqual((rowan["biological_sex"], rowan["arousal_regions"]), ("female", []))
+            group = yaml.safe_load(grouped.read_text())["characters"]
+            self.assertEqual(group["a"]["somatic_baselines"], {"estradiol": 28})
+            self.assertIsNone(group["a"]["arousal_regions"])
+            self.assertEqual(group["b"]["arousal_regions"], ["clitoris"])
+            self.assertIn("# retained", installed.read_text())
+            self.assertEqual(log.read_text(), "character_id: rowan\n")
+            migrated = {p: p.read_bytes() for p in cards}
+            self.assertIn("0 character-card entries", subprocess.check_output([*cmd, "--check"], text=True))
+            subprocess.run(cmd, check=True, capture_output=True)
+            self.assertEqual(migrated, {p: p.read_bytes() for p in cards})
+            for path in cards:
+                backup, = path.parent.glob(path.name + ".predeploy-*.bak")
+                self.assertEqual(backup.read_bytes(), originals[path])
 
     def test_update_preflights_all_files_before_replacement(self):
         with tempfile.TemporaryDirectory() as directory:

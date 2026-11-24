@@ -277,7 +277,7 @@ Old records remain intact. No historical data is deleted or rewritten. Contextua
 
 Run `python3 scripts/run.py deploy --update /path/to/installation --check` to preview framework changes **and** missing character-card defaults. Run without `--check` to apply. Deployment migrates named YAML cards under `Characters/` using Golem's neutral defaults, retaining existing values, logs, and SQLite state. Modified cards receive timestamped `.predeploy-*.bak` backups. Repeated updates do not add fields again.
 
-Normal `golem.load_character()` calls are read-only: incoming messages never rewrite character cards. Cards stored outside the installation's `Characters/` directory are not discovered automatically; migrate them explicitly with `golem.migrate_character_card(path, slug)` before starting the host. Stop character wakes during deployment.
+Normal `golem.load_character()` calls are read-only: incoming messages never rewrite character cards. For a VM with private profiles, pass `--characters-dir /path/to/profiles` to the same update or preview command. It also migrates each `<id>/character.yaml`. A legacy card receives `biological_sex: unspecified`, `somatic_baselines: {}`, and `arousal_regions: null` wherever the field is missing. An authored empty region list keeps its shared-sites-only meaning. Standalone cards elsewhere can be migrated with `golem.migrate_character_card(path, slug)`. Stop character wakes during deployment.
 
 
 ### Relationship evolution, event priority and historical request compression

@@ -109,7 +109,7 @@ UPDATE_FILES = [
 ]
 
 
-def migrate_installed_cards(source: Path, target: Path, *, check: bool = False) -> int:
+def migrate_installed_cards(source: Path, target: Path, *, check: bool = False, characters_dir: Path | None = None) -> int:
     """Preflight and migrate installed named cards, never logs or templates.
 
     Runs before the framework files are replaced, using the release's schema.
@@ -125,10 +125,16 @@ def migrate_installed_cards(source: Path, target: Path, *, check: bool = False) 
         sys.path.pop(0)
 
     root = target / "Characters"
-    if not root.is_dir():
-        return 0
+    paths = set(root.rglob("*.yaml")) if root.is_dir() else set()
+    profile_cards = set()
+    if characters_dir is not None:
+        characters_dir = characters_dir.resolve()
+        if not characters_dir.is_dir():
+            raise ValueError(f"Character profile directory not found: {characters_dir}")
+        profile_cards = {path for path in characters_dir.glob("*/character.yaml")
+                         if not path.parent.is_symlink() and path.is_file()}
     candidates = []
-    for path in sorted(root.rglob("*.yaml")):
+    for path in sorted(paths | profile_cards):
         if path.is_symlink() or path.name.startswith("_") or "log" in path.stem.lower():
             continue
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -136,7 +142,10 @@ def migrate_installed_cards(source: Path, target: Path, *, check: bool = False) 
             continue
         if isinstance(data.get("characters"), dict):
             slugs = list(data["characters"])
-        elif any(key in data for key in ("age", "canon_adult", "physical", "motivations", "cognitive_bias")):
+        elif path in profile_cards or any(key in data for key in (
+            "name", "call_name", "age", "canon_adult", "physical", "motivations", "cognitive_bias",
+            "biological_sex", "somatic_baselines", "arousal_regions",
+        )):
             slugs = [None]
         else:
             continue
@@ -147,7 +156,7 @@ def migrate_installed_cards(source: Path, target: Path, *, check: bool = False) 
 
     if check:
         for path, slug in candidates:
-            print(f"Card migration: {path.relative_to(target)}" + (f" [{slug}]" if slug else ""))
+            print(f"Card migration: {path.relative_to(target) if path.is_relative_to(target) else path}" + (f" [{slug}]" if slug else ""))
         return len(candidates)
 
     from datetime import datetime, timezone
@@ -169,7 +178,7 @@ def migrate_installed_cards(source: Path, target: Path, *, check: bool = False) 
     return len(candidates)
 
 
-def update_installation(source: Path, target: Path, *, check: bool = False) -> None:
+def update_installation(source: Path, target: Path, *, check: bool = False, characters_dir: Path | None = None) -> None:
     """Refresh an installed framework between host wakes, preserving character data."""
     source, target = source.resolve(), target.resolve()
     if source == target or source in target.parents or target in source.parents:
@@ -195,10 +204,10 @@ def update_installation(source: Path, target: Path, *, check: bool = False) -> N
     if check:
         for name in changes:
             print(name)
-        count = migrate_installed_cards(source, target, check=True)
+        count = migrate_installed_cards(source, target, check=True, characters_dir=characters_dir)
         print(f"{len(changes)} files and {count} character-card entries would change in {target}")
         return
-    migrate_installed_cards(source, target)
+    migrate_installed_cards(source, target, characters_dir=characters_dir)
     if changes:
         with tempfile.TemporaryDirectory(prefix=".simulacra-update-", dir=target) as tmp:
             staged = Path(tmp)
@@ -460,9 +469,10 @@ def main():
         parser = argparse.ArgumentParser(description="Update an existing Simulacra installation in place.")
         parser.add_argument("--update", type=Path, required=True, metavar="INSTALL_DIR")
         parser.add_argument("--check", action="store_true", help="List files that would change")
+        parser.add_argument("--characters-dir", type=Path, help="Also migrate character.yaml in each private profile")
         options = parser.parse_args()
         try:
-            update_installation(Path(source_dir), options.update, check=options.check)
+            update_installation(Path(source_dir), options.update, check=options.check, characters_dir=options.characters_dir)
         except (ValueError, OSError) as exc:
             parser.exit(1, f"Update failed: {exc}\n")
         return

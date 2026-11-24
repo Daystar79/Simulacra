@@ -38,7 +38,7 @@ incentives:
 
 Record approved changes in `goal_updates` in the durable log, keyed by goal ID. An update may revise the objective, motivation, horizon, commitment, progress, or status. Supported statuses are active, blocked, dormant, completed, and abandoned. A new goal ID with an objective records an ambition formed during play. A new goal may share an existing motivation.
 
-Golem fills missing runtime defaults when it loads a card, including missing keys in partial physiology and transformation settings. Give the host write access to older cards and their directory for the first load. For a multi-character file it updates the selected character. Authored values take precedence. Age defaults to 0 (unknown to the runtime) and adult eligibility defaults to false. Per-turn emotions, sensations, impulses and learned dialect remain runtime state.
+Golem applies defaults in memory when it reads older cards. The in-place deployment updater writes missing fields and backs up each changed file. It handles every entry in a multi-character file. For private VM profiles, pass their parent directory with `--characters-dir` on the update command. Authored values take precedence. Age defaults to 0 (unknown to the runtime) and adult eligibility defaults to false. Per-turn emotions, sensations, impulses and learned dialect remain runtime state.
 
 ## Drafting flow
 

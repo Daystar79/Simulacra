@@ -79,6 +79,11 @@ class TestGolemLoop(unittest.TestCase):
             self.assertIn("identity_anchor", request)
             full = run(["pending"])
             affect = full["tick"]["psychosomatic_snapshot"]["affective_state"]
+            body = full["tick"]["psychosomatic_snapshot"]["autonomic_state"]
+            self.assertEqual(request["body"]["somatic_map"], body["somatic_map"])
+            self.assertEqual(request["body"]["somatic_telemetry"], body["somatic_telemetry"])
+            self.assertEqual(request["expression_guidance"], full["expression_guidance"])
+            self.assertNotIn("endocrine_state", request["body"])
             self.assertEqual(request["emotions"], affect["emotions"])
             self.assertEqual(request["emotions"]["joy"], 71)
             self.assertEqual(request["emotions"]["pride"], 24)

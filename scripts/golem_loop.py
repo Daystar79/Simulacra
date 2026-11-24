@@ -483,6 +483,38 @@ def repeated_reply_pattern(events, window=5):
     }
 
 
+def expression_guidance(snapshot):
+    """Translate measured body constraints into options for the host's rendering."""
+    body = snapshot["autonomic_state"]
+    telemetry = body.get("somatic_telemetry")
+    if not telemetry:  # Older pending snapshots can finish on the previous contract.
+        return None
+    if body.get("activity") == "sleeping":
+        return "Use the sleeping posture and breathing. Deliberate gaze, speech and approach require waking."
+    # Each tick carries the current interlocutor's vector only.
+    bond = next(iter(snapshot.get("relational_vectors", {}).values()), {})
+    if body.get("involuntary_response") == "freeze":
+        cue = "Let stillness or a delayed answer carry the moment."
+    elif telemetry["postural_bracing"] >= 40:
+        cue = "Consider a held stance, a delayed step, or the effort it takes to sustain eye contact."
+    elif telemetry["energy_expenditure"] >= 40 or telemetry["register_shift"] >= 56:
+        cue = "Consider where breath interrupts a phrase or effort shifts the speaker’s usual register."
+    elif bond.get("emotional_safety", 50) < 35:
+        cue = "Consider preserving distance, looking back to the task, or letting a question go unanswered."
+    elif telemetry["peripheral_perfusion"] >= 62 and bond.get("intimacy", 0) >= 50:
+        cue = "If closeness is welcome in this scene, consider staying within reach or letting eye contact linger."
+    elif telemetry["peripheral_perfusion"] >= 62:
+        cue = "Consider whether warmth is felt privately or becomes visible in the scene."
+    else:
+        cue = "An ordinary pause or an unremarked movement can be enough."
+    return (cue + " Choose at most one salient beat, or leave it private. Use only cues the listener "
+            "could perceive. Use the relationship, scene, and character’s purpose to decide proximity, "
+            "gaze, dialogue pace, and what stays "
+            "unsaid. For welcome flirting or affection, let a particular action carry the subtext. "
+            "Use a pet name only when established for this speaker and listener. "
+            "A bodily response alone establishes neither intent nor consent.")
+
+
 def pending_request(connection):
     row = connection.execute("SELECT request FROM events WHERE status = 'pending'").fetchone()
     if not row:
@@ -514,6 +546,9 @@ def pending_request(connection):
                 "affect the reply while every identifying detail stays private."
             ),
         }
+    guidance = expression_guidance(request["tick"]["psychosomatic_snapshot"])
+    if guidance:
+        request["expression_guidance"] = guidance
     return request
 
 
@@ -541,7 +576,7 @@ def decision_context(request):
         "event": scene, "at": request["at"], "emotions": emotions,
         "body": {key: body[key] for key in (
             "cognitive_regime", "involuntary_response", "stress", "arousal",
-            "sexual_arousal", "somatic_map", "emotional_distress", "activity",
+            "sexual_arousal", "somatic_map", "somatic_telemetry", "emotional_distress", "activity",
         ) if key in body},
         "current_cues": tick.get("golem_meta", {}).get("emitted_cues", []),
         "winning_drive": snapshot["priority_arbitration"]["winning_drive"],
@@ -555,7 +590,7 @@ def decision_context(request):
             context[key] = affect[key]
     for key in ("character_id", "identity_anchor", "dialect", "current_goals", "motivations", "incentives",
                 "recalled_memories", "learned", "activity", "maintenance_needs", "expectations",
-                "situational_expectations", "relationship_state", "reply_guidance"):
+                "situational_expectations", "relationship_state", "reply_guidance", "expression_guidance"):
         if request.get(key):
             context[key] = request[key]
     if "identity_anchor" not in context:
@@ -941,6 +976,8 @@ def load_cached_character(config):
     cached = config.get("cached_character")
     if (
         isinstance(cached, dict)
+        and "somatic_profile" in cached["state"]
+        and "arousal_regions" in cached["state"]
         and cached.get("card_mtime") == card_mtime
         and cached.get("log_mtime") == log_mtime
         and all(cached["state"].get(k) == cached["card"].get(k) for k in
@@ -1087,7 +1124,8 @@ def apply_appraisal(connection, request, appraisal, experience=None):
 
     def measurements(tick):
         body = tick["psychosomatic_snapshot"]["autonomic_state"]
-        fields = ("stress", "arousal", "sexual_drive", "sexual_excitation", "sexual_inhibition", "sexual_arousal")
+        fields = ("stress", "arousal", "sexual_drive", "sexual_excitation", "sexual_inhibition", "sexual_arousal",
+                  "somatic_telemetry", "endocrine_state")
         return {**{key: body[key] for key in fields if key in body},
                 "somatic_map": body.get("somatic_map", {}),
                 "emotions": tick["psychosomatic_snapshot"]["affective_state"].get("emotions", {}),

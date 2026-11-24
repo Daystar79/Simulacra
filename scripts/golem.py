@@ -73,6 +73,81 @@ ACTIVATION_RECOVERY_MINUTES = 1
 SEXUAL_AROUSAL_RECOVERY_MINUTES = 2
 
 
+# Fictional adult reference points on independent 0–100 scales. Each axis
+# can be authored separately, including for intersex or unspecified cards.
+SOMATIC_BASELINES = {
+    "estradiol": 50, "testosterone": 50, "resting_register": 50,
+}
+ADULT_SEX_PROFILES = {
+    "female": {"estradiol": 65, "testosterone": 30, "resting_register": 62},
+    "male": {"estradiol": 35, "testosterone": 70, "resting_register": 38},
+    "intersex": {}, "unspecified": {},
+}
+
+
+# Extra sites for the adult arousal map. Cards can select any combination
+# independently of endocrine calibration. Empty means shared sites only.
+GENITAL_RESPONSE_SITES = {
+    "clitoris": ("fullness", 0, 0.9), "labia": ("warmth", 10, 0.7),
+    "vagina": ("fullness", 20, 0.55), "penis": ("fullness", 0, 0.9),
+    "scrotum": ("tension", 20, 0.5),
+}
+DEFAULT_AROUSAL_REGIONS = {
+    "female": ("clitoris", "labia", "vagina"), "male": ("penis", "scrotum"),
+    "intersex": (), "unspecified": (),
+}
+
+
+def biological_sex(card):
+    sex = card.get("biological_sex", "unspecified")
+    if sex is None:
+        sex = "unspecified"
+    if not isinstance(sex, str) or sex.strip().lower() not in ADULT_SEX_PROFILES:
+        raise ValueError("biological_sex must be female, male, intersex, or unspecified")
+    return sex.strip().lower()
+
+
+def arousal_regions(card):
+    sites = card.get("arousal_regions")
+    if sites is None:
+        return list(DEFAULT_AROUSAL_REGIONS[biological_sex(card)])
+    if not isinstance(sites, list) or any(
+        not isinstance(site, str) or site not in GENITAL_RESPONSE_SITES for site in sites
+    ):
+        raise ValueError(f"arousal_regions must be a list of sites from {', '.join(GENITAL_RESPONSE_SITES)}")
+    return list(dict.fromkeys(sites))
+
+
+def somatic_profile(card):
+    sex = biological_sex(card)
+    baselines = SOMATIC_BASELINES.copy()
+    if int(card.get("age", 0)) >= 18:
+        baselines.update(ADULT_SEX_PROFILES[sex])
+    custom = card.get("somatic_baselines", {})
+    if not isinstance(custom, dict) or custom.keys() - baselines.keys():
+        raise ValueError("somatic_baselines accepts estradiol, testosterone, and resting_register")
+    for key, value in custom.items():
+        if type(value) is not int or not 0 <= value <= 100:
+            raise ValueError(f"somatic_baselines.{key} must be an integer from 0 to 100")
+    return {**baselines, **custom}
+
+
+def somatic_telemetry(profile, arousal, stress_load, cortisol, exertion, fatigue, warmth):
+    # All outputs are relative simulation indices. Register is relative to the
+    # character's authored voice, perfusion describes peripheral circulation.
+    effort = 0.55 * exertion + 0.25 * arousal + 0.2 * stress_load
+    tension = clamp(0.45 * stress_load + 0.3 * arousal + 0.25 * exertion)
+    return {
+        "hrv": clamp(82 - 0.45 * arousal - 0.22 * cortisol - 0.12 * fatigue),
+        "peripheral_perfusion": clamp(55 + 0.25 * warmth - 0.35 * stress_load),
+        "muscle_tension": tension,
+        "postural_bracing": clamp(0.55 * stress_load + 0.30 * tension),
+        "vocal_register": clamp(profile["resting_register"] + 0.22 * tension - 0.08 * fatigue),
+        "register_shift": clamp(50 + 0.22 * tension - 0.08 * fatigue),
+        "energy_expenditure": clamp(effort),
+    }
+
+
 def sleep_excitation(minutes_asleep: float) -> float:
     """Approximate intermittent autonomic excitation during sustained adult sleep."""
     # Simulation defaults. Sample scene time so a long tick can span a peak.
@@ -247,6 +322,8 @@ def overlay_log(
         "excluded_cues": sorted(set(card.get("excluded_cues") or [])),
         "skills": list(card.get("skills") or []),
         "physiology_calibration": physiology_calibration(card),
+        "somatic_profile": somatic_profile(card),
+        "arousal_regions": arousal_regions(card),
     }
     if not log_path or not log_path.is_file():
         state["current_goals"] = current_goals(card.get("goals"), None, goal_changes)
@@ -462,12 +539,33 @@ def select_somatic_cues(
 SOMATIC_ZONES = {
     "Z1_Cranial_Ocular": "scalp head face forehead brow eye ear nose cheek jaw mouth lip tongue teeth",
     "Z2_Vocal_Cervical": "neck throat larynx",
-    "Z3_Thoracic_Respiratory": "chest breast ribs lungs heart diaphragm upper_back",
-    "Z4_Abdominal_Visceral": "abdomen stomach gut flank lower_back",
-    "Z5_Pelvic_Kinesthetic": "pelvis hip groin genitals pelvic_floor bladder buttock",
-    "Z6_Peripheral_Grounding": "shoulder upper_arm elbow forearm wrist hand palm finger thumb thigh knee shin calf ankle foot heel sole toe",
+    "Z3_Thoracic_Respiratory": "chest breast nipple areola ribs lungs heart diaphragm upper_back",
+    "Z4_Abdominal_Visceral": "abdomen lower_abdomen stomach gut flank lower_back",
+    "Z5_Pelvic_Kinesthetic": "pelvis hip groin genitals pelvic_floor perineum clitoris labia vagina penis scrotum bladder buttock",
+    "Z6_Peripheral_Grounding": "shoulder upper_arm elbow forearm wrist hand palm finger thumb thigh inner_thigh knee shin calf ankle foot heel sole toe",
 }
 REGION_ZONE = {region: zone for zone, regions in SOMATIC_ZONES.items() for region in regions.split()}
+
+
+def arousal_sensations(arousal, sexual_arousal, sites):
+    """Localize this tick's two response levels, preserving the coarse pelvic signal."""
+    # General autonomic activation can be felt after exertion or alarm.
+    yield "heart", "noticeable heartbeat", clamp(0.8 * (arousal - 45))
+    yield "diaphragm", "quicker breathing", clamp(0.55 * (arousal - 50))
+    if not sexual_arousal:
+        return
+    yield "pelvis", "arousal", sexual_arousal
+    # Thresholds keep a faint response local. Intensities are simulation scales.
+    shared = (
+        ("pelvic_floor", "tension", 10, 0.65), ("perineum", "fullness", 18, 0.50),
+        ("lower_abdomen", "warmth", 25, 0.55), ("inner_thigh", "tension", 45, 0.45),
+        ("nipple", "sensitivity", 55, 0.45),
+    )
+    for region, sensation, threshold, gain in shared:
+        yield region, sensation, clamp((sexual_arousal - threshold) * gain)
+    for region in sites:
+        sensation, threshold, gain = GENITAL_RESPONSE_SITES[region]
+        yield region, sensation, clamp((sexual_arousal - threshold) * gain)
 
 
 def somatic_map(stimulus, body_signals):
@@ -531,6 +629,25 @@ def run_golem(
         signal: max(appraisal.get(signal, 0), prior_appraisal_effects.get(signal, 0) * remaining_appraisal)
         for signal in APPRAISAL_SIGNALS
     }
+    # The host can recognize feelings whose meaning depends on the character's interpretation.
+    # Keep fractional carryover so that repeated short ticks equal one longer interval.
+    felt = {
+        name: intensity * remaining_appraisal
+        for name, intensity in history.get("felt_emotions", {}).items()
+        if intensity * remaining_appraisal >= 0.5
+    }
+    updates = stimulus.get("emotions", {})
+    if not isinstance(updates, dict):
+        raise ValueError("emotions must map names to intensity scores")
+    for name, intensity in updates.items():
+        if not isinstance(name, str) or not name.strip() or name != name.strip():
+            raise ValueError("emotion names must be nonempty text without surrounding whitespace")
+        if type(intensity) is not int or not 0 <= intensity <= 100:
+            raise ValueError("emotion intensity must be an integer from 0 to 100")
+        if intensity:
+            felt[name] = intensity
+        else:
+            felt.pop(name, None)
     interest = appraisal_effects["interest"]
     attraction = appraisal_effects["attraction"]
     disgust = appraisal_effects["disgust"]
@@ -593,6 +710,11 @@ def run_golem(
         "split_second" if response_time_ms <= 800 else ("deliberate" if response_time_ms >= 2500 else "normal"),
     )
 
+    profile = state.get("somatic_profile", SOMATIC_BASELINES)
+    # Modest, bounded tuning of response gain and recovery. Appraisal supplies
+    # the meaning of the event independently of the endocrine profile.
+    adrenergic_gain = 1 + (profile["testosterone"] - profile["estradiol"]) / 500
+    recovery_scale = 1 + (profile["estradiol"] - 50) / 250
     exertion = 0
     if activity == "sleeping":
         fatigue_rate = -float(calibration["fatigue_sleep_recovery_per_hour"])
@@ -602,7 +724,7 @@ def run_golem(
         sleep_debt_rate = float(calibration["sleep_debt_resting_per_hour"])
     else:
         exertion = clamp(stimulus.get("exertion", history.get("exertion", 0)))
-        fatigue_rate = float(calibration["fatigue_awake_per_hour"]) + float(calibration["fatigue_exertion_per_hour"]) * exertion
+        fatigue_rate = float(calibration["fatigue_awake_per_hour"]) + float(calibration["fatigue_exertion_per_hour"]) * exertion * adrenergic_gain
         sleep_debt_rate = float(calibration["sleep_debt_awake_per_hour"])
 
     previous_fatigue = history.get("last_fatigue", 15)
@@ -628,13 +750,14 @@ def run_golem(
     distress_load = physical_load + emotional_load
     appraisal_activation = 0.25 * interest + 0.25 * disgust + 0.20 * unease
     resting_activation = {"sleeping": 5, "resting": 15, "awake": 25}[activity]
-    activation_target = clamp(
-        resting_activation + 0.4 * threat + 0.3 * social_p + 0.25 * latent_hit_bonus
-        + 0.35 * exertion + exposure_load + 0.5 * distress_load + appraisal_activation
-    )
+    social_load = max(felt.get("vulnerability", 0), felt.get("protectiveness", 0))
+    phasic_load = (0.4 * threat + 0.3 * social_p + 0.25 * latent_hit_bonus
+                   + 0.35 * exertion + exposure_load + 0.5 * distress_load
+                   + appraisal_activation + 0.2 * social_load)
+    activation_target = clamp(resting_activation + adrenergic_gain * phasic_load)
     prior_activation = history.get("arousal", activation_target)
     activation = activation_target + max(0, prior_activation - activation_target) * 2 ** (
-        -elapsed_minutes / ACTIVATION_RECOVERY_MINUTES
+        -elapsed_minutes / (ACTIVATION_RECOVERY_MINUTES * recovery_scale)
     )
     arousal = clamp(activation)
     baseline_stress = (
@@ -650,6 +773,12 @@ def run_golem(
         activation = 100
         arousal = stress = 100
         rules.append("ACUTE_PHYSICAL_PAIN_OVERLOAD")
+    # Integrate sustained load separately from the immediate autonomic surge.
+    # Fractional history survives short ticks. Same-instant appraisals cost no time.
+    cortisol_target = clamp(15 + adrenergic_gain * 0.75 * stress)
+    previous_cortisol = history.get("cortisol", 15.0)
+    half_life = (8 if cortisol_target > previous_cortisol else 20) * recovery_scale
+    cortisol = cortisol_target + (previous_cortisol - cortisol_target) * 2 ** (-elapsed_minutes / half_life)
     autonomic_surge = stress >= 75 or threat >= 80
 
     involuntary_response = "none"
@@ -702,33 +831,19 @@ def run_golem(
         "settling": appraisal_effects["relief"],
     }
     prior_release = history.get("release_state", {})
-    release = {key: min(100, max(value, prior_release.get(key, 0) * remaining_appraisal))
-               for key, value in release.items()}
+    # Sustain an already appraised alarm under prolonged endocrine load.
+    # This changes its recovery curve without assigning a new feeling.
+    alarm_half_life = APPRAISAL_HALF_LIFE_SECONDS * recovery_scale * (1 + max(0, cortisol - 15) / 100)
+    alarm_remaining = 2 ** (-elapsed_ms / (1000 * alarm_half_life))
+    for key, value in release.items():
+        decay = alarm_remaining if key == "alarm" else remaining_appraisal
+        release[key] = min(100, max(value, prior_release.get(key, 0) * decay))
     emotional_pressures = {
         "fear": release["alarm"], "joy": release["reward"], "relief": release["settling"],
         "sadness": appraisal_effects["loss"], "anger": appraisal_effects["frustration"],
         "anticipation": appraisal_effects["anticipation"], "disgust": disgust,
     }
     emotional_pressures.update(interest=interest, unease=unease, uncertainty=uncertainty)
-    # The host can recognize feelings whose meaning depends on the character's interpretation.
-    # Keep fractional carryover so that repeated short ticks equal one longer interval.
-    felt = {
-        name: intensity * remaining_appraisal
-        for name, intensity in history.get("felt_emotions", {}).items()
-        if intensity * remaining_appraisal >= 0.5
-    }
-    updates = stimulus.get("emotions", {})
-    if not isinstance(updates, dict):
-        raise ValueError("emotions must map names to intensity scores")
-    for name, intensity in updates.items():
-        if not isinstance(name, str) or not name.strip() or name != name.strip():
-            raise ValueError("emotion names must be nonempty text without surrounding whitespace")
-        if type(intensity) is not int or not 0 <= intensity <= 100:
-            raise ValueError("emotion intensity must be an integer from 0 to 100")
-        if intensity:
-            felt[name] = intensity
-        else:
-            felt.pop(name, None)
     for name, intensity in felt.items():
         emotional_pressures[name] = max(emotional_pressures.get(name, 0), intensity)
     emotions = {name: clamp(value) for name, value in emotional_pressures.items() if clamp(value)}
@@ -839,12 +954,12 @@ def run_golem(
         # Keep the fractional state in history so short ticks can accumulate.
         remaining = 2 ** (-elapsed_minutes / 30)
         drive_level = target_drive + (previous_drive - target_drive) * remaining
-        cue_excitation = attraction * (0.5 + 0.5 * drive_level / 100)
+        cue_excitation = min(100, attraction * (0.5 + 0.5 * drive_level / 100) * adrenergic_gain)
         if activity == "sleeping":
             minutes_asleep = history.get("minutes_asleep", 0) + elapsed_minutes
         # Older histories saved only the resulting response.
         prior_excitation = history.get("sexual_excitation", history.get("sexual_arousal", 0))
-        recovery = 2 ** (-elapsed_minutes / SEXUAL_AROUSAL_RECOVERY_MINUTES)
+        recovery = 2 ** (-elapsed_minutes / (SEXUAL_AROUSAL_RECOVERY_MINUTES * recovery_scale))
         residual = prior_excitation * recovery
         if "sexual_arousal" in stimulus:
             residual = clamp(stimulus["sexual_arousal"])
@@ -881,7 +996,8 @@ def run_golem(
         ("skin", "cold discomfort", exposure_state["cold_discomfort"]),
         ("skin", "heat discomfort", exposure_state["heat_discomfort"]),
         ("whole_body", "fatigue", fatigue), ("whole_body", "pain", physical_pain),
-        ("chest", "breathing effort", exertion), ("pelvis", "arousal", sexual_arousal),
+        ("chest", "breathing effort", exertion),
+        *arousal_sensations(arousal, sexual_arousal, state.get("arousal_regions", ())),
     ))
     for location in mapped_body:
         zone = REGION_ZONE.get(re.sub(r"^(left|right)_", "", location))
@@ -924,6 +1040,12 @@ def run_golem(
         "character_id": state["character_id"],
         "timestamp_or_movement": event_label,
         "autonomic_state": {
+            "endocrine_state": {"estradiol": profile["estradiol"], "testosterone": profile["testosterone"],
+                                "cortisol": clamp(cortisol)},
+            "somatic_telemetry": somatic_telemetry(
+                profile, arousal, max(stress, cortisol - 15), cortisol, exertion, fatigue,
+                max(sexual_arousal, release["reward"], exposure_state["heat_discomfort"]),
+            ),
             "polyvagal_mode": polyvagal_mode,
             "cognitive_regime": cognitive_regime,
             "arousal": arousal,
@@ -1027,6 +1149,7 @@ def run_golem(
             "character_id": state["character_id"],
             **clock_state,
             "release_state": release,
+            "cortisol": cortisol,
             "felt_emotions": felt,
             "last_fatigue": fatigue_level,
             "sleep_debt": sleep_debt_level,

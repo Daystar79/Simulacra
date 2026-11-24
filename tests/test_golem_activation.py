@@ -33,6 +33,139 @@ class TestGolemActivation(unittest.TestCase):
             self.assertEqual(golem.load_character(path, "a"), card)
             self.assertEqual(path.stat().st_mtime_ns, stamp)
 
+    def test_profile_changes_body_and_authored_baselines_take_precedence(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        def tick(sex, **card):
+            state, _ = golem.overlay_log(
+                {"age": 30, "canon_adult": True, "biological_sex": sex, **card}, None)
+            return golem.run_golem(state, {"elapsed_minutes": 12, "threat_level": 55,
+                                          "appraisal": {"attraction": 45}}, realms, {})
+
+        female = tick("female")
+        male = tick("male")
+        first = female["psychosomatic_snapshot"]["autonomic_state"]
+        second = male["psychosomatic_snapshot"]["autonomic_state"]
+        for field in ("arousal", "sexual_arousal", "endocrine_state", "somatic_telemetry"):
+            self.assertNotEqual(first[field], second[field])
+        self.assertEqual(female["psychosomatic_snapshot"]["relational_vectors"],
+                         male["psychosomatic_snapshot"]["relational_vectors"])
+        profile = golem.somatic_profile({"age": 30, "biological_sex": "female"})
+        for sex in ("male", "intersex", None):
+            self.assertEqual(tick(sex, somatic_baselines=profile,
+                                  arousal_regions=["clitoris", "labia", "vagina"]), female)
+        self.assertEqual(golem.somatic_profile({"name": "Sophia", "gender": "woman"}),
+                         golem.SOMATIC_BASELINES)
+        for custom in ({"estradiol": True}, {"testosterone": 102}, {"mood": 55}):
+            with self.assertRaises(ValueError):
+                golem.somatic_profile({"somatic_baselines": custom})
+
+    def test_arousal_map_localizes_the_current_response_and_recovers(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        adult = {"age": 30, "canon_adult": True}
+        cases = [
+            ({"biological_sex": "female"}, {"clitoris", "labia", "vagina"}),
+            ({"biological_sex": "male"}, {"penis", "scrotum"}),
+            ({"biological_sex": "intersex", "arousal_regions": ["clitoris", "scrotum"]},
+             {"clitoris", "scrotum"}),
+            ({"biological_sex": "female", "arousal_regions": []}, set()),
+            ({}, set()),
+        ]
+        for card, sites in cases:
+            with self.subTest(card=card):
+                state, _ = golem.overlay_log({**adult, **card}, None)
+                stimulated = golem.run_golem(state, {"sexual_arousal": 90, "elapsed_ms": 0}, realms, {})
+                body = stimulated["psychosomatic_snapshot"]["autonomic_state"]
+                regions = body["somatic_map"]
+                self.assertEqual(sites, set(regions).intersection(golem.GENITAL_RESPONSE_SITES))
+                self.assertEqual(regions["pelvis"]["arousal"], body["sexual_arousal"])
+                self.assertTrue({"pelvic_floor", "perineum", "lower_abdomen", "inner_thigh", "nipple"} <= regions.keys())
+                quiet = golem.run_golem(state, {"elapsed_minutes": 60}, realms, stimulated["next_history"])
+                cooled = quiet["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"]
+                self.assertTrue((sites | {"pelvis", "perineum", "nipple"}).isdisjoint(cooled))
+        with self.assertRaisesRegex(ValueError, "arousal_regions"):
+            golem.overlay_log({**adult, "arousal_regions": "penis"}, None)
+
+    def test_activation_alone_and_age_gate_keep_local_responses_distinct(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        for age, confirmed, signal in ((30, True, 0), (17, True, 90), (30, False, 90)):
+            state, _ = golem.overlay_log({"age": age, "canon_adult": confirmed, "biological_sex": "male"}, None)
+            tick = golem.run_golem(state, {"threat_level": 95, "exertion": 90, "sexual_arousal": signal},
+                                   realms, {})
+            regions = tick["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"]
+            self.assertTrue({"heart", "diaphragm"} <= regions.keys())
+            self.assertTrue({"pelvis", "penis", "nipple", "perineum"}.isdisjoint(regions))
+
+    def test_local_observations_override_one_sensation_for_one_event(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        state, _ = golem.overlay_log({"age": 30, "canon_adult": True, "biological_sex": "female"}, None)
+        tick = golem.run_golem(state, {"sexual_arousal": 90, "elapsed_ms": 0, "somatic_map": {
+            "clitoris": {"fullness": 0, "pressure": 8}, "left_areola": {"tenderness": 12}
+        }}, realms, {})
+        regions = tick["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"]
+        self.assertEqual(regions["clitoris"], {"pressure": 8})
+        self.assertEqual(regions["left_areola"], {"tenderness": 12})
+        later = golem.run_golem(state, {"elapsed_ms": 0}, realms, tick["next_history"])
+        regions = later["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"]
+        self.assertGreater(regions["clitoris"]["fullness"], 0)
+        self.assertNotIn("left_areola", regions)
+
+    def test_alarm_recovery_uses_profile_and_sexual_response_still_requires_adult_gate(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        alarms = []
+        for sex in ("female", "male"):
+            for age, confirmed in ((16, True), (32, False), (32, True)):
+                state, _ = golem.overlay_log({"age": age, "canon_adult": confirmed,
+                                              "biological_sex": sex}, None)
+                stressed = golem.run_golem(state, {"elapsed_minutes": 15, "threat_level": 70,
+                                                   "appraisal": {"attraction": 90}}, realms, {})
+                body = stressed["psychosomatic_snapshot"]["autonomic_state"]
+                self.assertEqual(body["sexual_arousal"] > 0, age >= 18 and confirmed)
+                if age >= 18 and confirmed:
+                    after = golem.run_golem(state, {"elapsed_ms": 10000, "threat_level": 0},
+                                            realms, stressed["next_history"])
+                    alarms.append(after["next_history"]["release_state"]["alarm"])
+        self.assertTrue(all(0 < alarm < 70 for alarm in alarms))
+        self.assertNotAlmostEqual(*alarms)
+
+    def test_sustained_load_and_recovery_use_elapsed_time(self):
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        state, _ = golem.overlay_log({"age": 32, "biological_sex": "female"}, None)
+        def tick(minutes, threat, history):
+            return golem.run_golem(state, {"elapsed_minutes": minutes, "threat_level": threat},
+                                   realms, history)
+        first = tick(0, 80, {})
+        tense = tick(8, 80, first["next_history"])
+        again = tick(0, 80, tense["next_history"])
+        settled = tick(120, 0, again["next_history"])
+        self.assertGreater(tense["next_history"]["cortisol"], first["next_history"]["cortisol"])
+        self.assertEqual(tense["next_history"]["cortisol"], again["next_history"]["cortisol"])
+        self.assertLess(settled["next_history"]["cortisol"], tense["next_history"]["cortisol"])
+        self.assertEqual(again["next_history"]["sexual_arousal"], 0)
+        first_half = tick(4, 80, first["next_history"])
+        split = tick(4, 80, first_half["next_history"])
+        self.assertAlmostEqual(split["next_history"]["cortisol"], tense["next_history"]["cortisol"])
+        for feeling in ("vulnerability", "protectiveness"):
+            response = golem.run_golem(state, {"elapsed_minutes": 0, "threat_level": 0,
+                                              "emotions": {feeling: 90}}, realms, {})
+            baseline = tick(0, 0, {})
+            self.assertGreater(response["next_history"]["arousal"], baseline["next_history"]["arousal"])
+            self.assertEqual(response["next_history"]["sexual_arousal"], 0)
+
+    def test_expression_uses_target_and_telemetry_without_changing_the_body(self):
+        state, _ = golem.overlay_log({"age": 30, "biological_sex": "male"}, None)
+        realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
+        state["relational_baselines"] = {"friend": {"emotional_safety": 90}, "stranger": {"emotional_safety": 10}}
+        snapshots = [
+            golem.run_golem(state, {"elapsed_minutes": 0, "threat_level": 0, "caller_or_target": who,
+                                    "appraisal": {"delight": 80}}, realms, {})["psychosomatic_snapshot"]
+            for who in ("friend", "stranger")
+        ]
+        self.assertEqual(snapshots[0]["autonomic_state"], snapshots[1]["autonomic_state"])
+        self.assertIn("within reach", golem_loop.expression_guidance(snapshots[0]))
+        self.assertIn("preserving distance", golem_loop.expression_guidance(snapshots[1]))
+        del snapshots[0]["autonomic_state"]["somatic_telemetry"]
+        self.assertIsNone(golem_loop.expression_guidance(snapshots[0]))
+
     def test_enduring_relationship_attraction_survives_idle_day(self):
         realms = yaml.safe_load(golem.REALM_DATA_PATH.read_text())
         state, _ = golem.overlay_log({"name": "Rowan", "age": 30, "canon_adult": True}, None)
@@ -93,6 +226,8 @@ class TestGolemActivation(unittest.TestCase):
                     response = result["events"][0]["body_response"]
                     self.assertGreater(response["after"]["arousal"], response["before"]["arousal"])
                     self.assertGreater(response["after"]["sexual_arousal"], 0)
+                    self.assertNotIn("perineum", response["before"]["somatic_map"])
+                    self.assertGreater(response["after"]["somatic_map"]["perineum"]["fullness"], 0)
                     with golem_loop.transaction(db) as connection:
                         saved = golem_loop.runtime_config(connection)["history"]
                         self.assertEqual(round(saved["sexual_arousal"]), response["after"]["sexual_arousal"])

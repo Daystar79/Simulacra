@@ -72,6 +72,16 @@ def validate(state: dict, schema: dict) -> list[str]:
         for key, field_schema in auto_schema["properties"].items():
             if field_schema.get("type") == "integer" and key in auto:
                 check_scale(auto[key], f"autonomic_state.{key}", errors)
+        for key in ("endocrine_state", "somatic_telemetry"):
+            if key not in auto:
+                continue
+            group = auto[key]
+            fields = auto_schema["properties"][key]["required"]
+            if not isinstance(group, dict) or set(group) != set(fields):
+                errors.append(f"autonomic_state.{key}: expected fields {fields}")
+                continue
+            for field, value in group.items():
+                check_scale(value, f"autonomic_state.{key}.{field}", errors)
         for key in ("involuntary_response", "activity"):
             options = auto_schema["properties"].get(key, {}).get("enum", [])
             if key in auto and options and auto[key] not in options:

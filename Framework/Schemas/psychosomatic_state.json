@@ -35,6 +35,32 @@
         { "required": ["pain"] }
       ],
       "properties": {
+        "endocrine_state": {
+          "type": "object",
+          "description": "Tonic sex steroid indices and current stress hormone load.",
+          "required": ["estradiol", "testosterone", "cortisol"],
+          "properties": {
+            "estradiol": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "testosterone": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "cortisol": { "type": "integer", "minimum": 0, "maximum": 100 }
+          },
+          "additionalProperties": false
+        },
+        "somatic_telemetry": {
+          "type": "object",
+          "description": "Relative simulation indices. Register shift is centered on 50.",
+          "required": ["hrv", "peripheral_perfusion", "muscle_tension", "postural_bracing", "vocal_register", "register_shift", "energy_expenditure"],
+          "properties": {
+            "hrv": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "peripheral_perfusion": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "muscle_tension": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "postural_bracing": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "vocal_register": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "register_shift": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "energy_expenditure": { "type": "integer", "minimum": 0, "maximum": 100 }
+          },
+          "additionalProperties": false
+        },
         "polyvagal_mode": {
           "type": "string",
           "enum": [

@@ -76,20 +76,49 @@ def file_lock(lock_path: Path):
 
 
 
-@contextmanager
-def transaction(db: Path):
+def _runtime_connection(db: Path):
     connection = sqlite3.connect(db)
     connection.row_factory = sqlite3.Row
+    # WAL persists in the database file once set; repeated statements are
+    # cheap. synchronous=NORMAL is durable under WAL and removes the
+    # per-commit rollback-journal fsync from the hot path.
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA busy_timeout=5000")
+    return connection
+
+
+@contextmanager
+def staged_transaction(connection):
+    """One committed transaction on an already-open runtime connection."""
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        yield connection
+
+
+@contextmanager
+def transaction(db: Path):
+    connection = _runtime_connection(db)
     try:
-        with connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with staged_transaction(connection):
             yield connection
     finally:
         connection.close()
 
 
+_SCHEMA_ENSURED: dict[str, int] = {}
+
+
 def ensure_activity_schema(connection):
     """Non-destructive migration for persistent runtimes created before activities."""
+    db_file = connection.execute("PRAGMA database_list").fetchone()["file"]
+    if db_file:
+        try:
+            stamp = os.stat(db_file).st_mtime_ns
+        except OSError:
+            stamp = None
+        if stamp is not None and _SCHEMA_ENSURED.get(db_file) == stamp:
+            return
     connection.execute("""CREATE TABLE IF NOT EXISTS activities (
         id TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -109,6 +138,8 @@ def ensure_activity_schema(connection):
     if "duration_seconds" not in columns:
         connection.execute("ALTER TABLE activities ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 0")
     connection.execute("CREATE INDEX IF NOT EXISTS activity_status_due ON activities(status, due_at)")
+    if db_file and stamp is not None:
+        _SCHEMA_ENSURED[db_file] = stamp
 
 
 def active_activity(connection):
@@ -274,7 +305,7 @@ def setup(connection, args, now):
         "idle_seconds": args.idle_seconds, "history": history,
         "idle_at": (now + timedelta(seconds=args.idle_seconds)).timestamp(),
     }
-    load_cached_character(config)
+    load_cached_character(config, connection)
     connection.execute("CREATE TABLE runtime (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL)")
     connection.execute("""
         CREATE TABLE events (
@@ -303,7 +334,7 @@ def read_object(path: Path) -> dict[str, Any]:
 def enqueue(connection, event, history, now):
     if "character_id" in event:
         config = runtime_config(connection)
-        owner = config.get("character_id") or config.get("cached_character", {}).get("state", {}).get("character_id")
+        owner = config.get("character_id") or cached_identity(connection)
         if event["character_id"] != owner:
             raise ValueError("Event character ID does not match the selected database")
     event_id = event.get("id")
@@ -777,6 +808,7 @@ def scores(value):
 
 def runtime_config(connection, character_id=None):
     config = json.loads(connection.execute("SELECT data FROM runtime WHERE id = 1").fetchone()["data"])
+    config = migrate_runtime_row(connection, config)
     if config.get("profile"):
         directory = Path(connection.execute("PRAGMA database_list").fetchone()["file"]).parent
         if directory.name != config["character_id"]:
@@ -792,10 +824,7 @@ def runtime_config(connection, character_id=None):
         # Adopt an existing single-character database in place. Verify the
         # stored identity and current files before enabling scoped decisions.
         config["character_id"] = character_id
-        cached = config.pop("cached_character", None)
-        if cached:
-            check_character_files(config, cached["card"], cached["durable"])
-        load_cached_character(config)
+        load_cached_character(config, connection)
         connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     if config.get("lifecycle") == "deleted":
         # Older tombstones can still have rows in the two newer ledger tables.
@@ -929,7 +958,7 @@ def resolve_relationship_target(event, stimulus=None):
 
 
 def _seed_relationship_baseline(config, target):
-    durable = (config.get("cached_character") or {}).get("durable") or {}
+    durable = _resident_durable(config) or {}
     rels = durable.get("relational_baselines") if isinstance(durable, dict) else None
     raw = rels.get(target) if isinstance(rels, dict) else None
     if not isinstance(raw, dict):
@@ -1052,43 +1081,139 @@ def recalculate_expectations(connection, config):
     }
 
 
-def load_cached_character(config):
-    """Cache parsed card and overlaid log state in runtime config, refreshing when file mtimes change."""
+# Resident character instances. The hydrated character survives between
+# cognitive wakes inside one host process; the persistent database remains
+# the authoritative identity and health record. Memo hit does not copy:
+# Golem's tick reads the shared instance and never writes into it, so a
+# resident host avoids both the YAML parse and the deep-copy round trip.
+_RESIDENT_CHARACTERS: dict[tuple, dict] = {}
+
+
+def _character_cache_key(config, card_mtime, log_mtime):
+    card_path = Path(config["card"])
+    log_path = Path(config["log"]) if config.get("log") else None
+    goal_changes = config.get("goal_changes") or {}
+    return (
+        str(card_path.resolve()), str(log_path.resolve()) if log_path else None,
+        config.get("slug"), config.get("character_id"), card_mtime, log_mtime,
+        json.dumps(goal_changes, sort_keys=True, default=str),
+    )
+
+
+def _ensure_character_cache_table(connection):
+    connection.execute("""CREATE TABLE IF NOT EXISTS character_cache (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        data TEXT NOT NULL
+    )""")
+
+
+def _stored_character_cache(connection, key):
+    """Read the persisted hydrate for cross-process CLI hosts; None when stale."""
+    try:
+        row = connection.execute("SELECT data FROM character_cache WHERE id = 1").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row:
+        return None
+    stored = json.loads(row["data"])
+    if not isinstance(stored, dict):
+        return None
+    if (stored.get("key") != list(key)):
+        return None
+    inner = stored.get("entry") or {}
+    state, card, durable = inner.get("state"), inner.get("card"), inner.get("durable")
+    if not isinstance(state, dict) or not isinstance(card, dict):
+        return None
+    entry = {"state": state, "card": card, "durable": durable}
+    _RESIDENT_CHARACTERS[key] = entry
+    return entry
+
+
+def _store_character_cache(connection, key, entry):
+    _ensure_character_cache_table(connection)
+    connection.execute(
+        "INSERT OR REPLACE INTO character_cache (id, data) VALUES (1, ?)",
+        (json.dumps({"key": list(key), "entry": entry}, separators=(",", ":")),),
+    )
+
+
+def load_cached_character(config, connection=None):
+    """Return the resident hydrated character, hydrating once and reusing thereafter.
+
+    The returned (state, card, durable) objects are shared between calls for as
+    long as the character files, character id, slug, and pending goal changes
+    stay unchanged. Treat them as read-only: Golem ticks read the instance and
+    never write into it. The persistent database, not the cache, is
+    authoritative, and any change to the card or log mtime rehydrates.
+    """
     card_path = Path(config["card"])
     log_path = Path(config["log"]) if config.get("log") else None
     card_mtime = card_path.stat().st_mtime_ns
     log_mtime = log_path.stat().st_mtime_ns if log_path and log_path.exists() else None
-    goal_changes = config.get("goal_changes") or {}
-    cached = config.get("cached_character")
-    if (
-        isinstance(cached, dict)
-        and "somatic_profile" in cached["state"]
-        and "arousal_regions" in cached["state"]
-        and cached.get("card_mtime") == card_mtime
-        and cached.get("log_mtime") == log_mtime
-        and all(cached["state"].get(k) == cached["card"].get(k) for k in
-                ("subconscious_visceral_truth", "conscious_rationalization") if cached["card"].get(k))
-        and cached.get("goal_changes") == goal_changes
-    ):
-        return (
-            json.loads(json.dumps(cached["state"])),
-            cached["card"],
-            cached["durable"],
-        )
+    key = _character_cache_key(config, card_mtime, log_mtime)
+    entry = _RESIDENT_CHARACTERS.get(key)
+    if entry is not None:
+        return entry["state"], entry["card"], entry["durable"]
+    if connection is not None:
+        entry = _stored_character_cache(connection, key)
+        if entry is not None:
+            return entry["state"], entry["card"], entry["durable"]
     card = golem.load_character(card_path, config.get("slug"))
-    state, durable = golem.overlay_log(card, log_path, goal_changes=goal_changes)
+    state, durable = golem.overlay_log(card, log_path, goal_changes=config.get("goal_changes") or {})
     check_character_files(config, card, durable)
     if config.get("character_id"):
         state["character_id"] = config["character_id"]
-    config["cached_character"] = {
-        "card_mtime": card_mtime,
-        "log_mtime": log_mtime,
-        "goal_changes": json.loads(json.dumps(goal_changes)),
-        "card": card,
-        "state": state,
-        "durable": durable,
+    entry = {"card": card, "state": state, "durable": durable}
+    _RESIDENT_CHARACTERS[key] = entry
+    if connection is not None:
+        _store_character_cache(connection, key, entry)
+    return state, card, durable
+
+
+def cached_identity(connection):
+    """Owner fallback for legacy databases without a character id on the runtime row."""
+    entry = None
+    try:
+        row = connection.execute("SELECT data FROM character_cache WHERE id = 1").fetchone()
+        entry = json.loads(row["data"]) if row else None
+    except sqlite3.OperationalError:
+        entry = None
+    if isinstance(entry, dict):
+        inner = entry.get("entry") or {}
+        state = inner.get("state") or {}
+        if isinstance(state, dict) and state.get("character_id"):
+            return state["character_id"]
+    return None
+
+
+def _resident_durable(config):
+    """Durable overlays from the resident hydrate; falls back to a YAML re-read."""
+    return load_cached_character(config)[2]
+
+
+def migrate_runtime_row(connection, config):
+    """Move a legacy embedded character cache out of the runtime row (one-time)."""
+    if "cached_character" not in config:
+        return config
+    legacy = config.pop("cached_character")
+    _ensure_character_cache_table(connection)
+    card_path = Path(config["card"])
+    log_path = Path(config["log"]) if config.get("log") else None
+    key = _character_cache_key(
+        config,
+        card_path.stat().st_mtime_ns if card_path.exists() else None,
+        log_path.stat().st_mtime_ns if log_path and log_path.exists() else None,
+    )
+    stored = {
+        "card_mtime": legacy.get("card_mtime"), "log_mtime": legacy.get("log_mtime"),
+        "goal_changes": legacy.get("goal_changes"),
+        "card": legacy.get("card"), "state": legacy.get("state"),
+        "durable": legacy.get("durable"),
     }
-    return json.loads(json.dumps(state)), card, durable
+    connection.execute("INSERT OR REPLACE INTO character_cache (id, data) VALUES (1, ?)",
+                       (json.dumps({"key": list(key), "entry": stored}, separators=(",", ":")),))
+    connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
+    return config
 
 
 def build_identity_anchor(card, state):
@@ -1138,8 +1263,8 @@ def extract_memory_cues(event, stimulus, memories):
     return matched
 
 
-def body_tick(config, stimulus, event=None):
-    state, card, durable = load_cached_character(config)
+def body_tick(config, stimulus, event=None, connection=None):
+    state, card, durable = load_cached_character(config, connection)
     effective_stimulus = dict(stimulus)
     rel_target = resolve_relationship_target(event, effective_stimulus)
     if rel_target:
@@ -1292,7 +1417,7 @@ def resolve(connection, decision, history, now):
     if owner is not None and decision.get("character_id") != owner:
         raise ValueError("Decision must include the pending character_id")
     if owner is None and "character_id" in decision:
-        if decision["character_id"] != config.get("cached_character", {}).get("state", {}).get("character_id"):
+        if decision["character_id"] != cached_identity(connection):
             raise ValueError("Decision belongs to a different character")
     event_id = decision.get("id")
     if not isinstance(event_id, str):
@@ -1325,7 +1450,7 @@ def resolve(connection, decision, history, now):
     if not row or row["status"] != "pending":
         raise ValueError("Decision must refer to the pending event")
     if "reply" in decision:
-        card = golem.load_character(Path(config["card"]), config["slug"])
+        _, card, _ = load_cached_character(config, connection)
         field = copied_card_field(card, decision["reply"])
         if field:
             raise ValueError(f"Draft reply copies card field {field}. Render this beat in the character's own words.")
@@ -1409,7 +1534,7 @@ def advance(connection, config, now, allow_idle=True):
     stimulus = {**event.get("stimulus", {}), "event_label": event["id"], "event_at": at.isoformat()}
     try:
         current_dimensions = expectation_dimensions(event)
-        tick, card, durable, state = body_tick(config, stimulus, event=event)
+        tick, card, durable, state = body_tick(config, stimulus, event=event, connection=connection)
     except (ValueError, TypeError, KeyError) as exc:
         if event["kind"] == "idle":
             raise
@@ -1731,10 +1856,13 @@ def initialize_profile(characters_dir, character_id, card=None, *, log=None, slu
             ensure_activity_schema(connection)
             config = json.loads(connection.execute("SELECT data FROM runtime WHERE id=1").fetchone()[0])
             config.update(character_id=character_id, slug=None, card=str(local_card), log=str(local_log))
-            cached = config.pop("cached_character", None)
-            if from_db and cached and cached["state"]["character_id"] != character_id:
-                raise ValueError("Cached database identity does not match the requested character")
-            load_cached_character(config)
+            load_cached_character(config, connection)
+            if from_db:
+                fresh = _RESIDENT_CHARACTERS.get(_character_cache_key(
+                    config, Path(local_card).stat().st_mtime_ns,
+                    Path(local_log).stat().st_mtime_ns if local_log.exists() else None))
+                if fresh and fresh["state"].get("character_id") != character_id:
+                    raise ValueError("Cached database identity does not match the requested character")
             if from_db and config.get("owned_files"):
                 names = {local_card.name, local_log.name}
                 previous = {Path(card).name}
@@ -1846,7 +1974,18 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
         raise ValueError("Initialize the character database first")
     if not callable(decide) or type(max_events) is not int or max_events < 1:
         raise ValueError("wake_character requires a decision callback and a positive event limit")
-    with transaction(db) as connection:
+    connection = _runtime_connection(db)
+    try:
+        return _wake_with_connection(connection, db, decide, event=event, max_events=max_events,
+                                     screen_abuse=screen_abuse, actor_id=actor_id,
+                                     compact=compact, character_id=character_id)
+    finally:
+        connection.close()
+
+
+def _wake_with_connection(connection, db, decide, *, event=None, max_events=64,
+                          screen_abuse=None, actor_id=None, compact=False, character_id=None):
+    with staged_transaction(connection):
         ensure_activity_schema(connection)
         owner = runtime_config(connection, character_id).get("character_id")
         if owner and event is not None and event.get("character_id", owner) != owner:
@@ -1854,7 +1993,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
     tag = {"character_id": owner} if owner else {}
 
     if event is not None and event.get("kind") == "incoming":
-        with transaction(db) as connection:
+        with staged_transaction(connection):
             config = runtime_config(connection)
         if config.get("lifecycle") == "deleted":
             return {"status": "deleted"}
@@ -1865,7 +2004,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
             if boundary is not None:
                 return {**tag, **boundary}
 
-    with transaction(db) as connection:
+    with staged_transaction(connection):
         config = runtime_config(connection)
         if config.get("lifecycle") == "deleting":
             _finish_deletion(db, connection, config)
@@ -1878,7 +2017,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
     handled = []
     with file_lock(db.with_name(db.name + ".wake.lock")):
         for _ in range(max_events):
-            with transaction(db) as connection:
+            with staged_transaction(connection):
                 config = runtime_config(connection)
                 if config.get("lifecycle"):
                     return {"status": config["lifecycle"]}
@@ -1901,7 +2040,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
             decision = decide(decision_context(request) if compact else request)
             if not isinstance(decision, dict) or decision.get("id") != event_id:
                 raise ValueError("Host must return a decision matching the pending event ID")
-            with transaction(db) as connection:
+            with staged_transaction(connection):
                 config = runtime_config(connection)
                 if config.get("lifecycle"):
                     return {"status": config["lifecycle"]}

@@ -318,13 +318,17 @@ Normal `golem.load_character()` calls are read-only: incoming messages never rew
 
 ### Relationship evolution, event priority and historical request compression
 
-Relationship state is **time-varying**, not a permanent card property. An incoming event may specify `relationship_target` (a stable host-provided identifier). The pending request includes the current `relationship_state` when known, and contextual expectation lookup uses that current state. The host can return `experience.relationship_change` with a `target`, numeric `delta` values for dimensions such as `trust` or `familiarity`, and optional `drift_per_day` rates. Example:
+Each character keeps one SQLite relationship record per known speaker in its own runtime database. Supply a stable `relationship_target` on the event or a named `stimulus.caller_or_target`. For a direct incoming message, `wake_character(..., actor_id=...)` uses the host's actor ID when neither scene field identifies a speaker. Anonymous turns have no shared stranger record.
+
+The host receives `relationship_state.target` and the speaker's current `values` in both full and compact decision requests. A matching `relationships[].other` on the card supplies the character’s description of that bond. The durable log’s `relational_baselines` supplies its initial values. An unknown speaker starts with empty values. Golem uses emotional safety and friction in its intimacy vector. Simulacra can weigh trust, familiarity, and those bodily cues when deciding whether to help, disclose something, or keep its distance.
+
+For example, after person-7 keeps a difficult confidence, the host could resolve their incoming turn with this decision.
 
 ```json
-{"id":"message-42","experience":{"relationship_change":{"target":"person-7","delta":{"trust":-3},"drift_per_day":{"trust":0.1}}}}
+{"id":"message-42","experience":{"relationship_change":{"delta":{"trust":3,"emotional_safety":2},"drift_per_day":{"emotional_safety":0.1}}}}
 ```
 
-Relationship dimensions are clamped to 0–100. Drift is opt-in, toward a neutral baseline of 50; with no configured drift, elapsed time alone does not change a relationship. The history of observations remains in the event ledger. The host must still decide whether an interaction actually warrants relational change; Golem does not infer it from a joke or topic.
+An omitted target uses the incoming speaker. An explicit target on a bound incoming turn must match that speaker. For an off-scene change on a world event, supply the target explicitly. Each delta starts from the current value, the authored baseline, or 50 for a new dimension. Values stay between 0 and 100. Optional daily drift moves a dimension back toward its authored baseline, or 50 when unspecified. Opening an older database migrates its existing relationship values, baselines, drift rates, and timestamps on first runtime access.
 
 Within **identical due timestamps**, incoming messages now take precedence over background events. Older due events still execute first to maintain monotonic physiological time. This does not guarantee instant incoming replies when a previously due background event is already pending; hosts should limit background decision cost separately.
 
@@ -341,3 +345,7 @@ python3 scripts/run.py golem loop --db /path/to/character.sqlite3 compact-histor
 ```
 
 This stores complete resolved/failed request JSON in the `request_archive` table as compressed zlib bytes, leaving the `at`, `assessment`, and `body_response` fields in the normal event rows for existing timeline and expectation replay. Pending and queued requests are not changed. Run SQLite `VACUUM` separately (with sufficient free disk space) to reclaim file size. Existing archived requests can be recovered by `zlib.decompress` of `request_archive.compressed`; this operation is reversible and does not delete event evidence.
+
+### Modularizing Golem with Mistral
+
+Give Mistral the Markdown assignment in a cloud workspace with the Simulacra checkout. It identifies the tick stages to extract and the tests that verify host compatibility and relationship isolation. [Mistral cloud assignment](../Framework/Prompts/mistral_modularize_golem.md)

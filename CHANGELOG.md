@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Changed
+- `scripts/golem.py` is now a thin facade over dedicated modules: physiology constants and helpers (`golem_physiology.py`), card loading and overlay (`golem_cards.py`), memory (`golem_memory.py`), log writers (`golem_logs.py`), time parsing (`golem_time.py`), somatic tables (`golem_somatic.py`), paths (`golem_paths.py`), and the eight tick stages (`golem_stages/`). The split is a mechanical, behavior-identical extraction: `run_golem(state, stimulus, realm_data, history)`, the stage order, snapshot format, rules, and `next_history` are unchanged, verified byte-identical against baseline tick fixtures and the runtime benchmark (`benchmarks/RESULTS.md`).
+- `deploy_framework.py` ships and updates the new Golem modules alongside `golem.py`; `deploy --update` creates `golem_stages/` in existing installations.
 - Characters are now resident between wakes: the hydrated character is memoized per host process (keyed by card/log mtimes, character id, slug, and pending goal changes) and shared read-only with Golem ticks, eliminating the per-tick deep copy and the per-reply card re-parse.
 - The hydrated character snapshot moved from the `runtime` row into a `character_cache` table written only when hydration changes. The `runtime` row, rewritten on every event, no longer carries the full character state. Legacy databases migrate transparently on first read.
 - `wake_character` uses one SQLite connection per heartbeat with per-stage committed transactions (event/tick, resolve) instead of one connection per stage; durability guarantees are unchanged.

@@ -100,6 +100,7 @@ UPDATE_FILES = [
     "Framework/Schemas/examples/psychosomatic_state.example.json",
     "scripts/README.md",
     "scripts/goal_evolution.py",
+    "scripts/relationship_memory.py",
     "scripts/golem.py",
     "scripts/golem_loop.py",
     "scripts/run.py",

@@ -18,6 +18,9 @@
 - Sleep debt now accrues at 2.5/hour awake (was 1.5) and exhaustion sets in at `exhaustion_onset_load` (default 45) instead of a fixed 60: a full day without sleep is now substantially exhausting, while a normal active day stays clear of it.
 
 ### Added
+
+- Relationships now persist by speaker in each character’s SQLite database. Existing relationship records migrate on first access. The host receives the active speaker’s values and authored card notes when choosing a response.
+- Added a standalone Markdown assignment for modularizing Golem in Mistral’s cloud workspace. [Mistral cloud assignment](Framework/Prompts/mistral_modularize_golem.md)
 - `benchmarks/bench_runtime.py`, a deterministic runtime benchmark (initialization, prepare, resolve, resident wake, request size, SQLite statement counts, memory), and `benchmarks/RESULTS.md` with measured before/after results. Resident wake processing ~37% faster, resolve ~88% faster, runtime row ~59% smaller on the benchmark character, request packet byte-identical.
 
 ### Tests

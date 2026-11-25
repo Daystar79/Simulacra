@@ -22,10 +22,11 @@ from typing import Any
 import yaml
 
 if __package__:
-    from . import golem, goal_evolution
+    from . import golem, goal_evolution, relationship_memory
 else:
     import golem
     import goal_evolution
+    import relationship_memory
 
 RECENT_LIMIT = 12
 ACTIVE_MEMORY_WINDOW_SECONDS = 2 * 60 * 60
@@ -320,6 +321,7 @@ def setup(connection, args, now):
     connection.execute("CREATE INDEX due_events ON events (status, due)")
     connection.execute("CREATE TABLE observations (event_id TEXT PRIMARY KEY, topic TEXT NOT NULL, data TEXT NOT NULL)")
     connection.execute("CREATE INDEX observation_topics ON observations (topic)")
+    relationship_memory.initialize(connection, config)
     connection.execute("INSERT INTO runtime VALUES (1, ?)", (json.dumps(config),))
     return {"initialized": True}
 
@@ -331,7 +333,7 @@ def read_object(path: Path) -> dict[str, Any]:
     return value
 
 
-def enqueue(connection, event, history, now):
+def enqueue(connection, event, history, now, *, actor_id=None):
     if "character_id" in event:
         config = runtime_config(connection)
         owner = config.get("character_id") or cached_identity(connection)
@@ -355,8 +357,12 @@ def enqueue(connection, event, history, now):
     if "topic" in event:
         topic_key(event["topic"])
     existing = connection.execute("SELECT input FROM events WHERE id = ?", (event_id,)).fetchone()
+    saved = json.loads(existing["input"]) if existing is not None else None
+    # An exact replay of a pre-migration event retains its original speaker routing.
+    if saved != event and actor_id is not None and event["kind"] == "incoming" and not resolve_relationship_target(event):
+        event = {**event, "relationship_target": relationship_memory.validate_target(actor_id)}
     if existing is not None:
-        if json.loads(existing["input"]) != event:
+        if saved != event:
             raise ValueError(f"Event ID already exists with different contents: {event_id}")
         return {"id": event_id, "queued": False}
     if "expectation_context" in event:
@@ -412,6 +418,9 @@ def compact_recent_events(events):
         event, decision = entry.get("event") or {}, entry.get("decision") or {}
         item = {"id": event.get("id"), "kind": event.get("kind"), "at": entry.get("at"),
                 "status": entry.get("status")}
+        target = resolve_relationship_target(event)
+        if target:
+            item["relationship_target"] = target
         if event.get("topic"):
             item["topic"] = event["topic"]
         utterance = message_text(event)
@@ -659,6 +668,12 @@ def pending_request(connection):
                 "affect the reply while every identifying detail stays private."
             ),
         }
+        if request.get("relationship_state"):
+            request["reply_guidance"]["relationship"] = (
+                "Consider what this character has learned about this speaker when choosing whether "
+                "to confide, challenge, help, or keep their distance. Weigh it alongside the present "
+                "exchange and the character's own goals."
+            )
     if "depiction" in request["event"]:
         request["app_render"] = intimacy_render(request, profile)
         request["event"]["depiction"] = request["app_render"]["depiction"]
@@ -829,12 +844,17 @@ def runtime_config(connection, character_id=None):
     if config.get("lifecycle") == "deleted":
         # Older tombstones can still have rows in the two newer ledger tables.
         clear_activity_and_archive(connection)
+    elif "relationship_store_version" not in config:
+        relationship_memory.initialize(connection, config)
+        connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     return config
 
 
 def clear_activity_and_archive(connection):
     connection.execute("PRAGMA secure_delete=ON")
     connection.execute("DELETE FROM activities")
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='relationships' AND type='table'").fetchone():
+        connection.execute("DELETE FROM relationships")
     if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='request_archive'").fetchone():
         connection.execute("DELETE FROM request_archive")
 
@@ -920,29 +940,6 @@ def record_contextual_expectation(config, topic, dimensions, observed, at):
     return dict(observed)
 
 
-def relationship_state_at(config, target, at):
-    """Evolve a relationship with time using its own configured drift, never a global decay."""
-    records = config.setdefault("relationships", {})
-    entry = records.get(target)
-    if entry is None:
-        return None
-    current = dict(entry)
-    last = current.get("updated_at")
-    if last and current.get("drift_per_day"):
-        days = max(0.0, (golem.parse_event_time(at) - golem.parse_event_time(last)).total_seconds() / 86400)
-        for dimension, rate in current["drift_per_day"].items():
-            if dimension in current.get("values", {}) and isinstance(rate, (int, float)):
-                baseline = (current.get("baseline") or {}).get(dimension, 50)
-                value = current["values"][dimension]
-                if isinstance(value, (int, float)) and isinstance(baseline, (int, float)):
-                    movement = abs(rate) * days
-                    current["values"][dimension] = round(min(baseline, value + movement) if value < baseline
-                                                         else max(baseline, value - movement), 2)
-    current["updated_at"] = at
-    records[target] = current
-    return current
-
-
 def resolve_relationship_target(event, stimulus=None):
     """Extract a relationship target from event.relationship_target or stimulus.caller_or_target."""
     if isinstance(event, dict):
@@ -955,58 +952,6 @@ def resolve_relationship_target(event, stimulus=None):
         if isinstance(caller, str) and caller.strip() and caller.strip() != "caller":
             return caller.strip()
     return None
-
-
-def _seed_relationship_baseline(config, target):
-    durable = _resident_durable(config) or {}
-    rels = durable.get("relational_baselines") if isinstance(durable, dict) else None
-    raw = rels.get(target) if isinstance(rels, dict) else None
-    if not isinstance(raw, dict):
-        return {}, {}
-    baseline = {}
-    for key, val in raw.items():
-        if isinstance(val, (int, float)) and not isinstance(val, bool) and 0 <= val <= 100:
-            baseline[key] = round(float(val), 2)
-    if "emotional_safety" in baseline and "trust" not in baseline:
-        baseline["trust"] = baseline["emotional_safety"]
-    return dict(baseline), dict(baseline)
-
-
-def update_relationship(config, change, at):
-    """Apply explicit observed relational changes; never infer affection or trust from topic."""
-    if not isinstance(change, dict):
-        raise ValueError("relationship_change must be a mapping")
-    target = change.get("target")
-    if not isinstance(target, str) or not target.strip() or len(target) > 160:
-        raise ValueError("relationship_change requires a target identifier")
-    values = change.get("delta", {})
-    if not isinstance(values, dict) or not values or len(values) > 16:
-        raise ValueError("relationship_change.delta must contain 1-16 dimensions")
-    existing = relationship_state_at(config, target, at)
-    if existing:
-        entry = existing
-    else:
-        seeded_values, seeded_baseline = _seed_relationship_baseline(config, target)
-        entry = {
-            "values": seeded_values,
-            "baseline": seeded_baseline,
-            "drift_per_day": {},
-            "updated_at": at,
-        }
-    for dimension, amount in values.items():
-        if not isinstance(dimension, str) or not dimension or len(dimension) > 60 or type(amount) not in (int, float):
-            raise ValueError("relationship dimensions and numeric deltas required")
-        old = entry["values"].get(dimension, entry.get("baseline", {}).get(dimension, 50))
-        entry["values"][dimension] = round(max(0, min(100, old + amount)), 2)
-    drift = change.get("drift_per_day")
-    if drift is not None:
-        if not isinstance(drift, dict) or any(k not in entry["values"] or type(v) not in (int, float)
-                                              or v < 0 or v > 100 for k, v in drift.items()):
-            raise ValueError("drift_per_day must contain nonnegative numeric rates for known dimensions")
-        entry["drift_per_day"].update(drift)
-    entry["updated_at"] = at
-    config.setdefault("relationships", {})[target] = entry
-    return entry
 
 
 def compact_event_requests(connection, *, apply=False):
@@ -1068,7 +1013,7 @@ def recalculate_expectations(connection, config):
             dimensions = expectation_dimensions(active_event)
             relation = active_request.get("relationship_state")
             if relation:
-                dimensions["relationship"] = {"target": resolve_relationship_target(active_event), **relation["values"]}
+                dimensions["relationship"] = {**relation["values"], "target": resolve_relationship_target(active_event)}
             active_request["situational_expectations"] = {
                 topic: contextual_forecast(config, topic, dimensions)
                 for topic in active_request["expectations"]
@@ -1186,11 +1131,6 @@ def cached_identity(connection):
     return None
 
 
-def _resident_durable(config):
-    """Durable overlays from the resident hydrate; falls back to a YAML re-read."""
-    return load_cached_character(config)[2]
-
-
 def migrate_runtime_row(connection, config):
     """Move a legacy embedded character cache out of the runtime row (one-time)."""
     if "cached_character" not in config:
@@ -1263,37 +1203,27 @@ def extract_memory_cues(event, stimulus, memories):
     return matched
 
 
-def body_tick(config, stimulus, event=None, connection=None):
+def body_tick(config, stimulus, event=None, connection=None, *, relationship_target=None):
     state, card, durable = load_cached_character(config, connection)
     effective_stimulus = dict(stimulus)
-    rel_target = resolve_relationship_target(event, effective_stimulus)
+    rel_target = relationship_target or resolve_relationship_target(event, effective_stimulus)
     if rel_target:
         effective_stimulus["caller_or_target"] = rel_target
-    active_target = rel_target or effective_stimulus.get("caller_or_target")
-    if isinstance(active_target, str) and active_target in (config.get("relationships") or {}):
-        event_at = effective_stimulus.get("event_at")
-        rel_entry = (
-            relationship_state_at(config, active_target, event_at)
-            if isinstance(event_at, str) and event_at
-            else config["relationships"].get(active_target)
-        )
-        if isinstance(rel_entry, dict) and isinstance(rel_entry.get("values"), dict):
-            baselines = dict(state.get("relational_baselines") or {})
-            target_bond = dict(baselines.get(active_target) or {})
-            vals = rel_entry["values"]
-            for key in (
-                "emotional_safety",
-                "attraction_physical",
-                "attraction_emotional",
-                "respect_competence",
-                "resentment_friction",
-            ):
-                if key in vals and isinstance(vals[key], (int, float)):
-                    target_bond[key] = golem.clamp(vals[key])
-            if "trust" in vals and "emotional_safety" not in vals and isinstance(vals["trust"], (int, float)):
-                target_bond["emotional_safety"] = golem.clamp(vals["trust"])
-            baselines[active_target] = target_bond
-            state["relational_baselines"] = baselines
+        if connection is not None:
+            baselines = state.get("relational_baselines") or {}
+            authored = baselines.get(rel_target)
+            bond = dict(authored) if isinstance(authored, dict) else {}
+            relation = relationship_memory.state_at(connection, rel_target, stimulus.get("event_at"), baselines)
+            values = relation["values"]
+            for key in ("emotional_safety", "attraction_physical", "attraction_emotional",
+                        "respect_competence", "resentment_friction"):
+                if key in values:
+                    bond[key] = values[key]
+            if "trust" in values and "emotional_safety" not in values:
+                bond["emotional_safety"] = values["trust"]
+            # Hydrated state can be shared by two databases initialized from the same card.
+            state = {**state, "relational_baselines": {**baselines, rel_target: bond},
+                     "relationship_state": {**relation, "target": rel_target}}
     if event is not None:
         cues = extract_memory_cues(event, effective_stimulus, state.get("memories", {}))
         if cues:
@@ -1322,10 +1252,8 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         stimulus["food_intake"] = experience["food_intake"]
     prior_sequence = config["history"].get("event_sequence")
     prior_cues = config["history"].get("recent_cues")
-    target = resolve_relationship_target(event, stimulus)
-    if target:
-        stimulus["caller_or_target"] = target
-    after, _, _, _ = body_tick(config, stimulus)
+    target = resolve_relationship_target(event) or resolve_relationship_target(event, stimulus)
+    after, _, durable, state = body_tick(config, stimulus, connection=connection, relationship_target=target)
     # The event's initial tick has already advanced persisted history. Apply
     # post-tick bodily consequences (such as eating) at the same instant without
     # double-counting the event sequence or somatic cue history.
@@ -1357,9 +1285,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
         estimates = config.setdefault("expectations", {})
         dimensions = expectation_dimensions(event, experience)
         if target:
-            relation = relationship_state_at(config, target, request["at"])
-            if relation:
-                dimensions["relationship"] = {"target": target, **relation.get("values", {})}
+            dimensions["relationship"] = {**state["relationship_state"]["values"], "target": target}
         forecast = event.get("expectation", contextual_forecast(config, topic, dimensions, request["at"]))
         # Preserve legacy topic aggregates as broad fallbacks, while learning
         # situation-specific evidence independently from current relationship cues.
@@ -1373,7 +1299,11 @@ def apply_appraisal(connection, request, appraisal, experience=None):
             "evidence": observed, "next_expectation": estimates[topic],
         }
     if isinstance(experience, dict) and "relationship_change" in experience:
-        update_relationship(config, experience["relationship_change"], request["at"])
+        relationship_memory.apply_change(
+            connection, experience["relationship_change"], request["at"],
+            (durable or {}).get("relational_baselines") or {},
+            speaker=resolve_relationship_target(event) if event["kind"] == "incoming" else None,
+        )
     connection.execute("UPDATE runtime SET data = ? WHERE id = 1", (json.dumps(config),))
     connection.execute("UPDATE events SET request = ? WHERE id = ?", (json.dumps(request), event["id"]))
     return request["body_response"]
@@ -1550,11 +1480,14 @@ def advance(connection, config, now, allow_idle=True):
     # Recalled memories and current goals already appear at top level.
     compact_tick = {key: value for key, value in tick.items()
                     if key not in ("recalled_memories", "current_goals")}
-    target = resolve_relationship_target(event, stimulus)
-    relationship = (relationship_state_at(config, target, at.isoformat())
-                    if isinstance(target, str) and target else None)
+    relationship = state.get("relationship_state")
     if relationship:
-        current_dimensions["relationship"] = {"target": target, **relationship.get("values", {})}
+        target = relationship["target"]
+        current_dimensions["relationship"] = {**relationship["values"], "target": target}
+        for bond in card.get("relationships") or []:
+            if isinstance(bond, dict) and bond.get("other") == target:
+                relationship["card_context"] = {k: bond[k] for k in ("dynamic", "notes") if bond.get(k)}
+                break
     rel_expects = relevant_expectations(config.get("expectations", {}), event, recent)
     request = {
         **({"character_id": config["character_id"]} if config.get("character_id") else {}),
@@ -2012,7 +1945,7 @@ def _wake_with_connection(connection, db, decide, *, event=None, max_events=64,
         if config.get("lifecycle"):
             return {"status": config["lifecycle"]}
         if event is not None:
-            enqueue(connection, event, config["history"], datetime.now(timezone.utc))
+            enqueue(connection, event, config["history"], datetime.now(timezone.utc), actor_id=actor_id)
 
     handled = []
     with file_lock(db.with_name(db.name + ".wake.lock")):

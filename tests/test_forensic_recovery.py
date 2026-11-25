@@ -36,7 +36,7 @@ class TestForensicRecoveryAndArchitectureFixes(unittest.TestCase):
                             self.assertEqual(bias["subconscious_visceral_truth"], "An entry is missing.")
                             self.assertEqual(bias["conscious_rationalization"], "I want an accurate count.")
                         return {"id": request["event"]["id"]}
-                    golem_loop.wake_character(Path(tmp) / f"{owner}.sqlite3", decide, event={
+                    golem_loop.wake_character(Path(tmp) / f"{owner}.sqlite3", decide, compact=False, event={
                         "id": str(turn), "kind": "incoming", "stimulus": {"threat_level": 45}})
 
     def test_lock_releases_after_host_import_error(self):
@@ -168,6 +168,7 @@ class TestForensicRecoveryAndArchitectureFixes(unittest.TestCase):
                 db,
                 lambda req: (seen.append(req) or {"character_id": "sophia", "id": req["event"]["id"]}),
                 character_id="sophia",
+                compact=False,
                 event={
                     "character_id": "sophia",
                     "id": "rel-2",

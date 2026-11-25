@@ -285,7 +285,7 @@ class TestGolemActivation(unittest.TestCase):
                 return decision
 
             for turn in range(65):
-                result = golem_loop.wake_character(db, decide, event={
+                result = golem_loop.wake_character(db, decide, compact=False, event={
                     "id": str(turn), "kind": "incoming",
                     "at": (start + timedelta(minutes=turn)).isoformat(),
                     "stimulus": {"activity": "sleeping" if turn < 10 else "awake",

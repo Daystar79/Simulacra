@@ -18,6 +18,25 @@ values; ratios are the meaningful comparison.
 | Serialized request bytes | 12,533 B | 12,533 B | identical packet (behavioral equivalence) |
 | SQLite reads/writes per wake | 21.8 / 7.6 | 21.8 / 7.6 | unchanged; per-wake *connections* 6 → 1 |
 
+## Host packet size — compact context and at-rest omission
+
+`golem modularization` follow-up, measured with the same 25-event script
+(`compact_request_bytes_median` is now emitted by the benchmark):
+
+| Metric | Value |
+|---|---|
+| Stored request bytes (SQLite, `request_bytes_median`) | 12,549 B, unchanged — full fidelity returned by `pending` and `compact=False` |
+| Host-facing compact packet (`compact_request_bytes_median`) | 5,499 B (**-56%**) |
+| 7-exchange session, per-tick compact packet | 2,636 B first tick (was 2,990), 3,808 B after six exchanges (was 4,244) |
+
+Mechanisms: compact decision context is now the `wake_character` default; body
+fields at their resting value (`0`, `false`, `none`, empty `somatic_map`) are
+omitted from the compact projection; older recent-episode entries cap
+context/reply text at 120 characters (current turn keeps 320); CLI `prepare`
+prints tight JSON separators. Physiology, snapshots, rules, `next_history`,
+and the stored request are unchanged (109/109 tests, byte-identical tick
+fixtures).
+
 ## What changed
 
 1. **Resident character instance.** `load_cached_character` memoizes the

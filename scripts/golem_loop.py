@@ -411,10 +411,16 @@ def message_text(event):
     return ""
 
 
-def compact_recent_events(events):
-    """Decision-context projection; the complete event ledger remains in SQLite."""
+def compact_recent_events(events, older_limit=None):
+    """Decision-context projection; the complete event ledger remains in SQLite.
+
+    With ``older_limit``, every entry except the most recent one has its
+    history-bearing text (context, text, action, outcome, reply) capped at that
+    many characters, since the projection already flags verbatim repetition
+    separately and the current turn is the one the host must read in full.
+    """
     compact = []
-    for entry in events:
+    for index, entry in enumerate(events):
         event, decision = entry.get("event") or {}, entry.get("decision") or {}
         item = {"id": event.get("id"), "kind": event.get("kind"), "at": entry.get("at"),
                 "status": entry.get("status")}
@@ -423,15 +429,16 @@ def compact_recent_events(events):
             item["relationship_target"] = target
         if event.get("topic"):
             item["topic"] = event["topic"]
+        limit = 320 if older_limit is None or index == len(events) - 1 else older_limit
         utterance = message_text(event)
         context = event.get("context") or utterance
         if context:
-            item["context"] = context[:320]
+            item["context"] = context[:limit]
         if utterance and utterance != context:
-            item["text"] = utterance[:320]
+            item["text"] = utterance[:limit]
         for key in ("action", "outcome", "reply"):
             if isinstance(decision.get(key), str) and decision[key]:
-                item[key] = decision[key][:320]
+                item[key] = decision[key][:limit]
         assessment = entry.get("assessment") or {}
         for key in ("topic", "forecast", "observed", "next_expectation"):
             if key in assessment:
@@ -699,17 +706,26 @@ def decision_context(request):
             scene.setdefault(key, stimulus[key])
     recent = request.get("recent", [])
     if recent and "event" in recent[0]:
-        recent = compact_recent_events(recent)
+        recent = compact_recent_events(recent, older_limit=120)
     emotions = affect.get("emotions")
     if emotions is None:  # Pending ticks from before concurrent emotions.
         emotions = {affect["primary_emotion"]: affect["emotional_intensity"]}
+    # At-rest projection: a body value sent at its resting constant adds no
+    # guidance a host can act on, so `0`, `false`, and `none` are omitted and
+    # an absent field means the resting value. `activity` always names the
+    # current activity. The full snapshot in the stored request is unchanged.
+    body = {key: body[key] for key in (
+        "cognitive_regime", "involuntary_response", "stress", "arousal",
+        "sexual_arousal", "lingering_arousal", "physical_pleasure", "sexual_pleasure",
+        "orgasm", "orgasm_recovery", "somatic_map", "somatic_telemetry", "emotional_distress", "activity",
+    ) if key in body}
+    context_body = {"activity": body["activity"]} if "activity" in body else {}
+    for key, value in body.items():
+        if key != "activity" and value not in (0, False, None, "none", {}):
+            context_body[key] = value
     context = {
         "event": scene, "at": request["at"], "emotions": emotions,
-        "body": {key: body[key] for key in (
-            "cognitive_regime", "involuntary_response", "stress", "arousal",
-            "sexual_arousal", "lingering_arousal", "physical_pleasure", "sexual_pleasure",
-            "orgasm", "orgasm_recovery", "somatic_map", "somatic_telemetry", "emotional_distress", "activity",
-        ) if key in body},
+        "body": context_body,
         "current_cues": tick.get("golem_meta", {}).get("emitted_cues", []),
         "winning_drive": snapshot["priority_arbitration"]["winning_drive"],
         "arbitration_status": snapshot["priority_arbitration"]["arbitration_status"],
@@ -1900,8 +1916,13 @@ def assess_contact(db, event, actor_id, screen):
 
 
 def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, actor_id=None,
-                   compact=False, character_id=None):
-    """Run a host heartbeat. decide(request) returns one JSON-compatible character decision."""
+                   compact=True, character_id=None):
+    """Run a host heartbeat. decide(request) returns one JSON-compatible character decision.
+
+    The callback receives the compact decision context by default: the
+    projection a host prompt needs, without the full tick internals that
+    remain stored in SQLite. Pass compact=False for the full saved request.
+    """
     db = Path(db).resolve()
     if not db.is_file():
         raise ValueError("Initialize the character database first")
@@ -1917,7 +1938,7 @@ def wake_character(db, decide, *, event=None, max_events=64, screen_abuse=None, 
 
 
 def _wake_with_connection(connection, db, decide, *, event=None, max_events=64,
-                          screen_abuse=None, actor_id=None, compact=False, character_id=None):
+                          screen_abuse=None, actor_id=None, compact=True, character_id=None):
     with staged_transaction(connection):
         ensure_activity_schema(connection)
         owner = runtime_config(connection, character_id).get("character_id")
@@ -2034,14 +2055,16 @@ def main(argv):
         if args.command != "init" and not args.db.is_file():
             parser.error("Initialize the character database first")
         if args.command != "run" or args.once:
-            print(json.dumps(execute(args.db, args), ensure_ascii=False), flush=True)
+            # Tight separators: this is the host-facing packet boundary, where
+            # every byte between tokens reaches the LLM prompt verbatim.
+            print(json.dumps(execute(args.db, args), ensure_ascii=False, separators=(",", ":")), flush=True)
             return 0
         while True:
             result = execute(args.db, args)
             if result["status"] in ("ended", "deleting", "deleted"):
                 return 0
             if result["status"] in ("pending", "failed"):
-                print(json.dumps(result), flush=True)
+                print(json.dumps(result, separators=(",", ":")), flush=True)
             else:
                 time.sleep(1)
     except KeyboardInterrupt:

@@ -50,7 +50,25 @@ python3 scripts/run.py golem loop --db /path/to/character.sqlite3 recalculate-ex
 scripts/
   run.py                 # OS-aware dispatcher (preferred)
   validate_state.py      # State schema and range validator
-  golem.py               # Golem runtime
+  golem.py               # Golem runtime facade and tick orchestrator
+  golem_loop.py          # Host loop (wake_character, request lifecycle, SQLite)
+  golem_paths.py         # Canonical paths (repo root, realm data, schema)
+  golem_physiology.py    # Physiological constants and helpers (calibration,
+                         #   baselines, half-lives, felt pleasure, distress recovery)
+  golem_cards.py         # Card loading, defaults, migration, overlay log
+  golem_memory.py        # Cue keys, memory recall/intent, conversation intent
+  golem_logs.py          # Pressure commits, locked file/log writers
+  golem_time.py          # Event-time parsing and coarse event clock
+  golem_somatic.py       # Somatic zones, arousal sensations, cue selection
+  golem_stages/          # The eight deterministic tick stages
+    intake.py            #   1. stimulus intake and appraisal
+    maintenance.py       #   2. physiology decay/recovery (halve-and-recover)
+    autonomic.py         #   3. autonomic and somatic responses
+    staging.py          #   4. tier & somatic lookup staging
+    affect.py            #   5. affective impulse
+    arbitration.py       #   6. subconscious bias arbitration
+    adult.py             #   7. adult eligibility and dual-control arousal
+    presentation.py      #   8. durable commit eligibility and presentation
   README.md              # this file
   unix/
     deploy.sh
@@ -67,7 +85,31 @@ Core implementations (cross-platform Python):
 - `deploy_framework.py`
 - `Framework/linter.py`
 - `scripts/validate_state.py`
-- `scripts/golem.py`
+- `scripts/golem.py` (facade) + the `golem_*` modules listed above
+
+## Golem module map
+
+`golem.py` remains the single import surface: hosts and the CLI keep using
+`scripts.golem` and `run_golem(state, stimulus, realm_data, history)` is
+unchanged. Behind the facade, the runtime is split into leaf modules with no
+cross-stage imports:
+
+- Constants and pure physiology helpers live in `golem_physiology.py`;
+  input parsing and card state in `golem_cards.py` / `golem_time.py` /
+  `golem_memory.py` / `golem_logs.py`; somatic rendering tables in
+  `golem_somatic.py`.
+- Each tick stage is a function `stage_*(t)` in `golem_stages/`, receiving a
+  namespace `t` with `state`, `stimulus`, `realm_data`, and `history`. The
+  orchestrator in `golem.py` runs the stages in fixed order (intake,
+  maintenance, autonomic, staging, affect, arbitration, adult, presentation)
+  and then `finalize_tick` builds the snapshot, rules, and `next_history`.
+- The stage order, snapshot format, pressure rules, and history contract are
+  byte-identical to the previous single-file implementation; the split is a
+  mechanical extraction verified against baseline fixtures.
+
+Adding physiology behavior means editing `golem_physiology.py` (constants)
+or the relevant `golem_stages/` stage; `golem.py` should only change when the
+public surface or stage order changes.
 
 
 ## Resident runtime and database layout

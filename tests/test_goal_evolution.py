@@ -30,7 +30,7 @@ class TestGoalEvolution(unittest.TestCase):
                 decision["goal_events"] = changes
             return decision
 
-        loop.wake_character(self.db, decide, event={"id": event_id, "kind": "world"})
+        loop.wake_character(self.db, decide, compact=False, event={"id": event_id, "kind": "world"})
         return requests[0]
 
     def test_choices_and_goals_carry_across_wakes_and_log_commit(self):

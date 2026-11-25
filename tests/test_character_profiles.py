@@ -116,7 +116,7 @@ class TestCharacterProfiles(unittest.TestCase):
             self.assertEqual(request["dialect"], "lilting")
             self.assertEqual(Path(request["character"]["card"]).parent, new_db.parent)
             return {"character_id": request["character_id"], "id": "next", "reply": "Morning."}
-        result = loop.wake_character(new_db, decide, character_id="talia")
+        result = loop.wake_character(new_db, decide, compact=False, character_id="talia")
         self.assertEqual(result["events"][0]["character_id"], "talia")
         with loop.transaction(db) as conn:
             self.assertEqual(loop.pending_request(conn)["event"]["id"], "next")

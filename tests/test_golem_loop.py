@@ -36,7 +36,8 @@ class TestGolemLoop(unittest.TestCase):
 
             def hear_next_bar(request):
                 self.assertEqual(request["emotions"]["pleasure"], 40)
-                self.assertEqual(request["body"]["sexual_arousal"], 0)
+                # At rest the compact body omits the field: absent means 0.
+                self.assertEqual(request["body"].get("sexual_arousal", 0), 0)
                 self.assertIn("savors", request["expression_guidance"])
                 return {"id": request["event"]["id"]}
 
@@ -56,7 +57,7 @@ class TestGolemLoop(unittest.TestCase):
                 self.assertEqual(request["identity_anchor"]["physical_pleasure_sources"], ["warm water"])
                 self.assertEqual(request["identity_anchor"]["sexual_pleasure_sources"], ["private preference"])
                 self.assertEqual(request["body"]["physical_pleasure"], 70)
-                self.assertEqual(request["body"]["sexual_pleasure"], 0)
+                self.assertEqual(request["body"].get("sexual_pleasure", 0), 0)
                 return {"id": "observe", "experience": {"stimulus": {"sexual_pleasure": 44}}}
 
             event = {"id": "observe", "kind": "incoming", "at": start.isoformat(),
@@ -92,7 +93,7 @@ class TestGolemLoop(unittest.TestCase):
             event = {"id": "peak", "kind": "incoming", "at": start.isoformat()}
 
             def observe(request):
-                self.assertFalse(request["body"]["orgasm"])
+                self.assertFalse(request["body"].get("orgasm", False))
                 return {"id": "peak", "experience": {"stimulus": {"sexual_pleasure": 90}}}
 
             result = golem_loop.wake_character(db, observe, compact=True, event=event)
@@ -105,7 +106,7 @@ class TestGolemLoop(unittest.TestCase):
                 self.assertEqual(history["last_fatigue"], after["fatigue"])
 
             def later(request):
-                self.assertFalse(request["body"]["orgasm"])
+                self.assertFalse(request["body"].get("orgasm", False))
                 self.assertEqual(request["body"]["orgasm_recovery"], 80)
                 return {"id": "later"}
             golem_loop.wake_character(db, later, compact=True, event={
@@ -140,7 +141,7 @@ class TestGolemLoop(unittest.TestCase):
                         return {"id": request["event"]["id"]}
                     event = {"id": str(index), "at": now.isoformat(), "kind": "incoming", "depiction": mode,
                              "scene_characters": cast, "stimulus": {"physical_pleasure": 40}}
-                    golem_loop.wake_character(db, decide, event=event)
+                    golem_loop.wake_character(db, decide, compact=False, event=event)
 
     def test_unknown_actor_age_keeps_the_scene_ordinary(self):
         with TemporaryDirectory() as directory:
@@ -272,6 +273,45 @@ class TestGolemLoop(unittest.TestCase):
             self.assertEqual(seen, [84])
             self.assertNotIn("reply", result["events"][0])
 
+    def test_compact_is_the_default_and_omits_resting_body_values(self):
+        with TemporaryDirectory() as directory:
+            db = Path(directory) / "character.sqlite3"
+            golem_loop.initialize_character(db, golem.ROOT / "Characters/_template.yaml")
+            seen = []
+
+            def decide(request):
+                seen.append(request)
+                return {"id": request["event"]["id"]}
+
+            # No compact flag: the default already delivers the compact context.
+            golem_loop.wake_character(db, decide, event={"kind": "incoming", "id": "quiet",
+                                                        "stimulus": {"appraisal": {"interest": 30}}})
+            self.assertEqual(len(seen), 1)
+            request = seen[0]
+            self.assertNotIn("tick", request)
+            self.assertIn("winning_drive", request)
+            body = request["body"]
+            # At rest, markers at their resting value are absent, not zero.
+            self.assertNotIn("sexual_arousal", body)
+            self.assertNotIn("lingering_arousal", body)
+            self.assertIn("activity", body)
+            self.assertGreater(body["arousal"], 0)  # Appraised interest raised activation.
+
+    def test_older_recent_history_is_truncated_more_than_the_current_turn(self):
+        older = ("an older turn " + "x" * 400, "an older reply " + "y" * 400)
+        current = ("the current turn " + "x" * 400, "the current reply " + "y" * 400)
+        def entry(context, reply):
+            return {"event": {"id": context[:8], "kind": "incoming", "context": context},
+                    "decision": {"action": "answers", "outcome": "moves on", "reply": reply}}
+        compact = golem_loop.compact_recent_events([entry(*older), entry(*current)], older_limit=120)
+        self.assertEqual(len(compact[0]["context"]), 120)
+        self.assertEqual(len(compact[0]["reply"]), 120)
+        self.assertEqual(len(compact[1]["context"]), 320)
+        self.assertEqual(len(compact[1]["reply"]), 320)
+        # Without older_limit the original caps stay uniform at 320.
+        legacy = golem_loop.compact_recent_events([entry(*older)])
+        self.assertEqual(len(legacy[0]["context"]), 320)
+
     def test_character_can_adopt_revise_and_clear_dialect(self):
         with TemporaryDirectory() as directory:
             db = Path(directory) / "character.sqlite3"
@@ -281,7 +321,8 @@ class TestGolemLoop(unittest.TestCase):
                      ("Mostly Glaswegian", {"dialect": None}), (None, {})]
             for i, (expected, change) in enumerate(turns):
                 def decide(request):
-                    self.assertEqual(request["dialect"], expected)
+                    # An absent dialect in the compact context means none.
+                    self.assertEqual(request.get("dialect"), expected)
                     return {"id": request["event"]["id"], **change}
                 golem_loop.wake_character(db, decide, event={"kind": "incoming", "id": str(i)})
 
@@ -555,7 +596,7 @@ class TestGolemLoop(unittest.TestCase):
                     return decide(request)
                 return {"id": "retry"}
 
-            golem_loop.wake_character(db, host, event=event)
+            golem_loop.wake_character(db, host, compact=False, event=event)
             self.assertEqual([r["event"]["id"] for r in requests], ["attempt", "retry"])
             estimates = requests[1]["expectations"]["performing"]
             self.assertEqual(estimates, {"benefit": 48.75, "cost": 37.5})
@@ -774,14 +815,17 @@ class TestGolemLoop(unittest.TestCase):
 
             golem_loop.wake_character(
                 db, decide,
+                compact=False,
                 event={"id": "e1", "kind": "incoming", "at": (start + timedelta(minutes=10)).isoformat(), "text": "Hello"},
             )
             golem_loop.wake_character(
                 db, decide,
+                compact=False,
                 event={"id": "e2", "kind": "incoming", "at": (start + timedelta(hours=1)).isoformat(), "text": "Still here"},
             )
             golem_loop.wake_character(
                 db, decide,
+                compact=False,
                 event={
                     "id": "e3", "kind": "incoming",
                     "at": (start + timedelta(hours=2, minutes=30)).isoformat(),

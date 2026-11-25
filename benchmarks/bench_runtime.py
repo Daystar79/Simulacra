@@ -146,7 +146,7 @@ def main() -> int:
 
         # 2. CLI-style exchanges, cold process per pair not possible in-process;
         #    each prepare re-reads runtime state from the database the way the CLI does.
-        prep_times, res_times, request_bytes = [], [], []
+        prep_times, res_times, request_bytes, compact_bytes = [], [], [], []
         for index in range(options.events):
             at = base + timedelta(minutes=5 * index)
             event = {"id": f"cli-{index}", "kind": "incoming",
@@ -167,6 +167,8 @@ def main() -> int:
                 request = golem_loop.pending_request(connection)
             prep_times.append(prep * 1000)
             request_bytes.append(len(json.dumps(request)))
+            compact_bytes.append(len(json.dumps(golem_loop.decision_context(request),
+                                                separators=(",", ":"))))
             decision = {"id": event["id"], "action": "answers briefly", "outcome": "moves on",
                         "reply": "I slept fine. Coffee sounds good."}
             with golem_loop.transaction(db) as connection:
@@ -176,6 +178,9 @@ def main() -> int:
         results["measured"]["cli_prepare_ms_median"] = round(statistics.median(prep_times), 3)
         results["measured"]["cli_resolve_ms_median"] = round(statistics.median(res_times), 3)
         results["measured"]["request_bytes_median"] = statistics.median(request_bytes)
+        # Tight separators: the host-facing packet is serialized without
+        # optional whitespace, so measure the bytes an LLM actually receives.
+        results["measured"]["compact_request_bytes_median"] = statistics.median(compact_bytes)
 
         # 3. Resident in-process wakes with statement counting.
         card2, log2 = make_character(work, "resident_character")

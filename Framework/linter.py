@@ -13,6 +13,77 @@ import argparse
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None  # type: ignore[assignment]
+
+RULES_INDEX_PATH = Path(__file__).resolve().parent / "rules_index.yaml"
+
+
+def _load_rules_index(path: Path = RULES_INDEX_PATH) -> Dict[str, Any]:
+    """Load canonical rule lists from Framework/rules_index.yaml when available."""
+    if yaml is None or not path.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _build_rules_patterns(rules: Dict[str, Any]) -> Tuple[List[Tuple[re.Pattern, str, str]], List[Tuple[re.Pattern, str, str]]]:
+    psych_labels = (
+        rules.get("system_integrity", {}).get("hard_bans", {}).get("psychological_labels")
+        or [
+            "trauma", "reframe", "coping mechanism", "emotional wound", "active wound",
+            "psychological wound", "emotional trigger", "psychological trigger",
+            "wound trigger", "cognitive gift", "sacred anchor", "virtue lens",
+            "self-actualization", "empowerment", "safe space", "healing journey",
+        ]
+    )
+    psych_alts = [
+        r"self-actualiz\w+" if label == "self-actualization" else re.escape(label)
+        for label in psych_labels
+    ]
+    psych_pattern = (
+        re.compile(r"\b(" + "|".join(psych_alts) + r")\b", re.IGNORECASE),
+        "Psychological Labels (Therapy Speak)",
+        "Psychological/therapy labels (show body instead)",
+    )
+
+    banned_markers = (
+        rules.get("dialogue", {}).get("banned_markers")
+        or ["whispered", "Are you okay?", "I understand how you feel", "I feel like", "said gently"]
+    )
+    marker_patterns: List[Tuple[re.Pattern, str, str]] = []
+    for marker in banned_markers:
+        if marker.endswith("?"):
+            pat = re.compile(r"\b" + re.escape(marker[:-1]) + r"\??", re.IGNORECASE)
+        else:
+            pat = re.compile(r"\b" + re.escape(marker) + r"\b", re.IGNORECASE)
+        marker_patterns.append((pat, "Dialogue Tags & Markers", f"Banned dialogue marker '{marker}'"))
+
+    watchlist = (
+        rules.get("cleanup_pass", {}).get("watchlist")
+        or ["looked at", "for a moment", "said quietly", "genuinely", "already"]
+    )
+    watchlist_patterns: List[Tuple[re.Pattern, str, str]] = []
+    seen_watch = set()
+    for term in list(watchlist) + ["a long moment"]:
+        key = term.casefold()
+        if key in seen_watch:
+            continue
+        seen_watch.add(key)
+        cat = "Dialogue Tags & Markers" if key == "said quietly" else "Filler Phrases (Watchlist)"
+        watchlist_patterns.append((re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE), cat, f"Repetitive filler '{term}'"))
+
+    return [psych_pattern], marker_patterns + watchlist_patterns
+
+
+_RULES_INDEX = _load_rules_index()
+_YAML_LEAK_PATTERNS, _YAML_BANNED_PATTERNS = _build_rules_patterns(_RULES_INDEX)
+
 # Pre-compile regex patterns for performance optimization
 # Define regex patterns for system leaks and psychological jargon
 SYSTEM_LEAKS_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
@@ -29,7 +100,7 @@ SYSTEM_LEAKS_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
     (re.compile(r"\b(subconscious_visceral_truth|conscious_rationalization|internal_friction|relational_momentum|relational_ambivalence|sensory_tunneling)\b", re.IGNORECASE), "Engine Inner Split / State Labels", "Inner split / state variable leak"),
     (re.compile(r"\b(mask_strain|mask_fracture|fracture_tell|facade_type)\b", re.IGNORECASE), "Social Mask Engine Labels", "Social mask engine label leak"),
     (re.compile(r"\bdefense_posture\b", re.IGNORECASE), "Defense Posture Engine Labels", "defense_posture engine reference"),
-    (re.compile(r"\b(trauma|reframe|coping mechanism|emotional wound|active wound|psychological wound|emotional trigger|psychological trigger|wound trigger|cognitive gift|sacred anchor|virtue lens|self-actualiz\w+|empowerment|safe space|healing journey)\b", re.IGNORECASE), "Psychological Labels (Therapy Speak)", "Psychological/therapy labels (show body instead)"),
+    *_YAML_LEAK_PATTERNS,
     (re.compile(r"\bDebt Ledger\b", re.IGNORECASE), "Engine Bias & Gift Names", "Debt Ledger bias name leak"),
     (re.compile(r"\bSaviour Complex\b", re.IGNORECASE), "Engine Bias & Gift Names", "Saviour Complex bias name leak"),
     (re.compile(r"\bSystem Architect\b", re.IGNORECASE), "Engine Bias & Gift Names", "System Architect bias name leak"),
@@ -47,20 +118,10 @@ SYSTEM_LEAKS_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
 
 # Pre-compile banned phrases patterns
 BANNED_PHRASES_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
-    (re.compile(r"\bwhispered\b", re.IGNORECASE), "Dialogue Tags & Markers", "Banned dialogue tag 'whispered'"),
-    (re.compile(r"\bAre you okay\??", re.IGNORECASE), "Dialogue Tags & Markers", "Banned dialogue filler 'Are you okay?'"),
-    (re.compile(r"\bI understand how you feel\b", re.IGNORECASE), "Dialogue Tags & Markers", "Banned dialogue filler 'I understand how you feel'"),
-    (re.compile(r"\bI feel like\b", re.IGNORECASE), "Dialogue Tags & Markers", "Banned dialogue marker 'I feel like'"),
-    (re.compile(r"\bsaid quietly\b", re.IGNORECASE), "Dialogue Tags & Markers", "Banned dialogue marker 'said quietly'"),
-    (re.compile(r"\bsaid gently\b", re.IGNORECASE), "Dialogue Tags & Markers", "Banned dialogue marker 'said gently'"),
+    *_YAML_BANNED_PATTERNS,
     (re.compile(r"^\s*(A\s+beat|Beat)\.\s*$", re.MULTILINE | re.IGNORECASE), "Pattern Limits", "Banned standalone beat — replace with physical reaction"),
     (re.compile(r"\[(tell|jaw\s+tightens?|blinks?|sighs?|swallows?|somatic)[^\]]*\]", re.IGNORECASE), "Formatting / Somatics", "Bracketed somatic direction — fold tells into prose without brackets"),
     (re.compile(r"\bproximity flag\b", re.IGNORECASE), "Document Bleed", "Document bleed term 'proximity flag'"),
-    (re.compile(r"\blooked at\b", re.IGNORECASE), "Filler Phrases (Watchlist)", "Repetitive filler 'looked at'"),
-    (re.compile(r"\bfor a moment\b", re.IGNORECASE), "Filler Phrases (Watchlist)", "Repetitive filler 'for a moment'"),
-    (re.compile(r"\ba long moment\b", re.IGNORECASE), "Filler Phrases (Watchlist)", "Repetitive filler 'a long moment'"),
-    (re.compile(r"\bgenuinely\b", re.IGNORECASE), "Filler Phrases (Watchlist)", "Repetitive filler 'genuinely'"),
-    (re.compile(r"\balready\b", re.IGNORECASE), "Filler Phrases (Watchlist)", "Watchlist repetition 'already'"),
     (re.compile(r"\b(wound|trigger|mirror|gift|virtue|insulation|dissolution)\b", re.IGNORECASE), "Contextual Watchlist (Warning Only)", "Watchlist term (verify context does not leak framework/therapy jargon)"),
 ]
 
@@ -188,14 +249,10 @@ IGNORED_DIR_NAMES = {
 }
 
 
-def audit_directory(path: str, extensions: Optional[List[str]] = None) -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
-    """Recursively audits a directory for matching file extensions.
-    Returns a tuple: (results_dict, audited_count)"""
+def iter_target_files(path: str, extensions: Optional[List[str]] = None):
+    """Yield auditable file paths recursively under a directory."""
     if extensions is None:
         extensions = [".md", ".txt"]
-        
-    results: Dict[str, List[Dict[str, Any]]] = {}
-    audited_count: int = 0
     for root, dirs, files in os.walk(path):
         # Prune ignored directories from traversal
         dirs[:] = [d for d in dirs if d not in IGNORED_DIR_NAMES]
@@ -207,11 +264,19 @@ def audit_directory(path: str, extensions: Optional[List[str]] = None) -> Tuple[
             if file in DOC_FILES or file.startswith("_template") or file.startswith("."):
                 continue
             if any(file.endswith(ext) for ext in extensions):
-                filepath = os.path.join(root, file)
-                audited_count += 1
-                findings = audit_file(filepath)
-                if findings:
-                    results[filepath] = findings
+                yield os.path.join(root, file)
+
+
+def audit_directory(path: str, extensions: Optional[List[str]] = None) -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
+    """Recursively audits a directory for matching file extensions.
+    Returns a tuple: (results_dict, audited_count)"""
+    results: Dict[str, List[Dict[str, Any]]] = {}
+    audited_count: int = 0
+    for filepath in iter_target_files(path, extensions):
+        audited_count += 1
+        findings = audit_file(filepath)
+        if findings:
+            results[filepath] = findings
     return results, audited_count
 
 
@@ -251,7 +316,7 @@ def main():
             (re.compile(r'\b(exact deficit|mechanics under repetition|repeat the baseline|center-rail|execute one|inventory|curriculum)\b', re.IGNORECASE), "Broadcast Register Leak", "Clinical/corporate/trainer diction in broadcast skit"),
             (re.compile(r'\bunhurried\b', re.IGNORECASE), "Broadcast Filler", "Overused card-parroted adjective 'unhurried'"),
         ]
-        targets = list(results.keys()) if os.path.isdir(target_path) else [target_path]
+        targets = list(iter_target_files(target_path, extensions)) if os.path.isdir(target_path) else [target_path]
         for fp in targets:
             with open(fp, "r", encoding="utf-8") as f_bc:
                 for idx_bc, line_bc in enumerate(f_bc, 1):
@@ -263,7 +328,7 @@ def main():
     filtered_results: Dict[str, List[Dict[str, Any]]] = {}
     for filepath, findings in results.items():
         if args.only_critical:
-            f_list = [f for f in findings if f.get("type") == "System Leak"]
+            f_list = [f for f in findings if f.get("type") in ("System Leak", "Broadcast Constraint")]
         else:
             f_list = findings
         if f_list:

@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Changed
+- Modularized `scripts/golem_loop.py` (2,073 → 595 lines) into a thin facade over six focused modules in `scripts/golem_loop_modules/` (`db`, `activities`, `projection`, `cache`, `learning`, `lifecycle`). Public imports, SQLite transactions, resident cache behavior, and `bench_runtime.py` metrics are unchanged; `deploy_framework.py` ships and updates `golem_loop_modules/`.
+- Converted six structured framework specifications from Markdown to YAML (`Framework/modules.yaml`, `Framework/rules_index.yaml`, `Framework/degradation_protocol.yaml`, and `Framework/Mechanics/{voices,humanity,prose}.yaml`). `intimacy_render` now loads `Framework/modules.yaml` via `yaml.safe_load` instead of splitting Markdown pipe tables, and `Framework/linter.py` loads its psychological labels, banned dialogue markers, and filler watchlist directly from `Framework/rules_index.yaml`.
 - Host-facing packets are substantially smaller with no loss of decision information. `wake_character` now delivers the compact decision context by default (`compact=True`); callbacks that need the full saved request pass `compact=False`. In the compact context, body fields at their resting value (`0`, `false`, `none`, empty `somatic_map`) are omitted, so absent means resting; `body.activity` always names the current activity. Older recent-episode entries are capped at 120 characters of context/reply text while the current turn keeps the full 320. CLI `prepare`/`resolve` output is serialized with tight JSON separators. Together this cuts the prepared-turn payload roughly 56–70% (benchmark median 5,499 bytes versus the 12,549-byte stored request; tracked as `compact_request_bytes_median`). The stored request in SQLite, the `pending` diagnostic command, and all snapshot/physiology semantics are unchanged.
 - `scripts/golem.py` is now a thin facade over dedicated modules: physiology constants and helpers (`golem_physiology.py`), card loading and overlay (`golem_cards.py`), memory (`golem_memory.py`), log writers (`golem_logs.py`), time parsing (`golem_time.py`), somatic tables (`golem_somatic.py`), paths (`golem_paths.py`), and the eight tick stages (`golem_stages/`). The split is a mechanical, behavior-identical extraction: `run_golem(state, stimulus, realm_data, history)`, the stage order, snapshot format, rules, and `next_history` are unchanged, verified byte-identical against baseline tick fixtures and the runtime benchmark (`benchmarks/RESULTS.md`).
 - `deploy_framework.py` ships and updates the new Golem modules alongside `golem.py`; `deploy --update` creates `golem_stages/` in existing installations.
@@ -22,6 +24,9 @@
 
 ### Added
 
+- Automatic on-demand episodic recall over resolved SQLite events older than the 2-hour `recent` window (`recall_past_episodes`), surfacing up to 4 matching past episodes (`kind: "episode"`) in `recalled_memories` without bloating unrelated turns.
+- In-turn durable memory promotion via `decision["remember"]`, persisting cue-linked memories atomically to a SQLite `memories` table (migrated non-destructively) and mirroring them to `character_log.yaml` when configured.
+- KV-cache-ready prompt partitioning via `prompt_cache_split()` (`wake_character(..., split_cache=True)` and CLI `prepare --split-cache`), returning `{prefix_hash, static_prefix, dynamic_turn}` so hosts can keep `static_prefix` byte-identical in a cached system prompt across turns.
 - Relationships now persist by speaker in each character’s SQLite database. Existing relationship records migrate on first access. The host receives the active speaker’s values and authored card notes when choosing a response.
 - Added a standalone Markdown assignment for modularizing Golem in Mistral’s cloud workspace. [Mistral cloud assignment](Framework/Prompts/mistral_modularize_golem.md)
 - `benchmarks/bench_runtime.py`, a deterministic runtime benchmark (initialization, prepare, resolve, resident wake, request size, SQLite statement counts, memory), and `benchmarks/RESULTS.md` with measured before/after results. Resident wake processing ~37% faster, resolve ~88% faster, runtime row ~59% smaller on the benchmark character, request packet byte-identical.
@@ -45,6 +50,9 @@
 
 ### Fixed
 
+- `Framework/linter.py --broadcast` now scans all auditable files in a directory (including files with zero standard findings) and `--only-critical` retains `Broadcast Constraint` findings alongside `System Leak`.
+- `scripts/golem_somatic.py` (`select_somatic_cues`) now prefers fresh cues from the current stress tier before expanding to other tiers when the current tier's fresh cues are exhausted.
+- `scripts/validate_state.py` now catches malformed JSON cleanly in single-file mode (returning exit code `1`) to match directory mode.
 - Incoming message text now reaches memory recall, echo detection, and recent conversation context across supported transport fields. Older free-text memory entries can coexist with cue-linked records.
 - Malformed expectation context can no longer stall later turns. Python retries recover the accepted reply by event ID, and Golem CLI results can be parsed directly as JSON.
 - Character deletion clears activity records and archived requests. Opening an older deleted runtime also clears residual rows in those tables.

@@ -29,15 +29,15 @@ Run once at session start, before a movement brief:
 1. **Load stack (always):**
    - `Framework/Main.md` (this file)
    - `Framework/CognitivePipeline.md`
-   - `Framework/Rules_Index.md`
+   - `Framework/rules_index.yaml`
    - `Framework/Psychology/realm_data.yaml`
-   - `Framework/Modules.md` (registry — may be empty of ENABLED rows)
+   - `Framework/modules.yaml` (registry — may be empty of ENABLED rows)
    - Full on-scene cards: `Characters/[slug].yaml` (including motivations, goals, and incentives)
    - Durable logs: `Characters/[slug]_log.yaml` (overlay card defaults)
    - `Framework/Continuity_Ledger.md`
-2. **Modules into the cognitive loop:** verify ENABLED rows in [Modules.md](Modules.md); inject only at declared hooks during each pipeline tick. Downstream books add their own modules by registering paths here.
+2. **Modules into the cognitive loop:** verify ENABLED rows in [modules.yaml](modules.yaml); inject only at declared hooks during each pipeline tick. Downstream books add their own modules by registering paths here.
 3. **Optional non-module craft (brief-driven):**
-   - `Framework/Mechanics/prose.md`, `voices.md`, `humanity.md`
+   - `Framework/Mechanics/prose.yaml`, `voices.yaml`, `humanity.yaml`
    - `Framework/natural_prose.md` — when Style = `natural`
 4. **Never load:** `source_changes.md`, `formatting_rules.md`, `Framework/Prompts/*`, debug dumps.
 5. **Ledger integrity pass** (§ below). Gate = CLEAN before drafting.
@@ -80,7 +80,7 @@ Pipeline owns live ticks and commit mapping. Full protocol: [CognitivePipeline.m
 | **4** | Internal Monologue | In deliberative mode: express ego rationalization in `Thinks` while action leaks visceral truth. In reactive mode: render `Thinks` as fragmented visceral loops, sensory shock, or cognitive blank. |
 | **5** | Style lock | Enforce project style; no purple prose / AI clichés unless style allows. |
 | **6** | Anti-synthesis | Close paragraphs on sensory fact, raw action, or unanswered dialogue — never interpretive summary. |
-| **7** | Hygiene | Apply [Rules_Index.md](Rules_Index.md) hard bans (no system jargon, polyvagal labels, cognitive regimes, or posture enums on page). |
+| **7** | Hygiene | Apply [rules_index.yaml](rules_index.yaml) hard bans (no system jargon, polyvagal labels, cognitive regimes, or posture enums on page). |
 | **8** | Commit | On approval: merge durable fields into `_log.yaml` per pipeline §8; update Continuity_Ledger scene-close body; regenerate Character_Change_Log if needed. |
 
 ### Style lock machine
@@ -101,7 +101,7 @@ Character attraction and desire are output states of the core pipeline ([Cogniti
 - **100% off-page matrix** — Focus, Bias, Gift, Prism, Realm labels never appear in prose.
 - **Card supremacy** — card baseline overrides generic AI tropes; log overrides card for evolved state.
 - **Pipeline is the psyche runtime** — do not re-implement wound/gift/realm math inside this file.
-- **Modules extend the loop** — register in Modules.md; never bypass core supremacy.
+- **Modules extend the loop** — register in modules.yaml; never bypass core supremacy.
 
 ---
 

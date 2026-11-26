@@ -5,16 +5,16 @@ This document outlines rules for avoiding "perfect pattern spaces" in AI-generat
 
 > [!IMPORTANT]
 > **Do not apply this file automatically.** Session default is `llm` ([Main.md](./Main.md) §3a).  
-> Load this file only when the user explicitly chooses **`natural`** (aliases: `house`, `asymmetric`, `anthony`, `barker`, `anthony/barker`, `anti-ai`). Once selected, style LOCKS. Full catalog optional: [prose.md](./Mechanics/prose.md).
+> Load this file only when the user explicitly chooses **`natural`** (aliases: `house`, `asymmetric`, `anthony`, `barker`, `anthony/barker`, `anti-ai`). Once selected, style LOCKS. Full catalog optional: [prose.yaml](./Mechanics/prose.yaml).
 
 Character psychology and dialogue voice are independent of this pack.
 
 ---
 
 ## Related Framework Docs
-- **Prose Protocol (selector):** [prose.md](./Mechanics/prose.md)
-- **Humanity Protocol:** [humanity.md](./Mechanics/humanity.md)
-- **Voices Protocol:** [voices.md](./Mechanics/voices.md)
+- **Prose Protocol (selector):** [prose.yaml](./Mechanics/prose.yaml)
+- **Humanity Protocol:** [humanity.yaml](./Mechanics/humanity.yaml)
+- **Voices Protocol:** [voices.yaml](./Mechanics/voices.yaml)
 - **Framework Formatting Rules:** [formatting_rules.md](./formatting_rules.md)
 
 ---
@@ -112,14 +112,14 @@ Rule 6 licenses word-level repetition *within* a scene or character's idiolect �
 
 ## 9. AI Pattern Frequency & Overused Phrases
 
-To prevent generative models from sliding into repetitive placeholder phrasing or static somatic loops, enforce the pattern-frequency rules in **[Rules_Index.md](./Rules_Index.md)**.
+To prevent generative models from sliding into repetitive placeholder phrasing or static somatic loops, enforce the pattern-frequency rules in **[rules_index.yaml](./rules_index.yaml)**.
 
-### Key Rules (See Rules_Index.md §5 for full details)
+### Key Rules (See rules_index.yaml §5 for full details)
 - **Scope:** Rules apply both within a single scene/movement AND across all movements in a chapter
 - **Banish Standalone "Beat":** Never write `"A beat."` or `"Beat."` as standalone sentences
-- **Rotate Somatic/Gaze Loops:** Rotate gaze, touch, and staging descriptors (see Rules_Index.md §5.2)
+- **Rotate Somatic/Gaze Loops:** Rotate gaze, touch, and staging descriptors (see rules_index.yaml §5.2)
 - **Cross-Movement Tracking:** Somatic tells, dialogue patterns, and props must vary across movements
 - **Prop State Persistence:** Objects retain state or evolve meaningfully across movements
 
-**For complete rules:** See **[Rules_Index.md](./Rules_Index.md)** §5 (AI Pattern Frequency).
+**For complete rules:** See **[rules_index.yaml](./rules_index.yaml)** §5 (AI Pattern Frequency).
 

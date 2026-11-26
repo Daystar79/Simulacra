@@ -51,7 +51,7 @@ A lingering adult response can span several turns, a change of subject, or a cha
 | **Schema** | `Framework/Schemas/psychosomatic_state.json` | Shape of the live snapshot |
 
 ### Modules (downstream injectors)
-`Framework/Modules.md` registers `ENABLED` modules at hooks (`pre_somatic`, `affect_filter`, `pre_arbitration`, `post_vector`, `app_render`, `on_commit`). Core sequence always runs; modules cannot override `Rules_Index`, pipeline invariants, card/log supremacy, or age gates.
+`Framework/modules.yaml` registers `ENABLED` modules at hooks (`pre_somatic`, `affect_filter`, `pre_arbitration`, `post_vector`, `app_render`, `on_commit`). Core sequence always runs; modules cannot override `Rules_Index`, pipeline invariants, card/log supremacy, or age gates.
 
 ### Load the full YAML card
 Select by slug if `characters` mapping exists; keep card available for identity, `active_focus`/`latent_anchors`, `transformation_weights`, `cognitive_bias`/`cognitive_gift`, `default_somatic_alignment`, `voice.*`, `history_anchors`, `skills`, `motivations`/`goals`/`incentives`, and `canon_adult`/`age`.
@@ -196,7 +196,7 @@ Never dump routine autonomic noise into `history[]`. After commit, regenerate `C
 - **Epistemic gating:** `memories.detailed` = sharp recall; `footnote` = unsure unless triggered; unlisted = forgotten.
 - **Competence gating:** `skills.active` = clean execution; `latent` = fumble/brace; unlisted = helplessness.
 - **Age invariant:** `canon_adult` and age are hard ToS/identity invariants (minors are never sexual subjects).
-- **Module subordination:** `ENABLED` modules inject only at declared hooks; core pipeline and `Rules_Index` always win ([Modules.md](Modules.md)).
+- **Module subordination:** `ENABLED` modules inject only at declared hooks; core pipeline and `Rules_Index` always win ([modules.yaml](modules.yaml)).
 
 ### Initiative, impulse and intimacy during a tick
 

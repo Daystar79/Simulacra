@@ -32,7 +32,7 @@ It separates **character psychology and somatic simulation** from **downstream p
 
 | Tier | Owns | Core Files |
 |---|---|---|
-| **Core Engine** | Mind-body simulation → intent vector (`Feels`, `Thinks`, `Says`, `Does`) | [Framework/CognitivePipeline.md](file:///mnt/Books/Source/Simulacra/Framework/CognitivePipeline.md), `realm_data.yaml`, state schema, [Rules_Index.md](file:///mnt/Books/Source/Simulacra/Framework/Rules_Index.md) |
+| **Core Engine** | Mind-body simulation → intent vector (`Feels`, `Thinks`, `Says`, `Does`) | [Framework/CognitivePipeline.md](file:///mnt/Books/Source/Simulacra/Framework/CognitivePipeline.md), `realm_data.yaml`, state schema, [rules_index.yaml](file:///mnt/Books/Source/Simulacra/Framework/rules_index.yaml) |
 | **Application Shells** | How intent vector is rendered into text or UI | [Framework/Main.md](file:///mnt/Books/Source/Simulacra/Framework/Main.md) (manuscript); downstream hosts (e.g. `CharacterSimulator`) |
 
 ```
@@ -107,12 +107,12 @@ Sex is **not a special subsystem or operational mode**. It is a standard class o
 
 ## 5. Extension Registry & Module System
 
-[Framework/Modules.md](file:///mnt/Books/Source/Simulacra/Framework/Modules.md) is the explicit extension API for downstream applications (book folders, tools, UIs) to inject behavior into the cognitive loop without forking the pipeline:
+[Framework/modules.yaml](file:///mnt/Books/Source/Simulacra/Framework/modules.yaml) is the explicit extension API for downstream applications (book folders, tools, UIs) to inject behavior into the cognitive loop without forking the pipeline:
 
 - **Loop Hooks:** Subordinate injectors at fixed points (`pre_somatic`, `affect_filter`, `pre_arbitration`, `post_vector`, `app_render`, `on_commit`).
-- **Core Supremacy:** `Rules_Index.md`, pipeline sequence, card/log identity, and age invariants always win. Conflicting module instructions are silently ignored.
+- **Core Supremacy:** `rules_index.yaml`, pipeline sequence, card/log identity, and age invariants always win. Conflicting module instructions are silently ignored.
 - **Empty Registry:** An empty active module list is completely valid. The core engine runs fully with zero `ENABLED` modules.
-- **Downstream Ownership:** Downstream books register local modules in their copy of `Modules.md`. The distribution includes an optional adult expression guide at the host-owned `app_render` hook.
+- **Downstream Ownership:** Downstream books register local modules in their copy of `modules.yaml`. The distribution includes an optional adult expression guide at the host-owned `app_render` hook.
 
 ---
 
@@ -137,8 +137,8 @@ If the goal is to emulate a human, **character behavior must not require switche
 |---|---|---|
 | [Framework/CognitivePipeline.md](file:///mnt/Books/Source/Simulacra/Framework/CognitivePipeline.md) | Core psych/physical simulation engine specification. | Required execution spec for all mind-body ticks. |
 | [Framework/Main.md](file:///mnt/Books/Source/Simulacra/Framework/Main.md) | Manuscript drafting engine specification & style lock rules. | Defines drafting session boot, ledger checks, anti-synthesis rules. |
-| [Framework/Modules.md](file:///mnt/Books/Source/Simulacra/Framework/Modules.md) | Extension registry & loop hook specification. | Downstream module registration and core supremacy rules. |
-| [Framework/Rules_Index.md](file:///mnt/Books/Source/Simulacra/Framework/Rules_Index.md) | Hard bans catalog and off-page matrix rules. | Enforced by AI agents and linter on all rendered text. |
+| [Framework/modules.yaml](file:///mnt/Books/Source/Simulacra/Framework/modules.yaml) | Extension registry & loop hook specification. | Downstream module registration and core supremacy rules. |
+| [Framework/rules_index.yaml](file:///mnt/Books/Source/Simulacra/Framework/rules_index.yaml) | Hard bans catalog and off-page matrix rules. | Enforced by AI agents and linter on all rendered text. |
 | [Framework/Psychology/realm_data.yaml](file:///mnt/Books/Source/Simulacra/Framework/Psychology/realm_data.yaml) | 10-realm somatic body catalog (micro, moderate, macro, release, vocal). | Data source for physical tells in `Feels` and `Does`. |
 | [Framework/Schemas/psychosomatic_state.json](file:///mnt/Books/Source/Simulacra/Framework/Schemas/psychosomatic_state.json) | Ephemeral live state schema. | Used by `scripts/validate_state.py` to validate state structure. |
 | [Framework/linter.py](file:///mnt/Books/Source/Simulacra/Framework/linter.py) | Automated prose linter for system leaks and banned phrases. | CI/CD and pre-commit check for manuscript compliance. |
@@ -156,8 +156,8 @@ AI agents operating in downstream projects must follow the context loading proto
 Mandatory Session Boot Stack (~2,760 - 3,500 words):
 1. Framework/Main.md
 2. Framework/CognitivePipeline.md
-3. Framework/Modules.md (Check ENABLED registry status)
-4. Framework/Rules_Index.md
+3. Framework/modules.yaml (Check ENABLED registry status)
+4. Framework/rules_index.yaml
 5. Framework/Psychology/realm_data.yaml
 6. Characters/[slug].yaml (Card)
 7. Characters/[slug]_log.yaml (Log overlay)

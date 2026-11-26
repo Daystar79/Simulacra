@@ -39,11 +39,13 @@ Schedule the host job at the desired cadence. It prepares one due event and foll
 python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" prepare
 ```
 
+Pass `--split-cache` to `prepare` if your host uses LLM KV/prefix caching; it returns `{prefix_hash, static_prefix, dynamic_turn}` so `static_prefix` can stay cached in the system prompt across turns.
+
 ## 4. Incoming messages
 
-Have the messaging adapter call `prepare --event -` with the stable transport ID and message as event JSON on stdin. Feed the returned decision context to Simulacra once. Resolve its decision with `resolve --receipt -` and deliver the accepted reply, deduplicated by character and event ID. Follow the same guide for retries and earlier pending work. Replace any older per-message job instructions that request a full tick, separate snapshot files, or a written emotional rationale.
+Have the messaging adapter call `prepare --event -` (optionally with `--split-cache`) with the stable transport ID and message as event JSON on stdin. Feed the returned decision context to Simulacra once. Resolve its decision with `resolve --receipt -` and deliver the accepted reply, deduplicated by character and event ID. Follow the same guide for retries and earlier pending work. Replace any older per-message job instructions that request a full tick, separate snapshot files, or a written emotional rationale.
 
-For a Python adapter, use `wake_character(db, decide, event=incoming, character_id=character_id, compact=True)`. Preserve the host's boundary screening and trusted actor ID. Runtimes with registered owned files require the screened Python adapter for incoming events.
+For a Python adapter, use `wake_character(db, decide, event=incoming, character_id=character_id, compact=True)` (or `split_cache=True` for KV-cached hosts). Preserve the host's boundary screening and trusted actor ID. Runtimes with registered owned files require the screened Python adapter for incoming events.
 
 ## 5. VM replacement recovery
 
@@ -55,7 +57,7 @@ python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS
 python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS_DIR" --character-id "$CHARACTER_ID" timeline --limit 100
 ```
 
-An unresolved pending request is returned unchanged. Active or due activities and their original timestamps/event IDs are stored in SQLite. Resolve a pending request before asking for another wake. If no request is pending, `run --once` processes the next due plan or idle wake. Activity start/completion/interruption and Golem state changes share a DB transaction; duplicate resolution of the same event ID does not apply consequences again. The runtime migrates older databases by creating its activity table without replacing existing state.
+An unresolved pending request is returned unchanged. Active or due activities and their original timestamps/event IDs are stored in SQLite. Resolve a pending request before asking for another wake. If no request is pending, `run --once` processes the next due plan or idle wake. Activity start/completion/interruption and Golem state changes share a DB transaction; duplicate resolution of the same event ID does not apply consequences again. The runtime migrates older databases non-destructively by creating its `activities` and `memories` tables without replacing existing state; episodic recall over past resolved events works retroactively across existing history.
 
 ## 6. Deterministic runtime boundary
 

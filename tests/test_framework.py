@@ -19,8 +19,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "Framework"))
 
-from scripts.validate_state import validate, load_json, DEFAULT_SCHEMA, EXAMPLE
-from Framework.linter import audit_file, SYSTEM_LEAKS_PATTERNS, BANNED_PHRASES_PATTERNS
+from scripts.validate_state import validate, load_json, main as validate_main, DEFAULT_SCHEMA, EXAMPLE
+from scripts.golem_somatic import select_somatic_cues
+from Framework.linter import audit_file, SYSTEM_LEAKS_PATTERNS, BANNED_PHRASES_PATTERNS, _load_rules_index, RULES_INDEX_PATH
 import deploy_framework
 
 
@@ -105,6 +106,12 @@ class TestPsychosomaticStateValidation(unittest.TestCase):
         self.assertTrue(any("relational_momentum: invalid value 'invalid_momentum'" in e for e in errors))
         self.assertTrue(any("150 out of range 0–100" in e for e in errors))
 
+    def test_single_malformed_json_returns_one(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad = Path(tmpdir) / "bad.json"
+            bad.write_text("{not valid json", encoding="utf-8")
+            self.assertEqual(validate_main([str(bad)]), 1)
+
 
 class TestLinterProseAuditing(unittest.TestCase):
     """Test prose linter pattern matching and leak detection."""
@@ -172,6 +179,61 @@ Beat.
         self.assertTrue(any("I feel like" in m for m in matches))
         self.assertTrue(any("said gently" in m for m in matches))
         self.assertTrue(any("[jaw tightens]" in m for m in matches))
+
+    def test_linter_loads_rules_from_rules_index_yaml(self):
+        rules = _load_rules_index(RULES_INDEX_PATH)
+        self.assertIn("system_integrity", rules)
+        self.assertIn("dialogue", rules)
+        self.assertIn("cleanup_pass", rules)
+        self.assertIn("healing journey", rules["system_integrity"]["hard_bans"]["psychological_labels"])
+        findings = self.audit_text("She began her healing journey and looked at the door.\n")
+        matches = {f["match"].lower() for f in findings}
+        self.assertIn("healing journey", matches)
+        self.assertIn("looked at", matches)
+
+    def test_broadcast_directory_scans_clean_files_and_only_critical(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            clean_except_broadcast = Path(tmpdir) / "skit.md"
+            clean_except_broadcast.write_text('"Of course." He set the cup down.\n', encoding="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "Framework" / "linter.py"), tmpdir, "--broadcast", "--only-critical", "--json"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 1)
+            payload = json.loads(proc.stdout)
+            self.assertTrue(payload["has_critical_leaks"])
+            self.assertEqual(payload["total_findings"], 1)
+            findings = payload["results"][str(clean_except_broadcast.resolve())]
+            self.assertEqual(findings[0]["type"], "Broadcast Constraint")
+
+    def test_select_somatic_cues_prefers_current_tier_before_expanding(self):
+        realm_data = {
+            "realms": {
+                "I": {
+                    "micro": ["lift collarbones", "shallow swallowing"],
+                    "moderate": ["stiff neck", "chin precise"],
+                    "macro": ["posture locks rigidly", "white-knuckled grip"],
+                }
+            }
+        }
+        micro_pick = select_somatic_cues(realm_data, "I", "micro", [], "seed-1")
+        self.assertEqual(set(micro_pick), {"lift collarbones", "shallow swallowing"})
+
+        expanded_pick = select_somatic_cues(
+            realm_data, "I", "micro", ["lift collarbones", "shallow swallowing"], "seed-1"
+        )
+        self.assertEqual(len(expanded_pick), 2)
+        self.assertTrue(set(expanded_pick).issubset({"stiff neck", "chin precise", "posture locks rigidly", "white-knuckled grip"}))
+
+        exhausted_pick = select_somatic_cues(
+            realm_data,
+            "I",
+            "micro",
+            ["lift collarbones", "shallow swallowing", "stiff neck", "chin precise", "posture locks rigidly", "white-knuckled grip"],
+            "seed-1",
+        )
+        self.assertEqual(len(exhausted_pick), 2)
 
 
 class TestDeploymentDecoupling(unittest.TestCase):

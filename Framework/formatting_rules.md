@@ -105,9 +105,9 @@ To make navigation between the framework, characters, and drafts seamless, all r
 - **Design Q&A Protocol:** `[Design_QA_Protocol.md](./Design_QA_Protocol.md)`
 - **Source Changes:** `[source_changes.md](./source_changes.md)`
 - **Characters Psychology:** `[Framework/Psychology/](./Psychology/)`
-- **Humanity Protocol:** `[humanity.md](./Mechanics/humanity.md)`
-- **Prose Protocol:** `[prose.md](./Mechanics/prose.md)`
-- **Voices Protocol:** `[voices.md](./Mechanics/voices.md)`
+- **Humanity Protocol:** `[humanity.yaml](./Mechanics/humanity.yaml)`
+- **Prose Protocol:** `[prose.yaml](./Mechanics/prose.yaml)`
+- **Voices Protocol:** `[voices.yaml](./Mechanics/voices.yaml)`
 
 ---
 

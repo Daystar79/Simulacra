@@ -845,3 +845,145 @@ class TestGolemLoop(unittest.TestCase):
             self.assertIn("anti_echo_and_presence", rules)
             self.assertIn("memory_and_state_boundaries", rules)
             self.assertIn("pre_output_check", rules)
+
+    def test_episodic_recall_recovers_multi_day_events_on_cue_without_bloating_recent(self):
+        with TemporaryDirectory() as tmp:
+            db = Path(tmp) / "loop.sqlite3"
+            card = Path(tmp) / "card.yaml"
+            card.write_text(
+                "name: Talia\ncall_name: Talia\ncharacter_id: talia\nage: 29\n"
+                "default_somatic_alignment: {focus: 'Realm I'}\n"
+                "cognitive_bias: {name: 'Debt Ledger'}\n"
+                "cognitive_gift: {name: 'Sacred Stewardship'}\n",
+                encoding="utf-8",
+            )
+            start = datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)
+            golem_loop.initialize_character(db, card, history_at=start.isoformat())
+
+            seen = []
+
+            def decide(req):
+                seen.append(req)
+                eid = req["event"]["id"]
+                if eid == "day1":
+                    return {"id": eid, "reply": "I tightened the bicycle brake cable on Elm Street."}
+                return {"id": eid, "reply": "Okay."}
+
+            golem_loop.wake_character(
+                db, decide,
+                event={"id": "day1", "kind": "incoming", "at": (start + timedelta(minutes=10)).isoformat(),
+                       "relationship_target": "alex", "text": "Did you fix the bicycle brake on Elm Street?"},
+            )
+            # Next day, unrelated greeting: recent is empty and no unrelated episode is pulled in.
+            golem_loop.wake_character(
+                db, decide,
+                event={"id": "day2", "kind": "incoming", "at": (start + timedelta(days=1)).isoformat(),
+                       "relationship_target": "alex", "text": "Good morning!"},
+            )
+            self.assertEqual(seen[-1]["recent"], [])
+            self.assertNotIn("recalled_memories", seen[-1])
+
+            # Day 3, cue matches Day 1: recent stays empty (beyond 2h), Day 1 episode is recalled on demand.
+            golem_loop.wake_character(
+                db, decide,
+                event={"id": "day3", "kind": "incoming", "at": (start + timedelta(days=2)).isoformat(),
+                       "relationship_target": "alex", "text": "How is the bicycle brake holding up?"},
+            )
+            self.assertEqual(seen[-1]["recent"], [])
+            recalled = seen[-1].get("recalled_memories", [])
+            self.assertTrue(any(m["id"] == "episode:day1" and m["kind"] == "episode" for m in recalled))
+
+    def test_in_turn_remember_persists_to_sqlite_and_log_and_recalls_later(self):
+        with TemporaryDirectory() as tmp:
+            db = Path(tmp) / "loop.sqlite3"
+            card = Path(tmp) / "card.yaml"
+            log = Path(tmp) / "log.yaml"
+            card.write_text(
+                "name: Talia\ncall_name: Talia\ncharacter_id: talia\nage: 29\n"
+                "default_somatic_alignment: {focus: 'Realm I'}\n",
+                encoding="utf-8",
+            )
+            log.write_text("character_id: talia\n", encoding="utf-8")
+            start = datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)
+            golem_loop.initialize_character(db, card, log=log, history_at=start.isoformat())
+
+            seen = []
+
+            def decide(req):
+                seen.append(req)
+                eid = req["event"]["id"]
+                if eid == "t1":
+                    return {
+                        "id": eid,
+                        "reply": "Noted, dark roast it is.",
+                        "remember": {
+                            "id": "mem_elena_coffee",
+                            "summary": "Elena prefers dark roast espresso.",
+                            "cues": ["coffee", "espresso", "elena"],
+                        },
+                    }
+                return {"id": eid, "reply": "Sure."}
+
+            out = golem_loop.wake_character(
+                db, decide,
+                event={"id": "t1", "kind": "incoming", "at": (start + timedelta(minutes=5)).isoformat(),
+                       "text": "I like dark roast espresso."},
+            )
+            self.assertEqual(out["events"][0]["remembered"], ["mem_elena_coffee"])
+            self.assertIn("mem_elena_coffee", log.read_text(encoding="utf-8"))
+
+            # Two days later, asking about coffee recalls the durable memory.
+            golem_loop.wake_character(
+                db, decide,
+                event={"id": "t2", "kind": "incoming", "at": (start + timedelta(days=2)).isoformat(),
+                       "text": "Should I grab coffee?"},
+            )
+            recalled_ids = [m["id"] for m in seen[-1].get("recalled_memories", [])]
+            self.assertIn("mem_elena_coffee", recalled_ids)
+
+    def test_prompt_cache_split_keeps_static_prefix_hash_stable_across_turns(self):
+        with TemporaryDirectory() as tmp:
+            db = Path(tmp) / "loop.sqlite3"
+            card = Path(tmp) / "card.yaml"
+            card.write_text(
+                "name: Talia\ncall_name: Talia\ncharacter_id: talia\nage: 29\n"
+                "default_somatic_alignment: {focus: 'Realm I'}\n",
+                encoding="utf-8",
+            )
+            start = datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)
+            golem_loop.initialize_character(db, card, history_at=start.isoformat())
+
+            splits = []
+
+            def decide(req):
+                splits.append(req)
+                eid = req["dynamic_turn"]["event"]["id"]
+                if eid == "s2":
+                    return {"id": eid, "reply": "Switching tone.", "dialect": "terse"}
+                return {"id": eid, "reply": "Steady."}
+
+            golem_loop.wake_character(
+                db, decide, split_cache=True,
+                event={"id": "s1", "kind": "incoming", "at": (start + timedelta(minutes=5)).isoformat(), "text": "Hi"},
+            )
+            golem_loop.wake_character(
+                db, decide, split_cache=True,
+                event={"id": "s2", "kind": "incoming", "at": (start + timedelta(minutes=25)).isoformat(),
+                       "text": "Second turn", "stimulus": {"stress_delta": 30}},
+            )
+            golem_loop.wake_character(
+                db, decide, split_cache=True,
+                event={"id": "s3", "kind": "incoming", "at": (start + timedelta(minutes=40)).isoformat(), "text": "Third"},
+            )
+
+            # Turns 1 and 2 have different timestamps/body/events, but byte-identical static_prefix and prefix_hash.
+            self.assertEqual(splits[0]["prefix_hash"], splits[1]["prefix_hash"])
+            self.assertEqual(splits[0]["static_prefix"], splits[1]["static_prefix"])
+            self.assertIn("identity_anchor", splits[0]["static_prefix"])
+            self.assertNotIn("at", splits[0]["static_prefix"])
+            self.assertNotIn("event", splits[0]["static_prefix"])
+            self.assertIn("event", splits[0]["dynamic_turn"])
+            self.assertIn("at", splits[0]["dynamic_turn"])
+            # Turn 3 reflects the updated dialect, invalidating the prefix_hash cleanly.
+            self.assertNotEqual(splits[1]["prefix_hash"], splits[2]["prefix_hash"])
+            self.assertEqual(splits[2]["static_prefix"]["dialect"], "terse")

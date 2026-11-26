@@ -41,8 +41,8 @@ Read in order:
 2. `Framework/Continuity_Ledger.md`
 3. [source_changes.md](source_changes.md) — first ~100 lines (recent locks)
 4. [formatting_rules.md](formatting_rules.md)
-5. **[voices.md](Mechanics/voices.md)** — full (design must not plan voice violations)
-6. [humanity.md](Mechanics/humanity.md)
+5. **[voices.yaml](Mechanics/voices.yaml)** — full (design must not plan voice violations)
+6. [humanity.yaml](Mechanics/humanity.yaml)
 8. [psyche_framework.md](psyche_framework.md) and [Framework/Psychology/](Psychology/) — Realm profiles and matrix instructions (behavior only; never nomenclature on page)
 
 ### Step 2 — Band + design archive
@@ -118,7 +118,7 @@ Any Q&A turn about **who does what, says what, wants what, or carries what** mus
 
 **Required reads before character locks**:
 - On-scene character cards in the `Characters/` directory (POV card first) and active depictions in prior movements. **Always read the character cards and depictions before proposing questions or options that affect them.**
-- **`voices.md`** + **`humanity.md`** — voice split, no blending
+- **`voices.yaml`** + **`humanity.yaml`** — voice split, no blending
 - **`psyche_framework.md`** + **`Framework/Psychology/`** — Realm profiles and rules for each on-scene character
 - Prior on-page prose for that character in preceding chapter + current band movements
 

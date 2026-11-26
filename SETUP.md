@@ -38,9 +38,9 @@ For multiple characters on one VM, provision a private profile per character. Ro
 - Provision exactly one durable SQLite database per character, with the correct card and optional log.
 - Initialize only when the database does not already exist. For old CLI history, follow the documented `--import-history` migration rather than discarding state.
 - Make the repository importable to the host Python interpreter.
-- Connect incoming messages to `wake_character(db_path, decide, compact=True, event={"id": stable_message_id, "kind": "incoming", "context": message_text})`.
+- Connect incoming messages to `wake_character(db_path, decide, compact=True, event={"id": stable_message_id, "kind": "incoming", "context": message_text})` (or pass `split_cache=True` for hosts using LLM KV/prefix caching to receive `{prefix_hash, static_prefix, dynamic_turn}`).
 - Implement `decide(request)` using the supplied emotion values, identity anchor, memory, goals, and Simulacra cognitive pipeline. Return the pending event ID in the decision.
-- Wire a host-owned heartbeat to `wake_character(db_path, decide, compact=True)`. Configure an explicit idle interval and scheduling cadence.
+- Wire a host-owned heartbeat to `wake_character(db_path, decide, compact=True)` (or `split_cache=True`). Configure an explicit idle interval and scheduling cadence.
 - Deliver accepted `reply` values only once. Use event IDs to deduplicate outbound messages and tool side effects.
 - Preserve pending work and resume it on reconnect/restart. Avoid competing independent writers to the same character state.
 
@@ -60,7 +60,7 @@ Perform these checks with a test character or a backed-up test database. Never a
 
 **E. Restart:** restart the host and reopen the same database. Verify that state, recent events, and plans remain. Test a deliberately failed callback and confirm that the pending request survives and can be retried.
 
-**F. Memory:** verify approved memories survive a subsequent turn. Do not confuse `COMMIT_GATE:EPHEMERAL_ONLY` with the separately documented explicit memory-approval path.
+**F. Memory:** verify approved memories (via `decision["remember"]` or CLI `remember`) and older resolved episodes (>2 hours) are recalled via `recalled_memories` when matching cues appear. Do not confuse `COMMIT_GATE:EPHEMERAL_ONLY` with the separately documented explicit memory-approval path.
 
 **G. Character behavior:** compare ordinary conversation and performance contexts. Inspect which goals and arbitration results are supplied to the renderer; do not infer that every unchanged value is a defect.
 

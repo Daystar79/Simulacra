@@ -1,6 +1,6 @@
 # Characters Directory
 
-Named fictional people are the **unit of load**. Archetypes A–F are voice/matrix templates only ([Main.md](../Framework/Main.md), [voices.md](../Framework/Mechanics/voices.md)).
+Named fictional people are the **unit of load**. Archetypes A–F are voice/matrix templates only ([Main.md](../Framework/Main.md), [voices.yaml](../Framework/Mechanics/voices.yaml)).
 
 ## Card vs log vs live snapshot
 
@@ -46,7 +46,7 @@ Golem applies defaults in memory when it reads older cards. The in-place deploym
 2. Load the full `Characters/[slug].yaml` (or a pasted YAML card).
 3. Overlay `Characters/[slug]_log.yaml` when present.
 4. Run [CognitivePipeline.md](../Framework/CognitivePipeline.md) with realm_data + trigger → live snapshot + 4-channel vector.
-5. [Main.md](../Framework/Main.md) + [Rules_Index.md](../Framework/Rules_Index.md) render manuscript prose.
+5. [Main.md](../Framework/Main.md) + [rules_index.yaml](../Framework/rules_index.yaml) render manuscript prose.
 6. On approval: commit durable fields to log + Continuity_Ledger (not the card).
 
 ## Files

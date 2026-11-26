@@ -268,7 +268,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"State file not found: {args.state_file}", file=sys.stderr)
         return 2
 
-    state = load_json(args.state_file)
+    try:
+        state = load_json(args.state_file)
+    except Exception as e:
+        print(f"INVALID (JSON decode error: {e}) — {args.state_file}")
+        return 1
     if not isinstance(state, dict):
         print("State root must be a JSON object", file=sys.stderr)
         return 1

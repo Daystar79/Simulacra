@@ -103,12 +103,19 @@ def select_somatic_cues(
     realms = realm_data.get("realms", {})
     r = realms.get(realm_key) or realms.get("X") or next(iter(realms.values()))
     excluded = RENDERING_CUES | (exclude_extra or set())
-    pool = [c for c in r.get(tier, []) if c not in excluded]
-    if not pool:
-        pool = [c for c in r.get("micro", []) if c not in excluded]
+    # Prefer fresh cues from the current tier so low-stress ticks don't emit
+    # macro-tier cues; expand to other tiers only when the tier's fresh cues
+    # are exhausted.
+    tier_pool = [c for c in r.get(tier, []) if c not in excluded]
+    pool = list(tier_pool)
+    for other_tier in ("micro", "moderate", "macro"):
+        if other_tier != tier:
+            pool.extend(c for c in r.get(other_tier, []) if c not in excluded and c not in pool)
     if not pool:
         return []
-    fresh = [c for c in pool if c not in recent_cues] or pool
+    fresh = [c for c in tier_pool if c not in recent_cues]
+    if not fresh:
+        fresh = [c for c in pool if c not in recent_cues] or pool
     idx = int(hashlib.sha256(seed_str.encode("utf-8")).hexdigest(), 16) % len(fresh)
     chosen = [fresh[idx]]
     if len(fresh) > 1:

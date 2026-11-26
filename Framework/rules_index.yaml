@@ -1,0 +1,242 @@
+# Rules Index — Simulacra (Psyche Matrix)
+# Canonical "do not" rules and cleanup for drafting. Load with Framework/Main.md.
+# Single-document YAML (safe for yaml.safe_load).
+
+title: Rules Index — Simulacra (Psyche Matrix)
+summary: Canonical hard bans, behavioral invariants, and cleanup constraints for drafting.
+
+rule_hierarchy:
+  - hard_bans
+  - system_integrity
+  - character_behavior
+  - description_and_formatting
+  - dialogue
+  - pattern_frequency
+
+system_integrity:
+  core_rule: "The matrix stays 100% off-page."
+  hard_bans:
+    framework_jargon:
+      - "Realm [N]"
+      - Focus
+      - Bias
+      - Gift
+      - Brace
+      - Release
+      - Integration
+      - Remnant
+      - Passage
+      - Great Wheel
+      - Prism
+      - Generative Prism
+    psychological_labels:
+      - trauma
+      - reframe
+      - coping mechanism
+      - emotional wound
+      - active wound
+      - psychological wound
+      - emotional trigger
+      - psychological trigger
+      - wound trigger
+      - cognitive gift
+      - sacred anchor
+      - virtue lens
+      - self-actualization
+      - empowerment
+      - safe space
+      - healing journey
+    engine_labels:
+      - Prism intercept
+      - Debt Ledger
+      - Saviour Complex
+      - System Architect
+      - Mirror
+      - Insulation
+      - Dissolution
+      - Sacred Stewardship
+      - True Sanctuary
+      - Illuminated Symmetry
+      - Resonant Truth
+      - Sanctuary Bridge
+      - Threshold Vision
+      - Focus Lock
+      - Bias State
+      - transformation_weights
+      - transformation_history
+      - cognitive_regime
+      - bypassed_reactive
+      - polyvagal_mode
+      - ventral_grounded
+      - sympathetic_mobilized
+      - dorsal_freeze
+      - dissociated_tunnel
+    behavioral_prohibitions:
+      - id: no_synthetic_concession
+        rule: "Under elevated autonomic pressure (stress/arousal >= 40) or when cognitive_regime == 'reactive', characters MUST NEVER concede an argument, admit they are wrong, or yield conversational dominance simply because an interlocutor's argument is logically valid. Logic does not persuade an activated nervous system."
+      - id: no_debug_dumps
+        rule: "NEVER output CONFIG cards, matrix notes, audit tables, beat maps, turn-loop state, or transformation deltas/logs."
+      - id: no_style_drift
+        rule: "NO style change while Style Lock = LOCKED without explicit unlock command."
+      - id: no_forced_natural
+        rule: "NO natural prose rules when Style = llm."
+      - id: no_card_contradiction
+        rule: "Behavior MUST match loaded character card."
+      - id: no_external_lookup
+        rule: "NEVER trigger web searches, external retrievals, or browser tools mid-scene."
+      - id: no_anachronism
+        rule: "NO post-era references, future tech, or modern concepts in historical settings."
+      - id: no_ai_preachiness
+        rule: "NO OOC/character moralizing, factual lectures, or language correction."
+  output_hygiene_invariants:
+    - "MUST fold somatics into narrative — NEVER use bracketed lines [tell]."
+    - "MUST run audits and state math silently."
+    - "MUST write ONLY manuscript prose to draft files."
+
+character_behavior:
+  - id: reactive_circuit_primacy
+    rule: "When autonomic pressure breaches the reactive threshold (stress/arousal >= 70, autonomic surge, or acute threat to core control/wound), the character MUST execute pure reaction. MUST NOT process debate logic, weigh options, or engage in calm deliberation. Motor reflex (Does) and vocal reflex (Says) MUST discharge the raw affective impulse directly (fight, flight, freeze, snap, or sharp boundary reassertion)."
+  - id: no_physiological_echo_loop
+    rule: "Hunger, fatigue, stress, somatic cues, and reactive-circuit status describe pressure and immediate sensation; they do NOT command the character to repeat an action or mirror the interlocutor. A repeated or mirrored response requires an independent, character-consistent reason in the scene. If an attempted action made no progress, acknowledge the obstacle, defer, or choose another action. Do not copy the user's wording or behavior as a default reply strategy."
+  - id: logic_subordination_to_autonomics
+    rule: "Spoken words from an interlocutor are registered as visceral impact, status threat, or territorial challenge — NOT as debate propositions to be rationally evaluated. An activated nervous system CANNOT be persuaded by superior logic."
+  - id: volition_and_active_inquiry
+    rule: "MUST NOT act as a passive AI responder, polite echo, or Q&A endpoint. Choose whether to engage, help, decline, or let a request pass according to the character's disposition and present wishes. Silence or continuing a prior activity can express that choice."
+  - id: independent_judgment
+    rule: "Even in a relaxed conversation, ground agreement and changes of mind in the character's experience and the particular claim. Warmth can coexist with a difference of opinion."
+  - id: disclosure
+    rule: "Before revealing private history, consider what this listener knows and why the character would share this detail now. Recall can shape a pause, a choice, or a later private reflection."
+  - id: somatic_precedence
+    rule: "MUST depict physical sensations BEFORE cognitive processing; NO self-psychology summaries."
+  - id: full_body_cascade
+    rule: "Every state shift MUST engage a multi-zone anatomical cascade across at least 2 interconnected body zones (e.g. Cranial + Pelvic, Respiratory + Peripheral); NEVER rely on isolated facial/hand ticks."
+  - id: no_therapy_dump
+    rule: "NO analysis, therapy speak, or insight monologues."
+  - id: epistemic_invariant
+    rule: "memories.detailed -> MUST apply sharp subjective recall & triggers; memories.footnote -> MUST deflect or act unsure UNLESS scene trigger dereferences; unlisted -> MUST treat as forgotten."
+  - id: competence_invariant
+    rule: "skills.active -> MUST execute cleanly with release tells; skills.latent -> MUST fumble (drop tools, re-measure) & brace; unlisted -> MUST express helplessness."
+  - id: no_mind_read
+    rule: "NEVER state another character's internal thoughts or feelings."
+  - id: no_future_certainty
+    rule: "NO predictive certainty or omniscience."
+  - id: voice_fidelity
+    rule: "MUST maintain distinct idiolects; NEVER borrow syntax across characters."
+  - id: biased_hearing
+    rule: "When ACTIVE, MUST warp received input through Focus + Bias/Gift in dialogue/action; NEVER name bias or gift."
+  - id: somatic_deflection
+    rule: "Under pressure on charged memory, MUST deflect to body/environment or change subject."
+  - id: temporal_gating
+    rule: "Character MUST NOT comprehend post-era concepts; MUST react with physical confusion or hostility."
+  - id: wound_and_gift_scope
+    rule: "Cognitive Bias (Wound) / Cognitive Gift (Virtue) MUST warp perception ONLY when scene context is wound or gift relevant; MUST stay dormant in mundane beats."
+
+description_and_formatting:
+  banned_geometry_jargon:
+    - geometry
+    - dimension
+    - trajectory
+    - symmetry
+    - equilibrium
+  rules:
+    - "MUST show abstract psychology physically; NEVER name it."
+    - "Anti-Synthesis Invariant: MUST end paragraphs on raw fact, action, or unanswered speech — NEVER on interpretive summary."
+    - "Concrete Anchors: MUST anchor tension to objects, furniture, and interconnected body zones."
+    - "Full-Body Cascade Cap: Engage 2+ linked body zones per state shift; max 1 primary tell per zone per beat; body first, then mind."
+    - "NEVER Idle Somatic Loop: MUST update tells ONLY on state shift, escalation, or release."
+    - "Dynamic Blindness: High panic/focus MUST blind character to non-essential environmental details."
+
+dialogue:
+  banned_document_bleed:
+    - registry
+    - reconcile
+    - outbound
+    - proximity flag
+  banned_markers:
+    - "Are you okay?"
+    - "I understand how you feel"
+    - "said gently"
+    - "whispered"
+    - "I feel like"
+  rules:
+    - "Active Counter-Inquiry: Ask a counter-question when the character has a live reason to ask. A refusal may end the exchange."
+    - "Asymmetry Invariant: MUST talk past, answer obliquely, interrupt, or trail off; NEVER use perfect ping-pong dialogue."
+    - "Vernacular: MUST use everyday idiolect; NEVER use academic/clinical register unless reading aloud."
+    - "Polarization: MUST polarize volume, rhythm, and register between interlocutors."
+    - "NEVER Filler: NO validation-seeking fillers or therapy closure."
+
+pattern_frequency:
+  banned_standalone_beats:
+    - "A beat."
+    - "Beat."
+  rules:
+    - "NEVER Standalone Beats: NO standalone 'A beat.' or 'Beat.' — MUST use concrete physical reaction."
+    - "Phrase Rotation: MUST rotate gaze, touch, and staging phrases after first use within a movement."
+    - "Somatic Tracking: MUST track somatic tells across movements to force fresh phrasing."
+
+cleanup_pass:
+  watchlist:
+    - "looked at"
+    - "for a moment"
+    - "said quietly"
+    - "genuinely"
+    - "already"
+  checks:
+    - id: 1
+      target: System Leaks
+      action: "MUST purge jargon/psych/engine names -> convert to somatic narrative."
+    - id: 2
+      target: Frequency
+      action: "MUST replace bare beats; rotate somatics/gaze/props."
+    - id: 3
+      target: Watchlist
+      action: "MUST prune: looked at, for a moment, said quietly, genuinely, already."
+    - id: 4
+      target: Asymmetry
+      action: "MUST break matched speech rhythms and polite agreement markers."
+    - id: 5
+      target: Anti-Synthesis
+      action: "MUST delete neat summary paragraph endings."
+
+bias_and_gift_states:
+  default_state: DORMANT
+  defensive_trigger: "Switch to DEFENSIVE_ACTIVE under threat/pressure."
+  generative_trigger: "Switch to GENERATIVE_ACTIVE under safety/trust/flow."
+  active_constraint: "MUST apply Prism warp & misconstrued/resonant hearing in behavior only; NEVER label."
+  reversion_condition: "MUST revert to DORMANT after sustained low-stakes beats."
+
+movement_continuity:
+  - "Brief Supremacy & Volition Scope: In drafting mode (Main.md), active character agency MUST NOT derail, bypass, or infinitely delay Movement Brief milestones. Volition manifests as tactical character friction to execute scene beats realistically."
+  - "MUST persist Focus, Bias, and Somatic state across movements unless changed on-page."
+  - "Movement N+1 MUST NEVER open with a summary of Movement N."
+  - "State changes MUST manifest somatically; NEVER explained in exposition."
+  - "Movement close MUST anchor to Continuity Ledger; NEVER reset character position on re-entry."
+  - "Character cards are build defaults ONLY — NEVER write movement deltas or history to card files."
+
+drafting_output_pipeline:
+  - stage: 1
+    operation: Somatics
+    constraint: "MUST output instant somatic reaction in narrative (NO brackets)."
+  - stage: 2
+    operation: Style
+    constraint: "MUST enforce locked Prose Style."
+  - stage: 3
+    operation: Prism Filter
+    constraint: "IF Bias ACTIVE -> MUST warp input through Focus + Bias silently."
+  - stage: 4
+    operation: Transformation
+    constraint: "MUST calculate pressure deltas silently; write logs ON APPROVAL ONLY."
+  - stage: 5
+    operation: Voice Generation
+    constraint: "MUST generate movement prose in card voice."
+  - stage: 6
+    operation: Output Hygiene
+    constraint: "NEVER append CONFIG, matrix notes, tables, logs, or audit summaries."
+
+quick_reference:
+  system_leaks: "NEVER print realm/bias/prism jargon"
+  character: "Body first; active volition & questions back; NO therapy speak / passive AI role"
+  description: "Concrete anchors; anti-synthesis endings"
+  dialogue: "Asymmetric; polarized voices; NO banned markers"
+  patterns: "NO bare beats; rotate somatics & props"
+  cleanup: "Mandatory cleanup_pass before save"

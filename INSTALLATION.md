@@ -83,6 +83,8 @@ result = wake_character(
 result = wake_character(db_path, decide, compact=True)
 ```
 
+For hosts that support **LLM KV/prefix caching** (e.g., vLLM, llama.cpp, or API prompt caching), pass `split_cache=True` to `wake_character` (or `--split-cache` to CLI `prepare`). This returns `{"prefix_hash", "static_prefix", "dynamic_turn"}` so the host can place the byte-stable `static_prefix` in the cached `system` prompt and send only `dynamic_turn` in the per-turn `user` message.
+
 Do not substitute `golem.py` snapshot calls for `wake_character`. Do not hardcode `elapsed_ms: 0` on every event. The loop owns event time and carried history. A first timestamp can legitimately produce zero elapsed time; later events should reflect their actual time difference.
 
 Use stable, unique incoming message IDs. Deliver only accepted replies from resolved events, and deduplicate external delivery/tool effects by character and event ID. A failed callback leaves the request pending; retry by waking the same database rather than inventing a new event.
@@ -97,7 +99,7 @@ Schedule the **host's** heartbeat handler (not a raw Golem snapshot invocation).
 
 The heartbeat handler must import the configured host decision callback and call `wake_character` for each character database. Set `idle_seconds` to match the desired quiet cadence. Plans run on the first wake after their due time; a continuously running daemon is not required, but a scheduler is required for autonomous activity when no messages arrive.
 
-The loop serializes work per database, carries history and plans in SQLite, and resumes pending requests after a restart. The character's approved memories remain in its YAML log; see the existing memory approval instructions in [scripts/README.md](scripts/README.md).
+The loop serializes work per database, carries history and plans in SQLite, and resumes pending requests after a restart. Recent turns within the active 2-hour window appear in `recent`; older resolved events in SQLite are automatically searched and recalled on demand in `recalled_memories` (`kind: "episode"`) when cues or topics match, keeping context size bounded across days. Decisions can also promote durable memories in-turn via `decision["remember"]` (persisted to SQLite `memories` and mirrored to the configured YAML log), or via the CLI `remember` command documented in [scripts/README.md](scripts/README.md).
 
 ## Manual diagnostics
 
@@ -130,7 +132,7 @@ To exercise the manual queue, see the `enqueue`, `run`, and `resolve` examples i
 | Every snapshot shows zero elapsed time | First-event baseline, duplicate timestamps, or host supplying zero time instead of using the loop |
 | Pending event never resolves | Callback failure, wrong event ID, or failure to return the decision |
 | Idle plans never run | Missing heartbeat, incorrect cadence, or plan due time not reached |
-| Memories vanish | Wrong log path, missing approval/write, or ephemeral storage |
+| Memories vanish | Wrong DB/log path, ephemeral storage, missing `cues` on `remember`, or older event lacked overlapping keywords/topic |
 | One host works and another does not | Compare provisioning, persistent DB path, callback wiring, and scheduler before modifying engine logic |
 
 Do not change Golem's core algorithms or rewrite a character card to hide a host installation defect.

@@ -1,0 +1,114 @@
+# Modules Index — Simulacra
+# Extension registry for the Cognitive Pipeline. Downstream applications register
+# modules here to inject into the cognitive loop without forking the core engine.
+# Single-document YAML (safe for yaml.safe_load).
+
+title: Modules Index — Simulacra
+load_with:
+  - Framework/CognitivePipeline.md
+  - Framework/Main.md
+
+purpose: >-
+  The Cognitive Pipeline is the fixed psychological and physical character runtime.
+  The module system lets downstream applications (book projects, host tools) add
+  optional behavior into that loop without forking the core engine. Modules are
+  configuration for the cognitive loop, not a second personality engine.
+
+layers:
+  core_pipeline: "Always on: nervous system -> affect -> prism -> arbitration -> 4-channel vector"
+  modules: "Optional, registry-gated injectors at defined loop hooks"
+  app_hosts: "Main / downstream renderers present output; they do not re-implement psyche"
+
+core_supremacy:
+  on_conflict: "Core wins; the conflicting module instruction is silently ignored (optional stdout warning for agents)."
+  invariants:
+    - "Framework/rules_index.yaml hard bans and output hygiene"
+    - "Framework/CognitivePipeline.md sequence, state model, and invariants"
+    - "Character card + _log.yaml supremacy for identity and durable state"
+    - "Absolute age gates (canon_adult, age >= 18) for adult content"
+
+hooks:
+  pre_somatic:
+    stage: 1_nervous_system
+    may_do: "Suggest extra ambient tells"
+    must_not_do: "Replace realm_data catalogs or invent on-page jargon"
+  affect_filter:
+    stage: 2_raw_affect
+    may_do: "Scale intensity / gate domains"
+    must_not_do: "Force emotions that contradict card + live state"
+  pre_arbitration:
+    stage: 4_priority_arbitration
+    may_do: "Adjust context multipliers / competing drives"
+    must_not_do: "Override card baseline weights permanently without commit rules"
+  post_vector:
+    stage: 5_four_channel_vector
+    may_do: "Constrain how channels are phrased/crafted"
+    must_not_do: "Emit system labels into Says meant for on-page use"
+  app_render:
+    stage: 6_app_render
+    may_do: "Style/genre presentation rules"
+    must_not_do: "Bypass rules_index.yaml hygiene"
+  on_commit:
+    stage: 7_commit
+    may_do: "Append module-specific durable notes"
+    must_not_do: "Write evolution into the character card"
+
+core_only_stages:
+  - stage: 3_prism
+    note: "Core only — modules MUST NOT rewrite prism law."
+
+# Active modules registry. Only entries with an existing file and status: ENABLED load.
+# Downstream apps add entries (or drop local module files under the book tree) to extend the loop.
+modules:
+  - name: Adult intimacy
+    path: Framework/Mechanics/erotica.md
+    status: ENABLED
+    hooks:
+      - app_render
+    compatibility: "Eligible scenes within the host or project depiction ceiling"
+
+adding_a_module:
+  - "Author the module file (e.g. Framework/Mechanics/mystery.md or Modules/my_app_tuning.md in the book folder)."
+  - "Declare in the module header: hooks used, incompatibilities, dependencies."
+  - "Register an entry under modules in this file (or the book's deployed copy) with status: ENABLED."
+  - "On next session boot, agents run verification_rules and inject at declared hooks only."
+  - "To disable: set status to DISABLED or remove the entry — core pipeline continues unchanged."
+
+verification_rules:
+  - "Scan modules for status: ENABLED."
+  - "If none: skip module protocol entirely (core pipeline only)."
+  - "For each ENABLED entry: resolve path; if missing -> skip with warning."
+  - "Compatibility check: no contradiction with rules_index.yaml hard bans / off-page matrix; no conflict with other ENABLED modules' declared incompatibilities; adult modules require all on-scene participants to pass age gates."
+  - "On failure: '[Warning] Module [Name] failed verification: ... Skipping.'"
+  - "Apply verified modules as subordinate parameters at their hooks only — never as a replacement for CognitivePipeline.md."
+
+load_order:
+  - "Registry order = application order within the same hook."
+  - "Later modules cannot disable earlier ones except via explicit incompatibility (then the later one is skipped)."
+  - "Multiple non-conflicting modules may run on the same tick."
+
+shipped_vs_app_modules:
+  core:
+    location: "CognitivePipeline.md, realm_data.yaml, schema"
+    notes: "Always loaded — not modules"
+  shipped_optional:
+    location: "Framework/Mechanics/*"
+    notes: "Registered above when used as loop injectors"
+  app_local:
+    location: "Book tree Modules/ or Framework/Mechanics/"
+    notes: "Downstream owns content; register here to enter the loop"
+
+planned_examples_not_shipped:
+  - name: Mystery Engine
+    path: Modules/mystery.md
+  - name: Romance Tuning
+    path: Modules/romance.md
+  - name: Action & Pacing
+    path: Modules/action.md
+    notes: "Incompatible with Romance Tuning when both try exclusive pacing hooks"
+
+session_boot:
+  - "Always load this registry file when running drafting or downstream sessions so agents know what is enabled."
+  - "Pipeline: execute core sequence; at each hook, apply ENABLED modules for that hook."
+  - "Main / Downstream hosts: still own presentation; app_render modules refine host output only."
+  - "Registry is deployable. Downstream books edit their copy to enable app-specific injectors without modifying upstream core files in place (or re-register after deploy)."

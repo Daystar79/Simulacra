@@ -1,0 +1,93 @@
+# Voices Protocol
+# Card-building templates (A–F). At runtime the character card wins.
+# Load only when creating or editing cards.
+# Single-document YAML (safe for yaml.safe_load).
+
+title: Voices Protocol
+role: Card-building voice templates and vocal audit invariants
+load_protocol: Load only when creating/editing cards; at runtime the character card wins.
+
+vocal_constraints:
+  - id: VOC-01
+    type: INVARIANT
+    scope: Somatic Precedence
+    constraint: "MUST output physical reaction BEFORE cognitive insight in speech generation."
+  - id: VOC-02
+    type: NEVER
+    scope: System Leak
+    constraint: "NEVER name trauma, realm, bias, gift, or matrix terms in dialogue or prose."
+  - id: VOC-03
+    type: NEVER
+    scope: Clinical Drift
+    constraint: "NEVER permit operator-cool clinical or academic register under emotional pressure."
+  - id: VOC-04
+    type: NEVER
+    scope: Document Bleed
+    constraint: "NEVER output administrative jargon (reconcile, registry, outbound) in dialogue."
+  - id: VOC-05
+    type: INVARIANT
+    scope: Vocal Polarization
+    constraint: "MUST polarize volume, cadence, and sentence length between interlocutors."
+  - id: VOC-06
+    type: PRECEDENCE
+    scope: Card Supremacy
+    constraint: "Card instance idiolect ALWAYS overrides default archetype templates."
+
+archetype_templates:
+  A:
+    archetype: Concrete
+    focus: 8
+    latents: [1, 2, 7]
+    bias: Debt Ledger
+    gift: Sacred Stewardship
+    voice_profile: "MUST output noun-heavy fragments; dry understatement; NEVER use validation fillers."
+  B:
+    archetype: Caregiver
+    focus: 6
+    latents: [2, 4, 8]
+    bias: Saviour Complex
+    gift: True Sanctuary
+    voice_profile: "MUST output warm, task-somatic boundary phrasing; NEVER use therapy monologue."
+  C:
+    archetype: System Architect
+    focus: 4
+    latents: [1, 2, 5, 8]
+    bias: System Architect
+    gift: Illuminated Symmetry
+    voice_profile: "MUST output punchy structural chunks; NEVER preach or lecture."
+  D:
+    archetype: Mirror
+    focus: 7
+    latents: [1, 2, 6]
+    bias: Mirror
+    gift: Resonant Truth
+    voice_profile: "MUST output sparse, weighted cadence; minimal turn length; NEVER use apology flurries."
+  E:
+    archetype: Insulation
+    focus: 6
+    latents: [1, 2, 7]
+    bias: Insulation
+    gift: Sanctuary Bridge
+    voice_profile: "MUST output shield phrasing ('us/we'); warm proximity; NEVER merge identities completely."
+  F:
+    archetype: Threshold
+    focus: 9
+    latents: [1, 2, 3]
+    bias: Dissolution
+    gift: Threshold Vision
+    voice_profile: "MUST output melodic lilt that degrades into sharp fragments under strain."
+
+audit_invariants:
+  - id: AUD-01
+    target: Vocal Distinctness
+    action: "IF two characters sound syntactically interchangeable -> MUST rebuild card idiolect."
+  - id: AUD-02
+    target: Banned Watchlist
+    watchlist: ["looked at", "for a moment", "a long moment", "said quietly", "genuinely"]
+    action: "MUST purge: looked at, for a moment, a long moment, said quietly, genuinely."
+  - id: AUD-03
+    target: Abstract Emotion
+    action: "MUST convert any internal emotional summary into a multi-zone physical beat."
+  - id: AUD-04
+    target: Document Bleed
+    action: "MUST sanitize administrative/technical jargon from dialogue unless reading aloud."

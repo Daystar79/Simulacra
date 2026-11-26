@@ -37,9 +37,9 @@ Do **not** produce findings or fixes until every file below is read for the targ
 ### Always load (order)
 
 1. `Framework/Drafting_Prompt.md` — Current Position, Permanent Rules, phrase watchlist
-2. **`Framework/Mechanics/voices.md`** (full — Core Logic, Character Profiles, §IV Audit Checklist)
+2. **`Framework/Mechanics/voices.yaml`** (full — Core Logic, Character Profiles, §IV Audit Checklist)
 3. `Framework/natural_prose.md` — syntactical asymmetry, dialogue drift, sensory focus
-4. `Framework/Mechanics/humanity.md`
+4. `Framework/Mechanics/humanity.yaml`
 5. `Framework/formatting_rules.md` — especially §8 scene transitions
 6. `Framework/Prose_Script.md`
 7. `Framework/Continuity_Ledger.md` — active band row
@@ -106,7 +106,7 @@ For the target band only, evaluate:
 Flag issues with **file + line + quoted snippet**. Suggest **surgical** fixes only.
 
 ### Phase 2: Line & rhythm (style — anti-homogenization)
-Apply `natural_prose.md` and `voices.md` §IV to the target band:
+Apply `natural_prose.md` and `voices.yaml` §IV to the target band:
 - Flag participial-tail smoothing, symmetric paragraph cadence, checklist room descriptions
 - Flag voice interchangeability (character A sounds like B)
 - Flag editorial "improvements" that would flatten unique character fragments or speech cadences

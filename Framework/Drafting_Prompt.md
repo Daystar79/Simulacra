@@ -10,11 +10,11 @@ Invoke in chat: **`/draft`** — or say "draft the next movement" / "continue Ch
 The drafting framework is divided into dedicated modules to prevent configuration drift:
 - **Active Session (This File):** Current position, active brief, fixes queue, and workspace references.
 - **[Main.md](Main.md):** The core cognitive writing instructions.
-- **[Rules_Index.md](Rules_Index.md):** Standing formatting, hard bans, and output hygiene rules.
+- **[rules_index.yaml](rules_index.yaml):** Standing formatting, hard bans, and output hygiene rules.
 - **[Novel_Outline.md](Novel_Outline.md):** Project goals, genre positioning, narrative architecture, and endings.
 - **[World_Architecture.md](World_Architecture.md):** Setting canon, geography, ranks, logistics, and rites.
-- **[humanity.md](Mechanics/humanity.md):** Continuity, somatic focus, and POV constraints.
-- **[voices.md](Mechanics/voices.md):** Character idiolects, conversational asymmetry, and phrase watchlist.
+- **[humanity.yaml](Mechanics/humanity.yaml):** Continuity, somatic focus, and POV constraints.
+- **[voices.yaml](Mechanics/voices.yaml):** Character idiolects, conversational asymmetry, and phrase watchlist.
 
 ---
 
@@ -55,8 +55,8 @@ The drafting framework is divided into dedicated modules to prevent configuratio
 | [master_manuscript.md](../Drafts/master_manuscript.md) | Canonical assembled text |
 | [Completed/draft_chapter_#.md](../Drafts/Completed/) | Assembled approved chapters |
 | [draft_chapter_#_m#.md](../Drafts/) | Movement source files |
-| [humanity.md](Mechanics/humanity.md) | Biological + voice fidelity |
-| [voices.md](Mechanics/voices.md) | Character Voice Protocol and Watchlist |
+| [humanity.yaml](Mechanics/humanity.yaml) | Biological + voice fidelity |
+| [voices.yaml](Mechanics/voices.yaml) | Character Voice Protocol and Watchlist |
 | [formatting_rules.md](formatting_rules.md) | Standing formatting and prose rules |
 | **[Psychology/realm_data.yaml](Psychology/realm_data.yaml)** | **Ten Realm somatic bracing/release mappings** |
 | **[Rite_Reference.md](Rite_Reference.md)** | **Rite staging details and mechanics** |

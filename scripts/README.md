@@ -51,7 +51,14 @@ scripts/
   run.py                 # OS-aware dispatcher (preferred)
   validate_state.py      # State schema and range validator
   golem.py               # Golem runtime facade and tick orchestrator
-  golem_loop.py          # Host loop (wake_character, request lifecycle, SQLite)
+  golem_loop.py          # Host loop facade (wake_character, provisioning, boundaries, CLI)
+  golem_loop_modules/    # Internal modules behind golem_loop.py
+    db.py                #   file locks, schema migration, path checks, archive compaction
+    activities.py        #   duration-based activity lifecycle
+    projection.py        #   compact host packet, repetition patterns, rendering guidance
+    cache.py             #   resident character hydration, realm cache, runtime config, setup
+    learning.py          #   learned observations and contextual expectations
+    lifecycle.py         #   event queue, body_tick, appraisal, advance, resolve
   golem_paths.py         # Canonical paths (repo root, realm data, schema)
   golem_physiology.py    # Physiological constants and helpers (calibration,
                          #   baselines, half-lives, felt pleasure, distress recovery)

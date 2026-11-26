@@ -32,7 +32,7 @@ These are **architectural capabilities, not a guarantee of human-equivalent cogn
 
 1. Start with the book-writing guide and load the cards and durable logs for the characters present. [Drafting guide](Framework/Main.md) · [Character templates](Characters/README.md)
 2. Check continuity against the movement brief. Work through the bodily response first, then the character's interpretation, social mask, and competing motives. Acute pressure can interrupt deliberation. [Drafting workflow](Framework/Drafting_Workflow.md) · [Continuity ledger](Framework/Continuity_Ledger.md)
-3. Render dialogue and action in the manuscript. Keep the underlying framework vocabulary in the working notes. On approval, commit durable changes to the character log. [Rules index](Framework/Rules_Index.md)
+3. Render dialogue and action in the manuscript. Keep the underlying framework vocabulary in the working notes. On approval, commit durable changes to the character log. [Rules index](Framework/rules_index.yaml)
 
 To copy the framework into a book folder, run `python3 scripts/run.py deploy` from the checkout and select the intended target. [Deployment and lint tools](scripts/README.md)
 
@@ -116,7 +116,7 @@ python3 -m venv .venv
 .venv/bin/python scripts/run.py validate
 ```
 
-Downstream applications can extend the pipeline through documented module hooks. The project scope describes the contract between Simulacra and its hosts. [Module registry](Framework/Modules.md) · [Project scope](PROJECT_SCOPE.md) · [Changelog](CHANGELOG.md)
+Downstream applications can extend the pipeline through documented module hooks. The project scope describes the contract between Simulacra and its hosts. [Module registry](Framework/modules.yaml) · [Project scope](PROJECT_SCOPE.md) · [Changelog](CHANGELOG.md)
 
 ## License
 

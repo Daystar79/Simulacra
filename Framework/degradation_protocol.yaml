@@ -1,0 +1,61 @@
+# Context-Budget Degradation Protocol
+# Optional active context optimization framework for token-constrained environments.
+# Single-document YAML (safe for yaml.safe_load).
+
+title: Context-Budget Degradation Protocol
+purpose: >-
+  Defines the standard degradation hierarchy for compressing the loaded context stack
+  when running in token-constrained LLM environments (e.g., 32k/128k context windows)
+  while maintaining somatic integrity at minimal token footprints.
+
+tiers:
+  green:
+    min_tokens: 100000
+    context_window: "> 100k tokens"
+    mode: Full Stack
+    action: "Load full canonical manifest (no modifications needed)."
+  yellow:
+    min_tokens: 30000
+    max_tokens: 100000
+    context_window: "30k – 100k tokens"
+    mode: Compact Stack
+    action: "Apply Phase 1 compression (trim prose history & logs)."
+  red:
+    max_tokens: 30000
+    context_window: "< 30k tokens"
+    mode: Minimal Stack
+    action: "Apply Phase 2 compression (trim realms database & outline)."
+
+phase_1_yellow:
+  trigger: "When context warnings occur or approaching 30k–50k tokens"
+  prose_compression:
+    standard: "Load all prior drafted movements in the active chapter."
+    rule: "Load only the immediately preceding movement (Movement N-1) in full. Unload all earlier movements in the active chapter."
+  character_log_compression:
+    standard: "Load full Characters/[slug]_log.yaml including snapshots and entire historical entry lists."
+    rule: "Limit the loaded character log history array to the last 3 entries only. Keep the snapshot intact."
+    max_history_entries: 3
+  reference_file_unload:
+    standard: "Load formatting_rules.md, stubs, and full reference guidelines."
+    rule: "Unload formatting_rules.md, load_protocol.md, and all stubs (psyche_framework.md, etc.). Rely exclusively on the concise Framework/rules_index.yaml for style and cleanup."
+    unload:
+      - Framework/formatting_rules.md
+      - load_protocol.md
+      - Framework/psyche_framework.md
+    keep:
+      - Framework/rules_index.yaml
+
+phase_2_red:
+  trigger: "Extremely tight context environments (< 30k tokens)"
+  somatic_staging_anchor_only:
+    rule: "Do not load the full text of preceding movements. Load only the last 5 paragraphs of the preceding movement to recover the somatic close, props positioning, and environment anchors."
+    max_paragraphs: 5
+  log_snapshot_only:
+    rule: "Completely strip the history array from all loaded _log.yaml character states. Inject only the single snapshot block containing active focus, latent weights, default somatic, and bias strength."
+    max_history_entries: 0
+  realm_database_pruning:
+    standard: "Load the complete realm_data.yaml (somatic behaviors for all 10 Realms)."
+    rule: "Unload realm_data.yaml entirely. Copy/inject only the YAML profiles for the specific active and latent realms of the characters actively on-scene in this session."
+  macro_outline_strip:
+    standard: "Load the full Novel_Outline.md or World_Architecture.md."
+    rule: "Unload outline and world bible files. Load only a single-paragraph summary of the active chapter's narrative goal and location."

@@ -1,0 +1,155 @@
+# Prose Protocol
+# Optional detail pack governing session-level prose styles and selection/lock states.
+# Session defaults and lock-on-select also live in Framework/Main.md §3a.
+# Single-document YAML (safe for yaml.safe_load).
+
+title: Prose Protocol
+type: supplementary_protocol
+role: Prose style catalog and selection lock state machine
+load_protocol: Load when styling overrides or catalog auditing are needed
+
+policy: >-
+  Prose style is user-selected. Do not force the house "Natural / asymmetric" pack
+  unless chosen. Default = llm (model fluent prose), status UNLOCKED until the writer
+  makes an explicit style choice. Once selected, it LOCKS for the rest of the session
+  (or until explicit unlock / full reset). Psychology (matrix, voice, somatics) stays
+  in force regardless of style; style only changes how the narrative is written.
+
+related:
+  drafting_entry: Framework/Main.md
+  natural_pack: Framework/natural_prose.md
+  card_voices: Framework/Mechanics/voices.yaml
+  hard_bans: Framework/rules_index.yaml
+
+invariants:
+  - id: PRS-01
+    type: INVARIANT
+    scope: Session Scope
+    constraint: "Prose style is session-wide; changing active character MUST NOT change active prose style."
+  - id: PRS-02
+    type: INVARIANT
+    scope: Default Initializer
+    constraint: "MUST initialize session at Prose Style = llm, Style Lock = UNLOCKED unless brief specifies style."
+  - id: PRS-03
+    type: PRECEDENCE
+    scope: Explicit Lock Supremacy
+    constraint: "Explicit style selection (/style <id> or brief) MUST immediately set Style Lock = LOCKED."
+  - id: PRS-04
+    type: NEVER
+    scope: Silent Drift
+    constraint: "WHILE Style Lock = LOCKED: NEVER permit model drift toward natural, literary, or custom texture."
+  - id: PRS-05
+    type: MUST
+    scope: Auto-Lock Trigger
+    constraint: "IF Style Lock = UNLOCKED after first movement: MUST auto-set Style Lock = LOCKED to active style."
+  - id: PRS-06
+    type: INVARIANT
+    scope: Module Loading
+    constraint: "IF Prose Style = natural: MUST load natural_prose.md. IF llm: MUST NOT load natural_prose.md."
+
+state_machine:
+  - event: Session Start
+    pre_condition: No prior state
+    delta: "Set Style = llm, Lock = UNLOCKED"
+    output: "Silent state initialization."
+  - event: Brief Specification
+    pre_condition: "Brief contains Prose Style: <id>"
+    delta: "Set Style = <id>, Lock = LOCKED"
+    output: "System note: Style locked: <id>."
+  - event: "Command /style <id>"
+    pre_condition: Any state
+    delta: "Set Style = <id>, Lock = LOCKED"
+    output: "System note: Style locked: <id>."
+  - event: Drift Request
+    pre_condition: "Lock = LOCKED"
+    delta: "REJECT change; maintain active style"
+    output: "Output refusal: Style is locked (<id>). Use /style unlock."
+  - event: "Command /style unlock"
+    pre_condition: "Lock = LOCKED"
+    delta: "Set Lock = UNLOCKED; keep active style"
+    output: "System note: Style unlocked."
+  - event: First Turn Auto-Lock
+    pre_condition: "Lock = UNLOCKED post-turn 1"
+    delta: "Set Lock = LOCKED; keep active style"
+    output: "System note: Style auto-locked to <id>."
+
+styles:
+  llm:
+    name: Model default
+    aliases: [default, normal, standard, model]
+    when_to_use: Ordinary LLM fluency
+    engine_notes: "No house-style constraints. Clear, competent narrative. Still honor character voice + matrix."
+  natural:
+    name: Natural / asymmetric (house)
+    aliases: [house, asymmetric, anthony, barker, anthony/barker, anti-ai]
+    when_to_use: "Anti-AI texture: jagged rhythm, drift, fumble, anti-synthesis"
+    engine_notes: "Load full Framework/natural_prose.md. Anthony/Barker-adjacent — optional, not automatic."
+    requires_file: Framework/natural_prose.md
+  clean:
+    name: Clean commercial
+    aliases: []
+    when_to_use: Genre readability
+    engine_notes: "Short–medium sentences, clear beats, light sensory, minimal figurative density."
+  literary:
+    name: Literary lyrical
+    aliases: []
+    when_to_use: Interior, image-led
+    engine_notes: "Longer cadence allowed; image and motif; still no therapy summary endings unless user asks."
+  hardboiled:
+    name: Hardboiled / lean
+    aliases: [noir, lean]
+    when_to_use: Crime, noir pressure
+    engine_notes: "Spare verbs, concrete nouns, dry understatement, minimal adverb."
+  cinematic:
+    name: Cinematic
+    aliases: [film, screen]
+    when_to_use: Scene-as-shot
+    engine_notes: "Visual framing, cut-friendly paragraphs, external action over interior essay."
+  minimal:
+    name: Minimal
+    aliases: [sparse]
+    when_to_use: Extreme restraint
+    engine_notes: "Short lines, white space, almost no figurative language."
+  romantic:
+    name: Warm romantic
+    aliases: []
+    when_to_use: Soft heat, non-explicit by default
+    engine_notes: "Gesture and timing; avoid purple metaphor stacks."
+  custom:
+    name: User-defined
+    aliases: []
+    when_to_use: User pastes a style brief
+    engine_notes: "Follow their brief only; do not re-impose natural rules."
+
+style_invariant_layers:
+  character_card_focus_bias_prism: true
+  character_dialogue_voice: true
+  canon_adult_18_plus_gate: true
+  never_name_realm_bias_trauma_in_character: true
+  humanity_imperfect_recall_biased_hearing: "Yes (if protocol loaded)"
+  natural_prose_rules: "Only if style == natural"
+  style_lock_once_set: "Yes, until unlock / force / reset"
+
+drafting_output:
+  style_control: "Brief or /style sets style -> LOCKED for the pass"
+  somatics: "Fold into narrative. No brackets."
+  debug_and_matrix: "Never print CONFIG, matrix notes, audit tables, or engine labels"
+  hard_ban: "Do not dump turn-loop state, Focus/Bias labels, 'Prism intercept', remnant/passage jargon, or post-scene matrix footnotes into draft files."
+
+commands:
+  "/style llm": "set llm, LOCK"
+  "/style natural": "set natural, LOCK"
+  "/style hardboiled": "set hardboiled, LOCK"
+  "/style custom: ...": "set custom brief, LOCK"
+  "/style unlock": "UNLOCK (style ID unchanged)"
+  "/style force cinematic": "set cinematic, stay LOCKED"
+  "/style": "report current style + lock state"
+
+audit_checklist:
+  - "What style is active, and is it LOCKED?"
+  - "If LOCKED, refuse silent restyle; require unlock or force."
+  - "If llm -> do not rewrite toward natural/asymmetric or any other style pack."
+  - "If natural -> apply Framework/natural_prose.md fully."
+  - "If UNLOCKED -> maintain current style's characteristics; no drift toward any style pack."
+  - "After first character response with UNLOCKED style -> verify auto-lock occurred."
+  - "Character voice fidelity is audited separately from prose style."

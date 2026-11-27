@@ -79,6 +79,7 @@ def _stored_character_cache(connection, key):
     state, card, durable = inner.get("state"), inner.get("card"), inner.get("durable")
     if not isinstance(state, dict) or not isinstance(card, dict):
         return None
+    state["_memory_version"] = json.dumps([key[1], key[5]])
     entry = {"state": state, "card": card, "durable": durable}
     _RESIDENT_CHARACTERS[key] = entry
     return entry
@@ -118,6 +119,7 @@ def load_cached_character(config, connection=None):
     check_character_files(config, card, durable)
     if config.get("character_id"):
         state["character_id"] = config["character_id"]
+    state["_memory_version"] = json.dumps([key[1], key[5]])
     entry = {"card": card, "state": state, "durable": durable}
     _RESIDENT_CHARACTERS[key] = entry
     if connection is not None:

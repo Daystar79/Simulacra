@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +13,7 @@ _scripts_dir = str(Path(__file__).resolve().parents[1])
 if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
+from golem_loop_modules import recall
 from golem_loop_modules.projection import message_text, resolve_relationship_target  # noqa: E402
 
 RECENT_LIMIT = 12
@@ -272,7 +272,7 @@ def _content_tokens(text: str) -> set[str]:
     }
 
 
-def recall_stored_memories(connection, event, stimulus=None, limit=8):
+def recall_stored_memories(connection, event, stimulus=None, limit=8, *, authored=None, stamp=None, at=None):
     """Recall cue-matched durable memories stored in the SQLite memories table."""
     stim = stimulus if isinstance(stimulus, dict) else (event.get("stimulus") or {})
     explicit_cues = {
@@ -286,28 +286,10 @@ def recall_stored_memories(connection, event, stimulus=None, limit=8):
     ).casefold()
     if not haystack and not explicit_cues:
         return []
-    try:
-        rows = connection.execute(
-            "SELECT id, kind, summary, cues FROM memories ORDER BY created_at DESC, rowid DESC"
-        )
-    except sqlite3.OperationalError:
-        return []
-    matched = []
-    for row in rows:
-        cues = json.loads(row["cues"])
-        hit = False
-        for cue in cues:
-            cue_lc = str(cue).strip().casefold()
-            if not cue_lc:
-                continue
-            if cue_lc in explicit_cues or (haystack and re.search(rf"(?<!\w){re.escape(cue_lc)}(?!\w)", haystack)):
-                hit = True
-                break
-        if hit:
-            matched.append({"id": row["id"], "summary": row["summary"], "kind": row["kind"]})
-            if len(matched) >= limit:
-                break
-    return matched
+    recall.ensure_schema(connection)
+    if authored is not None:
+        recall.sync_authored(connection, authored, stamp)
+    return recall.ranked(connection, haystack, explicit_cues, at or event.get("at"), limit)
 
 
 def recall_past_episodes(connection, event, before_timestamp, *, target=None, limit=4, scan_limit=500):
@@ -328,7 +310,10 @@ def recall_past_episodes(connection, event, before_timestamp, *, target=None, li
         return []
 
     rows = connection.execute(
-        """SELECT id, due, input, decision FROM events
+        """SELECT id, due, input, decision,
+                  coalesce(json_extract(request,'$.emotional_intensity'),json_extract(request,'$.tick.psychosomatic_snapshot.affective_state.emotional_intensity')) AS intensity,
+                  coalesce(json_extract(request,'$.physical_intensity'),0) AS physical
+           FROM events
            WHERE status = 'resolved' AND due < ?
            ORDER BY due DESC, rowid DESC LIMIT ?""",
         (before_timestamp, scan_limit),
@@ -385,16 +370,22 @@ def recall_past_episodes(connection, event, before_timestamp, *, target=None, li
         summary = "; ".join(summary_bits)[:240]
         if not summary:
             continue
+        intensity = row["intensity"] if row["intensity"] is not None else 50
+        strength = max(intensity, row["physical"])
+        if before_timestamp + 2 * 3600 - row["due"] >= 14 * 86400 and strength < 80:
+            point = recall.key_point(past_outcome or past_context or past_utterance or past_action or past_reply)
+            summary = f"with {past_target}: {point}" if past_target else point
         scored.append((
-            score,
+            strength, score,
             row["due"],
             {
                 "id": f"episode:{row['id']}",
                 "kind": "episode",
+                "emotional_intensity": intensity, "physical_intensity": row["physical"], "strength": strength,
                 "at": datetime.fromtimestamp(row["due"], timezone.utc).isoformat(),
                 "summary": summary,
             },
         ))
 
-    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [entry for _, _, entry in scored[:limit]]
+    scored.sort(key=lambda item: item[:3], reverse=True)
+    return [item[-1] for item in scored[:limit]]

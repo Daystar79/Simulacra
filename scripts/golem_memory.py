@@ -47,9 +47,10 @@ def add_memory(log_data: dict[str, Any], memory: dict[str, Any]) -> bool:
     for bucket in ("detailed", "footnote", "dream"):
         for existing in memories.get(bucket, []):
             if isinstance(existing, dict) and existing.get("id") == entry["id"]:
-                if bucket == kind and existing == entry:
+                if bucket == kind and all(existing.get(k) == v for k, v in entry.items()):
                     return False
                 raise ValueError(f"Memory ID already exists: {entry['id']}")
+    entry.update({key: memory[key] for key in ("at", "emotional_intensity", "physical_intensity", "remember_by_choice", "key_point") if key in memory})
     memories.setdefault(kind, []).append(entry)
     log_data["revision"] = log_data.get("revision", 0) + 1
     log_data["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")

@@ -49,6 +49,8 @@ def file_lock(lock_path: Path):
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+from golem_loop_modules import recall
+
 _SCHEMA_ENSURED: dict[str, int] = {}
 
 
@@ -93,6 +95,7 @@ def ensure_activity_schema(connection):
     connection.execute("""CREATE TABLE IF NOT EXISTS memory_log_queue (
         id TEXT PRIMARY KEY NOT NULL, entry TEXT NOT NULL
     )""")
+    recall.ensure_schema(connection)
     if db_file and stamp is not None:
         _SCHEMA_ENSURED[db_file] = stamp
 
@@ -136,6 +139,9 @@ def read_object(path: Path) -> dict[str, Any]:
 def clear_activity_and_archive(connection):
     connection.execute("PRAGMA secure_delete=ON")
     connection.execute("DELETE FROM activities")
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='recall_cards'").fetchone():
+        for table in ("recall_cards", "memory_cues", "authored_recall_version", "notebook"):
+            connection.execute(f"DELETE FROM {table}")
     if connection.execute("SELECT 1 FROM sqlite_master WHERE name='memory_log_queue'").fetchone():
         connection.execute("DELETE FROM memory_log_queue")
     if connection.execute("SELECT 1 FROM sqlite_master WHERE name='memories' AND type='table'").fetchone():
@@ -162,7 +168,10 @@ def compact_event_requests(connection, *, apply=False):
             compressed = zlib.compress(row["request"].encode("utf-8"), level=9)
             connection.execute("INSERT INTO request_archive VALUES (?, ?)", (row["id"], compressed))
             # Keep the evidence used by recalculate_expectations and recent_events.
-            slim = {key: data[key] for key in ("at", "assessment", "body_response") if key in data}
+            slim = {key: data[key] for key in ("at", "assessment", "body_response", "physical_intensity") if key in data}
+            intensity = data.get("tick", {}).get("psychosomatic_snapshot", {}).get("affective_state", {}).get("emotional_intensity")
+            if intensity is not None:
+                slim["emotional_intensity"] = intensity
             connection.execute("UPDATE events SET request=? WHERE id=?",
                                (json.dumps(slim, separators=(",", ":")), row["id"]))
     return {"eligible": len(rows), "request_bytes": original, "archived": apply,

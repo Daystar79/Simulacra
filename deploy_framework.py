@@ -105,7 +105,7 @@ UPDATE_FILES = [
     "scripts/golem_loop.py",
     "scripts/golem_loop_modules/__init__.py",
     *(f"scripts/golem_loop_modules/{name}.py" for name in (
-        "db", "activities", "projection", "cache", "dreams", "learning", "lifecycle",
+        "db", "activities", "projection", "cache", "dreams", "recall", "learning", "lifecycle",
     )),
     "scripts/golem_paths.py",
     "scripts/golem_physiology.py",

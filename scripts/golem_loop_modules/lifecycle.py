@@ -17,7 +17,7 @@ import golem  # noqa: E402
 from golem_logs import mirror_memories
 import goal_evolution  # noqa: E402
 import relationship_memory  # noqa: E402
-from golem_loop_modules import dreams
+from golem_loop_modules import dreams, recall
 from golem_loop_modules.activities import active_activity, apply_activity_decision  # noqa: E402
 from golem_loop_modules.cache import (  # noqa: E402
     build_identity_anchor,
@@ -145,11 +145,13 @@ def body_tick(config, stimulus, event=None, connection=None, *, relationship_tar
             # Hydrated state can be shared by two databases initialized from the same card.
             state = {**state, "relational_baselines": {**baselines, rel_target: bond},
                      "relationship_state": {**relation, "target": rel_target}}
-    if event is not None:
+    if event is not None and connection is None:
         cues = extract_memory_cues(event, effective_stimulus, state.get("memories", {}))
         if cues:
             effective_stimulus["memory_cues"] = cues
-    return golem.run_golem(state, effective_stimulus, {}, config["history"]), card, durable, state
+    # The persistent loop ranks YAML and SQLite memories together after the body tick.
+    body_state = {**state, "memories": {}} if connection is not None else state
+    return golem.run_golem(body_state, effective_stimulus, {}, config["history"]), card, durable, state
 
 
 def apply_appraisal(connection, request, appraisal, experience=None):
@@ -196,6 +198,7 @@ def apply_appraisal(connection, request, appraisal, experience=None):
                 "interest": tick["next_history"]["appraisal_effects"]["interest"]}
 
     initial, final = measurements(before), measurements(after)
+    request["physical_intensity"] = max(request.get("physical_intensity", 0), recall.physical_intensity(final))
     request["body_response"] = {"before": initial, "after": final}
     if experience is not None and ("benefit" in experience or "cost" in experience):
         observed = scores(experience)
@@ -318,6 +321,7 @@ def resolve(connection, decision, history, now):
             if not cues:
                 raise ValueError("Remembered memory requires at least one recall cue")
             remember_entries.append({
+                **recall.retention_fields(item),
                 "id": mem_id.strip(),
                 "kind": kind,
                 "summary": summary.strip(),
@@ -392,9 +396,20 @@ def resolve(connection, decision, history, now):
             "INSERT INTO observations VALUES (?, ?, ?)",
             (event_id, topic_key(learning["topic"]), json.dumps(learning)),
         )
+    if "notebook" in decision:
+        request_at = json.loads(row["request"])["at"]
+        page = recall.use_notebook(connection, decision["notebook"], event_id, request_at)
+        if page is not None:
+            config = runtime_config(connection)
+            config["notebook_page"] = page
+            result["notebook_page"] = page
+            connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     if remember_entries:
         ensure_activity_schema(connection)
-        created_at = now.isoformat()
+        request = json.loads(row["request"])
+        created_at = request["at"]
+        affect = request["tick"]["psychosomatic_snapshot"]["affective_state"]
+        emotions = result.get("body_response", {}).get("after", {}).get("emotions", affect.get("emotions", {}))
         saved_ids = []
         for entry in remember_entries:
             connection.execute(
@@ -403,6 +418,12 @@ def resolve(connection, decision, history, now):
                 (entry["id"], entry["kind"], entry["summary"], entry["reason"],
                  json.dumps(entry["cues"]), created_at, event_id),
             )
+            entry.setdefault("emotional_intensity", max(affect.get("emotional_intensity", 0), max(emotions.values(), default=0)))
+            body = request["tick"]["psychosomatic_snapshot"]["autonomic_state"]
+            after_body = result.get("body_response", {}).get("after", {})
+            entry.setdefault("physical_intensity", max(recall.physical_intensity(body), recall.physical_intensity(after_body)))
+            entry["at"] = created_at
+            recall.index_entry(connection, entry, "stored", datetime.fromisoformat(created_at).timestamp())
             saved_ids.append(entry["id"])
         if config.get("log") and Path(config["log"]).is_file():
             mirror_memories(Path(config["log"]), pending_log_entries(connection) + remember_entries,
@@ -474,13 +495,15 @@ def advance(connection, config, now, allow_idle=True):
     seen_mem_ids = set()
     for mem in (
         *(tick.get("recalled_memories") or []),
-        *recall_stored_memories(connection, event, stimulus),
+        *recall_stored_memories(connection, event, stimulus, at=at.isoformat(),
+                                authored=state.get("memories") or {}, stamp=state.get("_memory_version", "")),
         *recall_past_episodes(connection, event, at.timestamp() - ACTIVE_MEMORY_WINDOW_SECONDS, target=rel_target),
     ):
         mem_id = mem.get("id")
         if mem_id and mem_id not in seen_mem_ids:
             seen_mem_ids.add(mem_id)
             merged_memories.append(mem)
+    merged_memories.sort(key=lambda m: (m.get("strength", m.get("emotional_intensity", 50)), m.get("at") or ""), reverse=True)
     request = {
         **({"character_id": config["character_id"]} if config.get("character_id") else {}),
         **({"relationship_state": relationship} if relationship else {}),
@@ -502,13 +525,16 @@ def advance(connection, config, now, allow_idle=True):
         "recent": recent,
         "active_memory_window_seconds": ACTIVE_MEMORY_WINDOW_SECONDS,
     }
+    if "notebook_page" in config:
+        request["notebook_page"] = config.pop("notebook_page")
+    request["physical_intensity"] = recall.physical_intensity(tick["psychosomatic_snapshot"]["autonomic_state"])
     dream_offer = dreams.opportunity(connection, config, tick, state.get("memories") or {})
     if dream_offer:
         request["dream_opportunity"] = dream_offer
     if tick["next_history"]["activity"] != "sleeping":
-        recall = config.get("waking_dream") or dreams.recollection(config.get("sleep_dream", {}))
-        if recall:
-            request["waking_dream"] = recall
+        waking_trace = config.get("waking_dream") or dreams.recollection(config.get("sleep_dream", {}))
+        if waking_trace:
+            request["waking_dream"] = waking_trace
     if event.get("activity_due"):
         activity_row = connection.execute("SELECT * FROM activities WHERE id=?",
                                           (event["activity_due"],)).fetchone()

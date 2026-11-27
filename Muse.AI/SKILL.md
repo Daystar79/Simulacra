@@ -76,3 +76,7 @@ python3 "$SIMULACRA_DIR/scripts/run.py" golem loop --characters-dir "$CHARACTERS
 ```
 
 At a VM replacement, use the same checkout path (or update `SIMULACRA_DIR`) and persistent database path. The SQLite queue restores active/due activities and pending cognitive requests. Never initialize a replacement database over the existing one. Never substitute LLM estimates for Golem CLI output; if Python, PyYAML, or the checkout is unavailable, report the execution failure and retry after the capability is restored.
+
+For a memory the character chooses to keep, `remember.key_point` can capture what should survive in outline. Golem records scene time, emotional intensity, and physical sensation. For a detail that the character deliberately rehearses or resolves to keep, set `remember.remember_by_choice` to true. For a peripheral detail that the bodily event barely affected, lower its `physical_intensity`. A notebook entry remains a separate choice. Use `remember.emotional_intensity` (0–100) when this specific detail feels more or less charged than the overall scene. Treat a recalled key point as the extent of the detail currently available.
+
+A character who keeps a notebook can deliberately return `"notebook":{"write":"exact wording"}` in a decision. Consult it with `"notebook":{"read":"search phrase"}` (empty search opens the latest entries). The next decision packet carries the requested private page. Preserve the distinction between reading a note and independently remembering the experience.

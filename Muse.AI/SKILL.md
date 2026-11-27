@@ -63,6 +63,8 @@ At the due event, the character decides whether to complete or extend it. Comple
 
 For sleep, start a duration activity in `sleeping` state; Golem applies sleep recovery over elapsed time. At the due event, Simulacra decides whether to wake (`complete` with `state: awake`) or extend (`extend` plus a new positive `duration_seconds`). If an incoming event interrupts an activity, resolve with `op: interrupt`; to continue later, choose `op: resume` with a new duration. The loop cancels the old due event and schedules a revision-specific one. Completed and interrupted activities remain in the status history.
 
+When the packet includes `dream_opportunity`, compose a private scene in `dream.scene`. Draw on the offered conversation or memory, current goals, and body cues as appropriate. Return `dream.fragment` and `dream.cues` for an image that survives waking, or `dream.mood` for a lingering feeling. These are independently optional. Keep the dream out of factual learning, real-world actions, and outward replies. When `waking_dream` arrives, the character decides what it means and whether to mention it. Later cue-matched memories of kind `dream` retain that provenance.
+
 No state transition occurs from a bare prose plan: use the structured `activity` field. Missing food, water, or host tools must be reported to Simulacra; the engine does not manufacture resources. Hydration has no physiological model in this runtime.
 
 ## Restart, inspect, diagnose

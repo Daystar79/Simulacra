@@ -24,7 +24,7 @@ def stage_adult(t):
     # 6. Adult eligibility and background state (CognitivePipeline §2)
     t.drive_level = 0.0
     t.sexual_response = 0.0
-    t.excitation = t.inhibition = t.minutes_asleep = 0.0
+    t.excitation = t.inhibition = 0.0
     t.sexual_arousal = 0
     t.lingering_arousal = False
     if t.adult_eligible:
@@ -41,8 +41,6 @@ def stage_adult(t):
         # here could recreate excitation immediately after a shock cut it.
         t.new_attraction = t.appraisal.get("attraction", 0)
         t.cue_excitation = min(100, t.new_attraction * (0.5 + 0.5 * t.drive_level / 100) * t.adrenergic_gain)
-        if t.activity == "sleeping":
-            t.minutes_asleep = t.history.get("minutes_asleep", 0) + t.elapsed_minutes
         # Older histories saved only the resulting response.
         t.prior_excitation = t.history.get("sexual_excitation", t.history.get("sexual_arousal", 0))
         t.half_life = t.calibration["sexual_arousal_half_life_minutes"] * t.recovery_scale

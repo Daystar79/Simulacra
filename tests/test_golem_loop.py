@@ -1,6 +1,7 @@
 """Exercise the persistent loop with an injected clock and no live host."""
 
 import json
+import sqlite3
 import subprocess
 import sys
 import unittest
@@ -8,6 +9,7 @@ from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from scripts import golem  # Makes the scripts directory available to the CLI modules.
 from scripts import golem_loop
@@ -892,6 +894,57 @@ class TestGolemLoop(unittest.TestCase):
             self.assertEqual(seen[-1]["recent"], [])
             recalled = seen[-1].get("recalled_memories", [])
             self.assertTrue(any(m["id"] == "episode:day1" and m["kind"] == "episode" for m in recalled))
+
+    def test_no_recall_query_without_cues(self):
+        with sqlite3.connect(":memory:") as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("CREATE TABLE memories (id, kind, summary, cues, created_at)")
+            connection.execute("""INSERT INTO memories VALUES ('m','detailed','A rainy day','["rain"]',0)""")
+            statements = []
+            connection.set_trace_callback(statements.append)
+            self.assertEqual(golem_loop.recall_stored_memories(connection, {"kind": "idle"}), [])
+            self.assertEqual(statements, [])
+            event = {"stimulus": {"memory_cues": ["RAIN"]}}
+            self.assertEqual(golem_loop.recall_stored_memories(connection, event)[0]["id"], "m")
+
+    def test_memory_batch_rollback_and_post_commit_mirror_recovery(self):
+        with TemporaryDirectory() as directory:
+            card, log, db = (Path(directory) / name for name in ("card.yaml", "log.yaml", "db.sqlite3"))
+            card.write_text("name: Rowan\n")
+            original = "revision: 0\n"
+            log.write_text(original)
+            golem_loop.initialize_character(db, card, log=log)
+            event = {"kind": "incoming", "id": "rain"}
+            memory = {"id": "walk", "summary": "Walked in the rain", "cues": ["rain"]}
+            other = {**memory, "summary": "Stayed inside"}
+            def save(entries):
+                return golem_loop.wake_character(db, lambda _: {"id": "rain", "remember": entries}, event=event)
+            with self.assertRaisesRegex(ValueError, "Memory ID already exists"):
+                save([memory, other])
+            self.assertEqual(log.read_text(), original)
+            with sqlite3.connect(db) as connection:
+                self.assertEqual(connection.execute("SELECT count(*) FROM memories").fetchone()[0], 0)
+                connection.execute("""CREATE TRIGGER reject_resolution BEFORE UPDATE OF status ON events
+                    WHEN NEW.status='resolved' BEGIN SELECT RAISE(ABORT, 'injected failure'); END""")
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "injected failure"):
+                save([memory])
+            self.assertEqual(log.read_text(), original)
+            with sqlite3.connect(db) as connection:
+                self.assertEqual(connection.execute("SELECT count(*) FROM memory_log_queue").fetchone()[0], 0)
+                connection.execute("DROP TRIGGER reject_resolution")
+
+            with patch.object(golem_loop, "mirror_memories", side_effect=OSError("mirror unavailable")):
+                with self.assertRaisesRegex(OSError, "mirror unavailable"):
+                    save([memory])
+            self.assertEqual(log.read_text(), original)
+            with sqlite3.connect(db) as connection:
+                self.assertEqual(connection.execute("SELECT status FROM events").fetchone()[0], "resolved")
+                self.assertEqual(connection.execute("SELECT id FROM memories").fetchone()[0], "walk")
+            for _ in range(2):
+                golem_loop.wake_character(db, self.fail, event=event)
+            self.assertEqual(log.read_text().count("Walked in the rain"), 1)
+            with sqlite3.connect(db) as connection:
+                self.assertEqual(connection.execute("SELECT count(*) FROM memory_log_queue").fetchone()[0], 0)
 
     def test_in_turn_remember_persists_to_sqlite_and_log_and_recalls_later(self):
         with TemporaryDirectory() as tmp:

@@ -22,7 +22,7 @@ def recall_memories(memories: dict[str, Any], cues: Any) -> list[dict[str, Any]]
     keys = cue_keys(cues)
     return [
         {"id": entry["id"], "summary": entry["summary"], "kind": kind}
-        for kind in ("detailed", "footnote")
+        for kind in ("detailed", "footnote", "dream")
         for entry in memories.get(kind, [])
         if isinstance(entry, dict) and {"id", "summary"} <= entry.keys()
         and keys.intersection(cue_keys(entry.get("cues", [])))
@@ -36,15 +36,15 @@ def add_memory(log_data: dict[str, Any], memory: dict[str, Any]) -> bool:
     ):
         raise ValueError("An approved memory requires nonempty id, kind, summary, and reason strings")
     kind = memory["kind"].strip()
-    if kind not in ("detailed", "footnote"):
-        raise ValueError("Memory kind must be detailed or footnote")
+    if kind not in ("detailed", "footnote", "dream"):
+        raise ValueError("Memory kind must be detailed, footnote, or dream")
     cues = sorted(cue_keys(memory.get("cues")))
     if not cues:
         raise ValueError("An approved memory requires at least one recall cue")
     entry = {key: memory[key].strip() for key in ("id", "summary", "reason")}
     entry["cues"] = cues
     memories = log_data.setdefault("memories", {})
-    for bucket in ("detailed", "footnote"):
+    for bucket in ("detailed", "footnote", "dream"):
         for existing in memories.get(bucket, []):
             if isinstance(existing, dict) and existing.get("id") == entry["id"]:
                 if bucket == kind and existing == entry:

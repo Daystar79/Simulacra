@@ -16,6 +16,7 @@ from typing import Any
 
 import yaml
 
+from golem_loop_modules.db import file_lock
 from golem_memory import add_memory
 from golem_physiology import clamp
 
@@ -68,8 +69,23 @@ def locked_file(path: Path):
 
 @contextmanager
 def locked_log(log_path: Path):
-    with locked_file(log_path):
+    # A terminated writer must release the YAML lock so committed mirrors can resume.
+    path = log_path.resolve()
+    with file_lock(path.with_name(path.name + ".lock")):
         yield yaml.safe_load(log_path.read_text(encoding="utf-8")) or {}
+
+
+def mirror_memories(log_path, entries, character_id, *, validate_only=False):
+    """Validate a whole batch under the log lock and optionally publish it once."""
+    with locked_log(log_path) as log:
+        if character_id is not None and log.get("character_id") != character_id:
+            raise ValueError("Character ID mismatch when saving the durable log")
+        changed = False
+        for entry in entries:
+            if add_memory(log, entry):
+                changed = True
+        if changed and not validate_only:
+            replace_text(log_path, yaml.safe_dump(log, sort_keys=False))
 
 
 def update_log(

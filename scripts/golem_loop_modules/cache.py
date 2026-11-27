@@ -199,7 +199,7 @@ def extract_memory_cues(event, stimulus, memories):
     if not haystack or not isinstance(memories, dict):
         return explicit
     matched = list(explicit)
-    for bucket in ("detailed", "footnote"):
+    for bucket in ("detailed", "footnote", "dream"):
         for entry in memories.get(bucket) or []:
             if not isinstance(entry, dict):
                 continue

@@ -335,6 +335,8 @@ For a normal turn call `golem loop --db DB prepare --event -` with event JSON on
 
 Python callbacks receive the same view by default: `wake_character(..., compact=True)` is the default, since the projection is what a host prompt needs. Existing callbacks that read `request["tick"]` can pass `compact=False` to keep the full request. The SQLite record and diagnostic `pending` command retain the complete tick. [Muse host example](../Muse.AI/SKILL.md#prepare-and-resolve-one-turn)
 
+The host receives `current_cues` from the live regional `somatic_map`. For example, `{"somatic_map":{"left_temple":{"pressure":85},"right_fingertip":{"tingling":95}}}` in the stimulus localizes both sensations across realms. A zero clears that sensation at that location for the turn. Character cue exclusions apply to either the sensation name or its full cue, such as `tingling (right fingertip)`. A quiet turn can have an empty cue list.
+
 The compact context economizes on tokens without losing decision information. Body fields at their resting value (`0`, `false`, `none`, an empty `somatic_map`) are omitted: an absent field means the resting value, and `body.activity` always names the current activity. In the compact projection of recent episodes, the current turn keeps full 320-character text caps while older entries are capped at 120 characters, because verbatim repetition is already flagged separately in `recent_reply_pattern` and `recent_action_pattern`. CLI `prepare` output is serialized with tight JSON separators, so a host forwarding the printed packet passes no padding whitespace to the model. The benchmark tracks the host-facing size as `compact_request_bytes_median`.
 
 Retrying `wake_character` with the identical event can recover its stored reply after a delivery interruption. For an already accepted event the result includes `status: resolved` and `resolved: false`, indicating that the earlier decision is being returned. Use the stable event ID to check whether delivery is still due.
@@ -400,3 +402,15 @@ This stores complete resolved/failed request JSON in the `request_archive` table
 ### Modularizing Golem with Mistral
 
 Give Mistral the Markdown assignment in a cloud workspace with the Simulacra checkout. It identifies the tick stages to extract and the tests that verify host compatibility and relationship isolation. [Mistral cloud assignment](../Framework/Prompts/mistral_modularize_golem.md)
+
+### Dreams during sleep
+
+The regular host heartbeat or scheduled activity event can carry one `dream_opportunity` per sleep bout after 20 simulated minutes. Golem tracks sleep for all characters. The stage uses the existing 90-minute cycle approximation, with REM sampled from minute 65 to the end of each cycle. These timings are simulation defaults. An idle scheduler status alone does not mean the character is asleep.
+
+Simulacra composes the scene using the packet’s bodily state, current goals, and available character-local material. For example, the host can resolve a sleeping turn with this decision.
+
+```json
+{"id":"night-1","dream":{"scene":"I was waiting for a ferry. When it arrived, it was full of trees.","fragment":"Trees crowding the deck of a ferry.","cues":["ferry","trees"],"mood":{"wonder":28}}}
+```
+
+Use the pending event’s ID and any required `character_id`. The scene stays in the private decision ledger. Optional `fragment` and `cues` together create a cue-recallable memory of kind `dream` upon waking. Optional `mood` carries one emotion into the existing affect decay. Sending only `scene` models a forgotten dream. A host that omits `dream` can resolve the turn normally. If a sleep activity completes in the same decision as the dream, the next waking packet carries the recalled portion and its waking timestamp. Dream fields travel in the dynamic portion of split-cache packets.

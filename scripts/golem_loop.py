@@ -33,6 +33,7 @@ else:
     import goal_evolution
     import relationship_memory
 
+from golem_logs import mirror_memories
 from golem_loop_modules.activities import (  # noqa: E402, F401
     active_activity,
     apply_activity_decision,
@@ -63,6 +64,7 @@ from golem_loop_modules.db import (  # noqa: E402, F401
     completed_event,
     ensure_activity_schema,
     file_lock,
+    pending_log_entries,
     read_object,
 )
 from golem_loop_modules.learning import (  # noqa: E402, F401
@@ -118,6 +120,25 @@ def _runtime_connection(db: Path):
     return connection
 
 
+def flush_memory_log(connection):
+    """Publish only committed memories. Retry interrupted mirrors idempotently."""
+    try:
+        pending = connection.execute("SELECT 1 FROM memory_log_queue LIMIT 1").fetchone()
+    except sqlite3.OperationalError as exc:
+        if str(exc) != "no such table: memory_log_queue":
+            raise
+        return
+    if pending:
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            entries = pending_log_entries(connection)
+            if entries:
+                config = runtime_config(connection)
+                if config.get("lifecycle") not in ("deleting", "deleted"):
+                    mirror_memories(Path(config["log"]), entries, config.get("character_id"))
+                connection.execute("DELETE FROM memory_log_queue")
+
+
 @contextmanager
 def staged_transaction(connection):
     """One committed transaction on an already-open runtime connection."""
@@ -127,11 +148,13 @@ def staged_transaction(connection):
 
 
 @contextmanager
-def transaction(db: Path):
+def transaction(db: Path, *, mirror=True):
     connection = _runtime_connection(db)
     try:
         with staged_transaction(connection):
             yield connection
+        if mirror:
+            flush_memory_log(connection)
     finally:
         connection.close()
 
@@ -284,7 +307,7 @@ def initialize_profile(characters_dir, character_id, card=None, *, log=None, slu
             with closing(sqlite3.connect(original.as_uri() + "?mode=ro", uri=True)) as src:
                 with closing(sqlite3.connect(staged_db)) as dst:
                     src.backup(dst)
-            with transaction(staged_db) as connection:
+            with transaction(staged_db, mirror=False) as connection:
                 row = connection.execute("SELECT data FROM runtime WHERE id=1").fetchone()
                 if row is None:
                     raise ValueError("Source database has no initialized character")
@@ -328,7 +351,7 @@ def initialize_profile(characters_dir, character_id, card=None, *, log=None, slu
         if not from_db:
             initialize_character(staged_db, local_card, log=local_log, character_id=character_id,
                                  idle_seconds=idle_seconds, import_history=import_history, history_at=history_at)
-        with transaction(staged_db) as connection:
+        with transaction(staged_db, mirror=False) as connection:
             ensure_activity_schema(connection)
             config = json.loads(connection.execute("SELECT data FROM runtime WHERE id=1").fetchone()[0])
             config.update(character_id=character_id, slug=None, card=str(local_card), log=str(local_log))
@@ -472,6 +495,7 @@ def _wake_with_connection(connection, db, decide, *, event=None, max_events=64,
         owner = runtime_config(connection, character_id).get("character_id")
         if owner and event is not None and event.get("character_id", owner) != owner:
             raise ValueError("Event character ID does not match the selected database")
+    flush_memory_log(connection)
     tag = {"character_id": owner} if owner else {}
 
     if event is not None and event.get("kind") == "incoming":
@@ -533,6 +557,8 @@ def _wake_with_connection(connection, db, decide, *, event=None, max_events=64,
                 if config.get("lifecycle"):
                     return {"status": config["lifecycle"]}
                 result = resolve(connection, decision, config["history"], datetime.now(timezone.utc))
+            if result.get("remembered"):
+                flush_memory_log(connection)
             if result["resolved"] and "reply" in decision:
                 result["reply"] = decision["reply"]
             handled.append({**tag, **result})

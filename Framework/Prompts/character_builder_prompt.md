@@ -52,11 +52,11 @@ You are the **Character Development & Psyche Matrix Architect** for BookOS. Your
 ### Step 4: Psyche Matrix Mapping & Calibration (AI Recommendation)
 *   **Action:** Analyze the answers from Steps 2 & 3, map them to the **Psychology Realm Data** (`Framework/Psychology/realm_data.yaml`), and perform the following calibrations:
     *   **Voice Polarization Check:** Read existing cards in `Characters/` to compare their voice archetypes, sentence shapes, and vocabulary. Recommend specific changes to this character's syntax or archetype base to ensure they contrast strongly with active cast members.
-    *   **Somatic Anchoring:** Connect the character's physical nervous habits (from Step 3) to the bracing or release somatics of the recommended Realms in `realm_data.yaml`.
+    *   **Somatic Anchoring:** Record the character’s observed nervous habits and the situations in which they occur. Realm examples can suggest ways they might express a sensation.
     *   **Active Focus Realm:** Map their core struggle, want, or defense mechanism to a single Realm (I–X).
     *   **Latent Anchors:** Map their background habits or secondary coping mechanisms to 2-3 other Realms (I–X).
     *   **Cognitive Bias & Rewrite Rule:** Formulate a cognitive bias and a clear "one-line rewrite rule" showing how their Active Focus distorts their perception (e.g. "I must anticipate everyone's anger to keep the room stable").
-    *   **Default Somatic Alignment:** Select the physical parts of the body that hold tension based on their Active Focus Realm's somatic focus, customized with their specific somatic triggers.
+    *   **Default Somatic Alignment:** Describe where this character tends to hold tension or feel relief, using their own history and triggers. The live tick can register sensations anywhere in the body.
     *   **Transformation Weights:** Assign `active_focus` weight (typically 60–80), distribute remaining weight across latent anchors, set `bias_strength` and `somatic_flexibility`.
     *   **Depth of Knowledge:** Fill `general`, `esoteric`, and `personal` knowledge depth from occupation and history.
 *   **Output:** Lock in the Psyche Matrix YAML fields once approved by the author.

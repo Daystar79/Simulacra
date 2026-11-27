@@ -14,18 +14,19 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 import golem  # noqa: E402
+from golem_logs import mirror_memories
 import goal_evolution  # noqa: E402
 import relationship_memory  # noqa: E402
+from golem_loop_modules import dreams
 from golem_loop_modules.activities import active_activity, apply_activity_decision  # noqa: E402
 from golem_loop_modules.cache import (  # noqa: E402
     build_identity_anchor,
     cached_identity,
     extract_memory_cues,
     load_cached_character,
-    load_cached_realm_data,
     runtime_config,
 )
-from golem_loop_modules.db import ensure_activity_schema  # noqa: E402
+from golem_loop_modules.db import ensure_activity_schema, pending_log_entries  # noqa: E402
 from golem_loop_modules.learning import (  # noqa: E402
     RECENT_LIMIT,
     contextual_forecast,
@@ -121,6 +122,11 @@ def recent_events(connection, limit=RECENT_LIMIT, since_timestamp=None):
 def body_tick(config, stimulus, event=None, connection=None, *, relationship_target=None):
     state, card, durable = load_cached_character(config, connection)
     effective_stimulus = dict(stimulus)
+    if (config["history"].get("activity") == "sleeping"
+            and effective_stimulus.get("activity", "sleeping") != "sleeping"):
+        mood = config.get("sleep_dream", {}).get("mood")
+        if mood and isinstance(effective_stimulus.get("emotions", {}), dict):
+            effective_stimulus["emotions"] = {**mood, **effective_stimulus.get("emotions", {})}
     rel_target = relationship_target or resolve_relationship_target(event, effective_stimulus)
     if rel_target:
         effective_stimulus["caller_or_target"] = rel_target
@@ -143,8 +149,7 @@ def body_tick(config, stimulus, event=None, connection=None, *, relationship_tar
         cues = extract_memory_cues(event, effective_stimulus, state.get("memories", {}))
         if cues:
             effective_stimulus["memory_cues"] = cues
-    realm_data = load_cached_realm_data()
-    return golem.run_golem(state, effective_stimulus, realm_data, config["history"]), card, durable, state
+    return golem.run_golem(state, effective_stimulus, {}, config["history"]), card, durable, state
 
 
 def apply_appraisal(connection, request, appraisal, experience=None):
@@ -301,8 +306,10 @@ def resolve(connection, decision, history, now):
             reason = item.get("reason") or "Saved during turn"
             if not isinstance(mem_id, str) or not mem_id.strip():
                 raise ValueError("Remembered memory id must be nonempty text")
-            if kind not in ("detailed", "footnote"):
-                raise ValueError("Remembered memory kind must be detailed or footnote")
+            if mem_id.strip().startswith("dream:"):
+                raise ValueError("The dream: memory ID prefix is reserved for waking recall")
+            if kind not in ("detailed", "footnote", "dream"):
+                raise ValueError("Remembered memory kind must be detailed, footnote, or dream")
             if not isinstance(summary, str) or not summary.strip():
                 raise ValueError("Remembered memory requires a nonempty summary")
             if not isinstance(reason, str) or not reason.strip():
@@ -372,6 +379,12 @@ def resolve(connection, decision, history, now):
                 raise ValueError("Decision dialect must be descriptive text or null")
             config["dialect"] = dialect.strip() if dialect is not None else None
         connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
+    if ("dream" in decision or history.get("activity") == "sleeping"
+            or "sleep_dream" in config or "waking_dream" in config):
+        # Appraisal may just have completed or interrupted a sleep activity.
+        config = runtime_config(connection)
+        dreams.finish_turn(config, json.loads(row["request"]), decision, remember_entries)
+        connection.execute("UPDATE runtime SET data=? WHERE id=1", (json.dumps(config),))
     for plan in plans:
         enqueue(connection, {**plan, "kind": "plan"}, history, now)
     if learning:
@@ -392,8 +405,12 @@ def resolve(connection, decision, history, now):
             )
             saved_ids.append(entry["id"])
         if config.get("log") and Path(config["log"]).is_file():
-            for entry in remember_entries:
-                golem.update_log(Path(config["log"]), memory=entry, character_id=config.get("character_id"))
+            mirror_memories(Path(config["log"]), pending_log_entries(connection) + remember_entries,
+                            config.get("character_id"), validate_only=True)
+            connection.executemany(
+                "INSERT OR IGNORE INTO memory_log_queue (id, entry) VALUES (?, ?)",
+                [(entry["id"], json.dumps(entry)) for entry in remember_entries],
+            )
         result["remembered"] = saved_ids
     connection.execute(
         "UPDATE events SET status = 'resolved', decision = ? WHERE id = ?",
@@ -485,6 +502,13 @@ def advance(connection, config, now, allow_idle=True):
         "recent": recent,
         "active_memory_window_seconds": ACTIVE_MEMORY_WINDOW_SECONDS,
     }
+    dream_offer = dreams.opportunity(connection, config, tick, state.get("memories") or {})
+    if dream_offer:
+        request["dream_opportunity"] = dream_offer
+    if tick["next_history"]["activity"] != "sleeping":
+        recall = config.get("waking_dream") or dreams.recollection(config.get("sleep_dream", {}))
+        if recall:
+            request["waking_dream"] = recall
     if event.get("activity_due"):
         activity_row = connection.execute("SELECT * FROM activities WHERE id=?",
                                           (event["activity_due"],)).fetchone()

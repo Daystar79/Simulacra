@@ -11,6 +11,28 @@ from scripts import golem, golem_loop
 
 
 class TestGolemActivation(unittest.TestCase):
+    def test_live_somatic_cues_follow_regions_across_realms(self):
+        scene = {"elapsed_ms": 0, "somatic_map": {
+            "left_temple": {"pressure": 85}, "right_fingertip": {"tingling": 95}}}
+        expected = ["tingling (right fingertip)", "pressure (left temple)"]
+        for focus in ("Realm I", "Realm VIII"):
+            state, _ = golem.overlay_log({"active_focus": focus}, None)
+            tick = golem.run_golem(state, scene, {}, {})
+            self.assertEqual(tick["golem_meta"]["emitted_cues"], expected)
+            self.assertEqual(tick["next_history"]["recent_cues"], expected)
+            zones = tick["psychosomatic_snapshot"]["autonomic_state"]["primary_somatic_zones"]
+            self.assertEqual(zones, [golem.ZONE_MAP["Z6"], golem.ZONE_MAP["Z1"]])
+            state["excluded_cues"] = ["tingling"]
+            self.assertEqual(golem.run_golem(state, scene, {}, {})["golem_meta"]["emitted_cues"], expected[1:])
+            quiet = golem.run_golem(state, {"elapsed_ms": 0}, {}, {})
+            self.assertEqual(quiet["golem_meta"]["emitted_cues"], [])
+            stressed = golem.run_golem(state, {"threat_level": 95, "elapsed_ms": 0}, {}, {})
+            mapped = stressed["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"]
+            self.assertGreater(mapped["jaw"]["tension"], 0)
+            cleared = golem.run_golem(state, {"threat_level": 95, "elapsed_ms": 0,
+                                               "somatic_map": {"jaw": {"tension": 0}}}, {}, {})
+            self.assertNotIn("jaw", cleared["psychosomatic_snapshot"]["autonomic_state"]["somatic_map"])
+
     def test_legacy_card_backfill_preserves_overrides_and_siblings(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cards.yaml"

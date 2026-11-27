@@ -27,6 +27,13 @@ def stage_maintenance(t):
     t.activity = t.stimulus.get("activity", t.history.get("activity", "awake"))
     if t.activity not in ("awake", "resting", "sleeping"):
         raise ValueError("Activity must be awake, resting, or sleeping")
+    t.minutes_asleep = 0.0
+    if t.activity == "sleeping":
+        # A timestamped transition starts sleep now. Explicit durations describe
+        # the supplied activity over the whole interval.
+        entering = "event_at" in t.stimulus and t.history.get("activity") != "sleeping"
+        if not entering:
+            t.minutes_asleep = t.history.get("minutes_asleep", 0) + t.elapsed_minutes
     t.elapsed_hours = min(t.elapsed_minutes / 60, float(t.calibration["max_elapsed_hours_per_tick"]))
     t.hunger_rate = t.calibration["hunger_sleeping_per_hour"] if t.activity == "sleeping" else t.calibration["hunger_awake_per_hour"]
     t.accumulated_hunger = min(100.0, t.history.get("hunger", 0) + t.hunger_rate * t.elapsed_hours)

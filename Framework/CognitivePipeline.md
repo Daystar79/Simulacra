@@ -13,7 +13,7 @@ Application-agnostic psychological/physical character runtime serving manuscript
 | Autonomic reaction, affect, prism, priority arbitration | Prose style, anti-synthesis, style locks |
 | 4-channel vector (`Feels` / `Thinks` / `Says` / `Does`) | Chat UI, OOC commands, turn presentation |
 | Active volition, goal-driven inquiry, probing motives | Continuity ledger rows, draft file I/O |
-| Live psychosomatic snapshot + `realm_data.yaml` lookup | Optional craft guides under `Mechanics/` |
+| Live psychosomatic snapshot and regional sensation map | Optional craft guides under `Mechanics/` |
 
 ### Optional Golem interface (`scripts/golem.py`)
 ```bash
@@ -44,7 +44,7 @@ A lingering adult response can span several turns, a change of subject, or a cha
 | Input | Path | Role |
 |---|---|---|
 | **This spec** | `Framework/CognitivePipeline.md` | Execution sequence & commit rules |
-| **Realm somatics** | `Framework/Psychology/realm_data.yaml` | Brace / release body catalogs per realm |
+| **Realm somatics** | `Framework/Psychology/realm_data.yaml` | Optional references for learned habits and voice |
 | **Character card** | `Characters/[slug].yaml` | Identity, voice, knowledge, psyche, relationships, motivations, goals, incentives |
 | **Durable log** | `Characters/[slug]_log.yaml` | Runtime evolution over card defaults |
 | **Event trigger** | Movement brief / player turn / scene pressure | Sensory + social stimulus |
@@ -95,6 +95,10 @@ Somatic state constrains cognition (`Feels` → `Thinks`/`Says`/`Does`), and wou
 2. Send scene `appraisal` (`interest`, `attraction`, `disgust`, `unease`, `uncertainty`, 0–100) at `elapsed_ms: 0` if the body reacts in the same moment.
 3. Render `Thinks`, `Says`, `Does`; feed back resulting `food_intake`/`exertion`/state changes once when they occur. Keep appraisals and snapshots off-page.
 
+### Dreaming and waking
+
+During sustained sleep, Golem can supply a `dream_opportunity` in the host packet. Simulacra imagines a private scene using the character’s surfaced memories, current concerns, bodily cues, or goals. Put the scene in `decision.dream.scene`. Keep waking actions and factual observations grounded in the waking world. On waking, use only the fragment or feeling in `waking_dream`. A subsequently recalled memory of kind `dream` describes something the character remembers dreaming.
+
 ### Autonomic Polyvagal Modes
 - `ventral_grounded`: Socially attuned, open breath, relaxed vocal cords.
 - `sympathetic_mobilized`: Fight/flight, rapid pulse, shallow chest breath, hyper-vigilance.
@@ -105,8 +109,11 @@ Somatic state constrains cognition (`Feels` → `Thinks`/`Says`/`Does`), and wou
 Every state shift engages **2+ interconnected zones**:
 - **Z1 Cranial/Ocular** (jaw, temple pulse, blink/pupil) · **Z2 Vocal/Cervical** (larynx, swallow, neck) · **Z3 Thoracic/Respiratory** (sternum, intercostals, breath) · **Z4 Abdominal/Visceral** (diaphragm, gut, solar plexus) · **Z5 Pelvic/Kinesthetic** (center of gravity, hip/lumbar) · **Z6 Peripheral/Grounding** (toes, fingers, knuckles, stride).
 
-### Realm catalog lookup
-Resolve `active_focus` → realm key (`I`…`X`) in `realm_data.yaml`, pick intensity (`micro`/`moderate`/`macro`/`release`) from live pressure, fold **2+ zone tells** into `Feels`, use `vocal_behavior` as reference for `Says`. Latent anchors may leak micro-tells; never name realm labels on-page.
+### From sensation to expression
+
+Read `autonomic_state.somatic_map` for the locations and intensities the body registers. Golem selects up to two salient cues across distinct sites. A quiet turn can have none. Scene observations can add, override, or clear an inferred sensation at its location. Preserve left and right when the scene identifies a side.
+
+Simulacra decides which sensations someone else could notice and which the character would express. Realm focus and latent anchors can influence appraisal and drive arbitration. Use the realm catalog for a learned habit or vocal pattern that fits the scene.
 
 ---
 
@@ -178,7 +185,7 @@ Forecast expected benefit/cost before an activity; on completion, appraise actua
 | Sustained `bias_strength` / `default_somatic` | `snapshot.bias_strength`, `snapshot.default_somatic` |
 | Arc-level defense / social facade | `snapshot.defense_posture`, `snapshot.social_facade` |
 | Skill discovery / demotion | `skills.active` / `skills.latent` |
-| Memory promotion | `memories.detailed` / `footnote` |
+| Memory promotion | `memories.detailed` / `footnote` / `dream` |
 | Relational shift (Medium+) | `relational_baselines.[target]` |
 | Confirmed goal change | `goal_updates.[goal_id]` |
 | Tick narrative (Medium+ only) | append `history[]` |

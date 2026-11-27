@@ -326,7 +326,7 @@ def decision_context(request):
     body = {key: body[key] for key in (
         "cognitive_regime", "involuntary_response", "stress", "arousal",
         "sexual_arousal", "lingering_arousal", "physical_pleasure", "sexual_pleasure",
-        "orgasm", "orgasm_recovery", "somatic_map", "somatic_telemetry", "emotional_distress", "activity",
+        "orgasm", "orgasm_recovery", "somatic_map", "somatic_telemetry", "emotional_distress", "activity", "sleep_stage",
     ) if key in body}
     context_body = {"activity": body["activity"]} if "activity" in body else {}
     for key, value in body.items():
@@ -347,7 +347,7 @@ def decision_context(request):
             context[key] = affect[key]
     for key in ("character_id", "identity_anchor", "dialect", "current_goals", "motivations", "incentives",
                 "recalled_memories", "learned", "activity", "maintenance_needs", "expectations",
-                "situational_expectations", "relationship_state", "reply_guidance", "expression_guidance", "app_render"):
+                "dream_opportunity", "waking_dream", "situational_expectations", "relationship_state", "reply_guidance", "expression_guidance", "app_render"):
         if request.get(key):
             context[key] = request[key]
     if "identity_anchor" not in context:

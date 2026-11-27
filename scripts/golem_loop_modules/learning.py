@@ -274,14 +274,6 @@ def _content_tokens(text: str) -> set[str]:
 
 def recall_stored_memories(connection, event, stimulus=None, limit=8):
     """Recall cue-matched durable memories stored in the SQLite memories table."""
-    try:
-        rows = connection.execute(
-            "SELECT id, kind, summary, cues FROM memories ORDER BY created_at DESC, rowid DESC"
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return []
-    if not rows:
-        return []
     stim = stimulus if isinstance(stimulus, dict) else (event.get("stimulus") or {})
     explicit_cues = {
         c.strip().casefold() for c in (stim.get("memory_cues") or [])
@@ -293,6 +285,12 @@ def recall_stored_memories(connection, event, stimulus=None, limit=8):
         if isinstance(t, str) and t.strip()
     ).casefold()
     if not haystack and not explicit_cues:
+        return []
+    try:
+        rows = connection.execute(
+            "SELECT id, kind, summary, cues FROM memories ORDER BY created_at DESC, rowid DESC"
+        )
+    except sqlite3.OperationalError:
         return []
     matched = []
     for row in rows:

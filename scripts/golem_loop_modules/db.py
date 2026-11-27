@@ -90,8 +90,16 @@ def ensure_activity_schema(connection):
         created_at TEXT NOT NULL,
         event_id TEXT
     )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS memory_log_queue (
+        id TEXT PRIMARY KEY NOT NULL, entry TEXT NOT NULL
+    )""")
     if db_file and stamp is not None:
         _SCHEMA_ENSURED[db_file] = stamp
+
+
+def pending_log_entries(connection):
+    return [json.loads(row[0]) for row in connection.execute(
+        "SELECT entry FROM memory_log_queue ORDER BY rowid")]
 
 
 def character_database(characters_dir, character_id):
@@ -128,6 +136,8 @@ def read_object(path: Path) -> dict[str, Any]:
 def clear_activity_and_archive(connection):
     connection.execute("PRAGMA secure_delete=ON")
     connection.execute("DELETE FROM activities")
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='memory_log_queue'").fetchone():
+        connection.execute("DELETE FROM memory_log_queue")
     if connection.execute("SELECT 1 FROM sqlite_master WHERE name='memories' AND type='table'").fetchone():
         connection.execute("DELETE FROM memories")
     if connection.execute("SELECT 1 FROM sqlite_master WHERE name='relationships' AND type='table'").fetchone():

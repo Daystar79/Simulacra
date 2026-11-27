@@ -18,8 +18,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import yaml
-
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -193,8 +191,7 @@ def main() -> int:
         parser.error("Card, log, history, output, and snapshot paths must be distinct")
     history = json.loads(hist_path.read_text(encoding="utf-8")) if (hist_path and hist_path.is_file()) else {}
 
-    realm_data = yaml.safe_load(REALM_DATA_PATH.read_text(encoding="utf-8"))
-    result = run_golem(state, stimulus, realm_data, history)
+    result = run_golem(state, stimulus, {}, history)
 
     if log_path:
         committed, saved_memory = update_log(

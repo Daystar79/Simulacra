@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Changed
+
+- Failed turns leave the durable YAML log untouched. Accepted memory batches mirror after SQLite commits and can be retried after an interrupted write. Cue-free turns skip the stored-memory lookup.
+- Golem selects somatic cues from measured or inferred body state and scene observations across the six anatomical zones. New locations include the temple, sternum, shoulder blade, knuckles, and fingertips. Realm focus continues to shape appraisal.
+
 - Modularized `scripts/golem_loop.py` (2,073 → 595 lines) into a thin facade over six focused modules in `scripts/golem_loop_modules/` (`db`, `activities`, `projection`, `cache`, `learning`, `lifecycle`). Public imports, SQLite transactions, resident cache behavior, and `bench_runtime.py` metrics are unchanged; `deploy_framework.py` ships and updates `golem_loop_modules/`.
 - Converted six structured framework specifications from Markdown to YAML (`Framework/modules.yaml`, `Framework/rules_index.yaml`, `Framework/degradation_protocol.yaml`, and `Framework/Mechanics/{voices,humanity,prose}.yaml`). `intimacy_render` now loads `Framework/modules.yaml` via `yaml.safe_load` instead of splitting Markdown pipe tables, and `Framework/linter.py` loads its psychological labels, banned dialogue markers, and filler watchlist directly from `Framework/rules_index.yaml`.
 - Host-facing packets are substantially smaller with no loss of decision information. `wake_character` now delivers the compact decision context by default (`compact=True`); callbacks that need the full saved request pass `compact=False`. In the compact context, body fields at their resting value (`0`, `false`, `none`, empty `somatic_map`) are omitted, so absent means resting; `body.activity` always names the current activity. Older recent-episode entries are capped at 120 characters of context/reply text while the current turn keeps the full 320. CLI `prepare`/`resolve` output is serialized with tight JSON separators. Together this cuts the prepared-turn payload roughly 56–70% (benchmark median 5,499 bytes versus the 12,549-byte stored request; tracked as `compact_request_bytes_median`). The stored request in SQLite, the `pending` diagnostic command, and all snapshot/physiology semantics are unchanged.
@@ -23,6 +27,8 @@
 - Sleep debt now accrues at 2.5/hour awake (was 1.5) and exhaustion sets in at `exhaustion_onset_load` (default 45) instead of a fixed 60: a full day without sleep is now substantially exhausting, while a normal active day stays clear of it.
 
 ### Added
+
+- Sleeping characters can dream on an ordinary host heartbeat or scheduled waking event. Waking can preserve a cue-linked dream fragment, a lingering emotion, both, or neither.
 
 - Automatic on-demand episodic recall over resolved SQLite events older than the 2-hour `recent` window (`recall_past_episodes`), surfacing up to 4 matching past episodes (`kind: "episode"`) in `recalled_memories` without bloating unrelated turns.
 - In-turn durable memory promotion via `decision["remember"]`, persisting cue-linked memories atomically to a SQLite `memories` table (migrated non-destructively) and mirroring them to `character_log.yaml` when configured.

@@ -1,8 +1,7 @@
 """Somatic cue staging and body-region mapping.
 
-Realm-catalog cue selection (non-repeating, deterministic by event seed), the
-six coarse somatic zones with their region map, and localized arousal and body
-sensation mapping. No physiological state lives here.
+Regional sensations drive the live cues and six-zone snapshot. The realm
+catalog selector remains available to callers staging character expression.
 """
 from __future__ import annotations
 
@@ -126,12 +125,12 @@ def select_somatic_cues(
 
 # Regions refine the six coarse zones used by existing cards and snapshots.
 SOMATIC_ZONES = {
-    "Z1_Cranial_Ocular": "scalp head face forehead brow eye ear nose cheek jaw mouth lip tongue teeth",
-    "Z2_Vocal_Cervical": "neck throat larynx",
-    "Z3_Thoracic_Respiratory": "chest breast nipple areola ribs lungs heart diaphragm upper_back",
-    "Z4_Abdominal_Visceral": "abdomen lower_abdomen stomach gut flank lower_back",
-    "Z5_Pelvic_Kinesthetic": "pelvis hip groin genitals pelvic_floor perineum clitoris labia vagina penis scrotum bladder buttock",
-    "Z6_Peripheral_Grounding": "shoulder upper_arm elbow forearm wrist hand palm finger thumb thigh inner_thigh knee shin calf ankle foot heel sole toe",
+    "Z1_Cranial_Ocular": "scalp head face forehead temple brow eyelid eye ear nose cheek jaw mouth lip tongue teeth",
+    "Z2_Vocal_Cervical": "neck nape throat larynx",
+    "Z3_Thoracic_Respiratory": "chest breast nipple areola sternum collarbone ribs lungs heart diaphragm shoulder_blade upper_back",
+    "Z4_Abdominal_Visceral": "abdomen lower_abdomen stomach gut solar_plexus flank lower_back",
+    "Z5_Pelvic_Kinesthetic": "pelvis hip groin genitals pelvic_floor perineum clitoris labia vagina penis scrotum bladder buttock tailbone",
+    "Z6_Peripheral_Grounding": "shoulder upper_arm elbow forearm wrist hand palm knuckle fingertip finger thumb thigh inner_thigh knee shin calf ankle foot arch heel sole toe",
 }
 REGION_ZONE = {region: zone for zone, regions in SOMATIC_ZONES.items() for region in regions.split()}
 
@@ -182,3 +181,31 @@ def somatic_map(stimulus, body_signals):
                 regions[location].pop(name, None)
     return {location: sensations for location, sensations in regions.items() if sensations}
 
+
+
+def body_cues(mapped_body, recent, excluded, observations):
+    """Choose salient sensations across distinct zones, retaining laterality."""
+    candidates = []
+    for region, sensations in mapped_body.items():
+        zone = REGION_ZONE.get(re.sub(r"^(left|right)_", "", region))
+        for sensation, intensity in sensations.items():
+            # Low background fatigue or discomfort can remain on the map quietly.
+            if zone is None and intensity < 20 and sensation not in observations.get(region, {}):
+                continue
+            site = region.replace("_", " ")
+            cue = f"{sensation} ({site})"
+            candidates.append((intensity, cue, zone, sensation))
+    # Within a similar intensity range, rotate away from recently emitted cues.
+    candidates.sort(key=lambda item: (-(item[0] // 10), item[1] in recent, -item[0], item[1]))
+    cues, zones, selected_sites = [], [], set()
+    for _, cue, zone, sensation in candidates:
+        if zone and zone not in zones:
+            zones.append(zone)
+        if len(cues) < 2 and zone not in selected_sites and cue not in excluded and sensation not in excluded:
+            cues.append(cue)
+            selected_sites.add(zone)
+    # Quiet breathing and contact with support provide two zones at rest.
+    for zone in (ZONE_MAP["Z3"], ZONE_MAP["Z6"]):
+        if len(zones) < 2 and zone not in zones:
+            zones.append(zone)
+    return cues, zones

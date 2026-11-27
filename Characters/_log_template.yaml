@@ -30,6 +30,7 @@ skills:
 memories:
   detailed: []
   footnote: []
+  dream: []  # Images the character remembers dreaming.
 # Durable bond baselines (0–100 scales + momentum). Live vectors start from these each session.
 relational_baselines: {}
 # Goal amendments keyed by stable ID, including goals formed during play. Commit durable changes after approval.

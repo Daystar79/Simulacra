@@ -14,11 +14,10 @@ _scripts_dir = str(Path(__file__).resolve().parents[1])
 if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
-import re
-
 from golem_physiology import clamp, somatic_telemetry
 
-from golem_somatic import REGION_ZONE, arousal_sensations, somatic_map
+from golem_time import sleep_stage
+from golem_somatic import arousal_sensations, body_cues, somatic_map
 
 
 
@@ -37,17 +36,23 @@ def stage_presentation(t):
         ("skin", "heat discomfort", t.exposure_state["heat_discomfort"]),
         ("whole_body", "fatigue", t.fatigue), ("whole_body", "pain", t.physical_pain),
         ("chest", "breathing effort", t.exertion),
+        ("jaw", "tension", clamp((t.stress - 35) * 0.7)),
+        ("shoulder", "bracing", clamp(t.stress - 45) if t.involuntary_response == "brace" else 0),
+        ("eyelid", "heaviness", clamp(t.fatigue - 35)),
+        ("thigh", "heaviness", clamp(t.exertion - 40)),
+        ("shoulder", "easing tension", clamp(t.release["settling"] - 25)),
+        ("whole_body", "physical pleasure", clamp(t.physical_pleasure)),
         ("pelvic_floor", "involuntary contractions", clamp(85 * t.peak_pulse)),
         *arousal_sensations(t.arousal, t.sexual_arousal, t.state.get("arousal_regions", ())),
     ))
-    for t.location in t.mapped_body:
-        t.zone = REGION_ZONE.get(re.sub(r"^(left|right)_", "", t.location))
-        if t.zone and t.zone not in t.zones:
-            t.zones.append(t.zone)
+    t.somatic_cues, t.zones = body_cues(
+        t.mapped_body, t.recent_cues, t.state.get("excluded_cues", ()), t.stimulus.get("somatic_map", {})
+    )
+    t.rules.append(f"SOMATIC_MAP:{t.tier}")
 
     t.cue_text = "; ".join(t.somatic_cues)
     t.zone_text = ", ".join(t.zones)
-    t.feels = f"{t.cue_text} ({t.zone_text})." if t.cue_text else f"Active zones: {t.zone_text}."
+    t.feels = f"{t.cue_text} ({t.zone_text})." if t.cue_text else "No salient localized cue."
     if t.hunger:
         t.feels += f" Hunger: {t.hunger}/100."
     if t.fatigue:
@@ -105,6 +110,7 @@ def stage_presentation(t):
             "sleep_debt": t.sleep_debt,
             "exhaustion": t.exhaustion,
             "activity": t.activity,
+            **({"sleep_stage": sleep_stage(t.minutes_asleep)} if t.activity == "sleeping" else {}),
             "exertion": t.exertion,
             "hunger": t.hunger,
             **t.exposure_state,

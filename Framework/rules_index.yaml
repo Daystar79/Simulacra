@@ -113,7 +113,7 @@ character_behavior:
   - id: no_therapy_dump
     rule: "NO analysis, therapy speak, or insight monologues."
   - id: epistemic_invariant
-    rule: "memories.detailed -> MUST apply sharp subjective recall & triggers; memories.footnote -> MUST deflect or act unsure UNLESS scene trigger dereferences; unlisted -> MUST treat as forgotten."
+    rule: "memories.detailed -> MUST apply sharp subjective recall & triggers; memories.footnote -> MUST deflect or act unsure UNLESS scene trigger dereferences; memories.dream -> recall as an imagined experience during sleep; unlisted -> MUST treat as forgotten."
   - id: competence_invariant
     rule: "skills.active -> MUST execute cleanly with release tells; skills.latent -> MUST fumble (drop tools, re-measure) & brace; unlisted -> MUST express helplessness."
   - id: no_mind_read

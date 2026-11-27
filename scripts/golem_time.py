@@ -40,3 +40,8 @@ def event_clock(stimulus: dict[str, Any], history: dict[str, Any]) -> tuple[floa
         return float(stimulus["elapsed_ms"]), {}
     return float(stimulus.get("elapsed_minutes", 1)) * 60_000, {}
 
+
+
+def sleep_stage(minutes_asleep):
+    """Coarse simulation phase for a sampled 90-minute sleep cycle."""
+    return "REM" if minutes_asleep % 90 >= 65 else "NREM"

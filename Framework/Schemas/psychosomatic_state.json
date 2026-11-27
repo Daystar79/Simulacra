@@ -110,6 +110,7 @@
         "emotional_distress": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Emotional distress intensity." },
         "physical_pain_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for physical pain. Higher scores reduce its contribution to stress." },
         "emotional_distress_tolerance": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Character tolerance for emotional distress. Higher scores reduce its contribution to stress." },
+        "sleep_stage": { "type": "string", "enum": ["REM", "NREM"], "description": "Approximate stage during sleep." },
         "somatic_map": {
           "type": "object",
           "additionalProperties": {
